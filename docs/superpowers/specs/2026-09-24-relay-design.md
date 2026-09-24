@@ -189,6 +189,7 @@ shapes      Y.Map<id, Y.Map>
               tag?        string
               lang?       string (code)
               createdBy   user id
+              authorName  display name at creation time (shown on stickies)
               createdAt   epoch ms
               columns     Y.Array<{ id, title }>   (frame only)
 connectors  Y.Map<id, Y.Map>
