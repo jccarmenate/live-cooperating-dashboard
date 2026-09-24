@@ -1,0 +1,30 @@
+{
+  "name": "relay",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "concurrently -n sync,web -c yellow,blue \"npm run dev -w @relay/sync-server\" \"npm run dev -w @relay/web\"",
+    "lint": "biome check .",
+    "format": "biome check --write .",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "e2e": "playwright test"
+  },
+  "overrides": {
+    "yjs": "^13.6.33"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.14",
+    "concurrently": "^9.2.4",
+    "fast-check": "^4.10.2",
+    "typescript": "~5.9",
+    "vitest": "^4.1.11"
+  }
+}
