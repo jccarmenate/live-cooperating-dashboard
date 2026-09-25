@@ -3,6 +3,8 @@ export * from './commands/origins';
 export * from './commands/types';
 export * from './geometry/camera';
 export * from './geometry/rect';
+export * from './presence/identity';
+export * from './presence/state';
 export * from './schema/defaults';
 export * from './schema/doc';
 export * from './schema/normalize';
