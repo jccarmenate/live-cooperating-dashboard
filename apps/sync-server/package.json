@@ -1,0 +1,25 @@
+{
+  "name": "@relay/sync-server",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev --port 8787 --var ROOM_SECRET:dev-only-secret",
+    "deploy": "wrangler deploy",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p test"
+  },
+  "dependencies": {
+    "@relay/core": "*",
+    "partyserver": "^0.5.10",
+    "y-partyserver": "^2.2.0",
+    "yjs": "^13.6.33"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260702.1",
+    "@types/node": "^24.13.6",
+    "@types/ws": "^8.18.1",
+    "wrangler": "^4.139.0",
+    "ws": "^8.21.3"
+  }
+}
