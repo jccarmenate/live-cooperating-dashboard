@@ -1,4 +1,6 @@
-/// <reference lib="dom" />
+// Web-platform timers exist in browsers, Workers and Node; declared locally so core needs no DOM/Node typings.
+declare function setTimeout(handler: () => void, ms?: number): unknown;
+declare function clearTimeout(id: unknown): void;
 
 export interface Throttled<A extends unknown[]> {
   (...args: A): void;
@@ -9,7 +11,7 @@ export interface Throttled<A extends unknown[]> {
 /** Leading + trailing throttle: the latest args win within each window. */
 export function throttle<A extends unknown[]>(fn: (...args: A) => void, ms: number): Throttled<A> {
   let last = Number.NEGATIVE_INFINITY;
-  let timer: ReturnType<typeof setTimeout> | null = null;
+  let timer: unknown = null;
   let pending: A | null = null;
 
   const invoke = () => {
