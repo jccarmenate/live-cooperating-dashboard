@@ -24,4 +24,9 @@ describe('messageBytes', () => {
     expect(messageBytes(new ArrayBuffer(8))).toBe(8);
     expect(messageBytes(new Uint8Array(5))).toBe(5);
   });
+
+  it('measures multi-byte strings as UTF-8 wire bytes, not UTF-16 code units', () => {
+    expect(messageBytes('é')).toBe(2);
+    expect(messageBytes('€')).toBe(3);
+  });
 });

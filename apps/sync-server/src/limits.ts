@@ -28,6 +28,8 @@ export class TokenBucket {
   }
 }
 
+const utf8 = new TextEncoder();
+
 export function messageBytes(m: string | ArrayBuffer | ArrayBufferView): number {
-  return typeof m === 'string' ? m.length : m.byteLength;
+  return typeof m === 'string' ? utf8.encode(m).byteLength : m.byteLength;
 }
