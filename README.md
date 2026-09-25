@@ -9,7 +9,30 @@ Next.js · TypeScript · Yjs · Cloudflare Durable Objects (y-partyserver) · Zu
 
 [Leer en español](README.es.md)
 
+## Status
+
+Phase F1 (MVP): rectangles, sticky notes and text shapes sync live; named cursors, presence
+avatars, selection, drag-to-move, collaborative text editing, per-room persistence in a
+Cloudflare Durable Object, capability links (edit/view keys).
+
+## Architecture
+
+```mermaid
+flowchart LR
+  UI[React UI] --> FSM[Tool FSM · @relay/core]
+  FSM -->|effects| CMD[applyCommand · @relay/core]
+  CMD -->|transact| YD[(Y.Doc)]
+  YD -->|observeDeep| Z[Zustand snapshots]
+  Z --> R[SVG renderer]
+  YD <-->|WebSocket| DO[Room Durable Object<br/>y-partyserver]
+  DO --> SQL[(SQLite)]
+```
+
 ## Quick start
 
     npm install
-    npm run dev   # web on http://localhost:3000, sync server on http://localhost:8787
+    npm run dev        # web on http://localhost:3000, sync on http://localhost:8787
+    npm test           # unit, property and integration tests
+    npm run e2e        # two-browser Playwright tests
+
+Or with Docker: `docker compose up`.

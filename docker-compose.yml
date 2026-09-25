@@ -1,0 +1,17 @@
+services:
+  relay:
+    image: node:24-bookworm
+    working_dir: /app
+    volumes:
+      - .:/app
+      - node_modules:/app/node_modules
+    command: >
+      sh -c "npm ci &&
+             npx concurrently -n sync,web
+             'npm run dev -w @relay/sync-server -- --ip 0.0.0.0'
+             'npm run dev -w @relay/web -- --hostname 0.0.0.0'"
+    ports:
+      - "3000:3000"
+      - "8787:8787"
+volumes:
+  node_modules: {}
