@@ -16,6 +16,7 @@ export function TextEditor({ session }: { session: BoardSession }) {
   const camera = useStore(controller.ui, (s) => s.camera);
   const ref = useRef<HTMLTextAreaElement>(null);
   const lastText = useRef('');
+  const lastEditingId = useRef<string | null>(null);
 
   // Mount: load current text, focus, caret at end.
   // biome-ignore lint/correctness/useExhaustiveDependencies: run only when the edited shape changes
@@ -28,10 +29,18 @@ export function TextEditor({ session }: { session: BoardSession }) {
     el.setSelectionRange(el.value.length, el.value.length);
   }, [editingId]);
 
-  // Remote edits: apply to the textarea while preserving the caret.
+  // Remote edits: apply to the textarea while preserving the caret. Skip the
+  // diff/caret mapping when editingId just changed (A -> B): the text swap
+  // for the new shape belongs to the mount effect above, not to a remote
+  // edit of the previously edited shape's text.
   useLayoutEffect(() => {
-    const el = ref.current;
     const next = shape?.text ?? '';
+    if (lastEditingId.current !== editingId) {
+      lastEditingId.current = editingId;
+      lastText.current = next;
+      return;
+    }
+    const el = ref.current;
     if (!el || el.value === next) {
       lastText.current = next;
       return;
@@ -43,7 +52,7 @@ export function TextEditor({ session }: { session: BoardSession }) {
     if (d && document.activeElement === el) {
       el.setSelectionRange(transformCaret(selectionStart, d), transformCaret(selectionEnd, d));
     }
-  }, [shape?.text]);
+  }, [editingId, shape?.text]);
 
   if (!editingId || !shape) return null;
   const pos = worldToScreen(camera, { x: shape.x, y: shape.y });
