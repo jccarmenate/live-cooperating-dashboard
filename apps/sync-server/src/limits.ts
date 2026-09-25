@@ -1,5 +1,7 @@
 export const LIMITS = {
   maxDocBytes: 1024 * 1024,
+  /** Cloudflare's per-row BLOB limit leaves headroom below this before the INSERT itself would throw. */
+  maxRowBytes: 1_900_000,
   maxMessageBytes: 256 * 1024,
   maxConnections: 25,
   ratePerSecond: 60,

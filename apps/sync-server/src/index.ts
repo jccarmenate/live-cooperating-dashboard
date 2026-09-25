@@ -42,8 +42,20 @@ export default {
       onBeforeConnect: async (request, lobby) => {
         const key = new URL(request.url).searchParams.get('key');
         const role = await roleForKey(env.ROOM_SECRET, lobby.name, key);
+        if (!role) {
+          // Reject here so an invalid key never wakes the Durable Object.
+          const pair = new WebSocketPair();
+          const client = pair[0];
+          const server = pair[1];
+          server.accept();
+          server.close(4401, 'unauthorized');
+          return new Response(null, { status: 101, webSocket: client });
+        }
         const forwarded = new Request(request);
-        forwarded.headers.set(ROLE_HEADER, role ?? 'none');
+        // Never trust client-supplied routing/props headers.
+        forwarded.headers.delete('x-partykit-room');
+        forwarded.headers.delete('x-partykit-props');
+        forwarded.headers.set(ROLE_HEADER, role);
         return forwarded;
       },
       // Rooms are only reachable over WebSocket.
