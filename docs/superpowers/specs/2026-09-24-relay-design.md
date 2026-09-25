@@ -330,7 +330,7 @@ from the anchor sides. Obstacle-avoiding routing is out of scope.
 Double-click (or typing on a new sticky) mounts a `<textarea>` overlay
 positioned over the shape. Local input is diffed against the current string
 and applied to `Y.Text` as insert/delete; remote changes are applied to the
-textarea while preserving the caret via `Y.RelativePosition`. The editor
+textarea while preserving the caret by mapping it through the single-span diff (equivalent to `Y.RelativePosition` for textarea edits). The editor
 publishes `editing` in awareness so peers see an "editing" outline.
 
 ### Input
@@ -356,8 +356,11 @@ Ctrl/⌘+wheel or pinch.
 - `editKey = HMAC(SECRET, roomId + ":edit")`,
   `viewKey = HMAC(SECRET, roomId + ":view")`, truncated and base64url.
 - Share URL: `/r/<roomId>#k=<key>`. The fragment is never sent to the web
-  host; the client passes it on the WebSocket connection, where the DO
-  verifies it and assigns a role.
+  host; the client passes it as the `key` query parameter of the WebSocket
+  URL. The Worker router verifies it in `onBeforeConnect` and forwards the
+  resulting role in an `x-relay-role` header (always overwritten), so the DO
+  assigns the role synchronously in `onConnect` and no early sync message is
+  processed without a role.
 - Viewers: the DO drops incoming document-update messages; awareness is
   allowed so their cursors remain visible.
 - Missing or invalid key: connection closed with code 4401.
@@ -380,9 +383,9 @@ snapshot row per room; update-log compaction is unnecessary at this scale.
 
 | Limit | Value |
 |---|---|
-| Document size | 1 MB (updates that would exceed it are rejected) |
+| Document size | 1 MB (a room whose saved snapshot exceeds it becomes read-only) |
 | Message size | 256 KB |
-| Per-connection rate | Token bucket, ~60 messages/s |
+| Per-connection rate | Token bucket, 60 messages/s, burst 120; exceeding it closes the socket (4429) so the reconnect resyncs |
 | Connections per room | 25 |
 | `POST /api/rooms` | Per-IP rate limit |
 | AI requests | Per-room daily cap plus a global daily cap |
