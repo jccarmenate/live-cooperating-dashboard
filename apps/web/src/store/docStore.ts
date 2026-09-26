@@ -2,6 +2,7 @@ import {
   type BoardMeta,
   type Connector,
   getRoots,
+  type Normalized,
   normalizeConnectors,
   normalizeShapes,
   readConnector,
@@ -50,8 +51,13 @@ export function createDocStore(doc: Y.Doc): { store: StoreApi<DocState>; destroy
     meta: readMeta(meta),
   }));
 
-  const publish = () => {
-    const normalized = normalizeShapes(rawShapes);
+  let lastNormalized: Normalized | null = null;
+
+  /** `shapesChanged` is false for a connector-only transaction, so the unchanged shapes/order are reused. */
+  const publish = (shapesChanged: boolean) => {
+    const normalized =
+      shapesChanged || !lastNormalized ? normalizeShapes(rawShapes) : lastNormalized;
+    lastNormalized = normalized;
     store.setState({ ...normalized, ...normalizeConnectors(rawConnectors, normalized.shapes) });
   };
 
@@ -74,11 +80,11 @@ export function createDocStore(doc: Y.Doc): { store: StoreApi<DocState>; destroy
 
   const onShapes = (events: Y.YEvent<Y.AbstractType<unknown>>[]) => {
     rebuildShapes(touchedIds(events, yShapes));
-    publish();
+    publish(true);
   };
   const onConnectors = (events: Y.YEvent<Y.AbstractType<unknown>>[]) => {
     rebuildConnectors(touchedIds(events, yConnectors));
-    publish();
+    publish(false);
   };
   const onMeta = () => store.setState({ meta: readMeta(meta) });
 
@@ -87,7 +93,7 @@ export function createDocStore(doc: Y.Doc): { store: StoreApi<DocState>; destroy
   meta.observe(onMeta);
   rebuildShapes(yShapes.keys());
   rebuildConnectors(yConnectors.keys());
-  publish();
+  publish(true);
 
   return {
     store,

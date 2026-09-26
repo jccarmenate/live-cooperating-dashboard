@@ -114,8 +114,11 @@ export function createBoardController(opts: {
 
   // Close the editor if the edited shape is deleted (locally, remotely or by undo).
   const unsubscribe = opts.docStore.subscribe((doc) => {
-    const { editingId } = ui.getState();
+    const { editingId, editingColumn } = ui.getState();
     if (editingId && !doc.shapes[editingId]) stopEditing();
+    if (editingColumn && doc.shapes[editingColumn.frameId]?.type !== 'frame') {
+      ui.setState({ editingColumn: null });
+    }
   });
 
   return {

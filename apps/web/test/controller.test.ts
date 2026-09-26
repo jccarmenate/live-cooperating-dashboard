@@ -263,4 +263,69 @@ describe('board controller', () => {
     expect(columns()[0]?.title).toBe('Went well');
     expect(getRoots(doc).shapes.has(frameId)).toBe(true);
   });
+
+  /** Draws a frame, opens its first column's editor, and returns the ids needed to act on it. */
+  function openFrameColumnEditor(doc: Y.Doc, controller: ReturnType<typeof createBoardController>) {
+    controller.dispatch({ type: 'setTool', tool: 'frame' });
+    controller.dispatch({ type: 'pointerDown', p: at(0, 0) });
+    controller.dispatch({ type: 'pointerUp', p: at(600, 400) });
+    const frameId = controller.ui.getState().tool.selection[0] as string;
+    const cols = getRoots(doc).shapes.get(frameId)?.get('columns') as
+      | Y.Array<{ id: string; title: string }>
+      | undefined;
+    const columnId = cols?.toArray()[0]?.id as string;
+    controller.dispatch({
+      type: 'doubleClick',
+      p: { ...at(50, 50, frameId), column: { frameId, columnId } },
+    });
+    return { frameId, columnId };
+  }
+
+  it('stopEditingColumn closes the column editor', () => {
+    const { doc, controller } = setup();
+    const { frameId, columnId } = openFrameColumnEditor(doc, controller);
+    expect(controller.ui.getState().editingColumn).toEqual({ frameId, columnId });
+    controller.stopEditingColumn();
+    expect(controller.ui.getState().editingColumn).toBeNull();
+  });
+
+  it('undo and redo close the column editor', () => {
+    const { doc, controller } = setup();
+    const { frameId, columnId } = openFrameColumnEditor(doc, controller);
+    expect(controller.ui.getState().editingColumn).toEqual({ frameId, columnId });
+    controller.undo();
+    expect(controller.ui.getState().editingColumn).toBeNull();
+    controller.redo();
+    expect(controller.ui.getState().editingColumn).toBeNull();
+  });
+
+  it('closes the column editor when the edited frame is deleted remotely', () => {
+    const { doc, controller } = setup();
+    const { frameId, columnId } = openFrameColumnEditor(doc, controller);
+    expect(controller.ui.getState().editingColumn).toEqual({ frameId, columnId });
+    applyCommand(doc, { type: 'DeleteShapes', ids: [frameId] }, 'remote');
+    expect(controller.ui.getState().editingColumn).toBeNull();
+  });
+
+  it('selects an existing connector hit by the pointer', () => {
+    const { doc, controller } = setup();
+    addRect(doc, 'r1');
+    addRect(doc, 'r2', 400);
+    applyCommand(doc, {
+      type: 'Connect',
+      connector: {
+        id: 'k1',
+        from: { shapeId: 'r1', anchor: 'auto' },
+        to: { shapeId: 'r2', anchor: 'auto' },
+        routing: 'straight',
+        head: 'arrow',
+        createdBy: 'u1',
+      },
+    });
+    controller.dispatch({
+      type: 'pointerDown',
+      p: { world: { x: 200, y: 50 }, shift: false, hitId: null, connectorId: 'k1' },
+    });
+    expect(controller.ui.getState().tool.selection).toEqual(['k1']);
+  });
 });
