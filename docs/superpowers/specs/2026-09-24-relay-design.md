@@ -273,6 +273,11 @@ All mutations are values of a typed union — `CreateShape`, `MoveShapes`,
 only their own changes. Gestures call `stopCapturing()` on completion so a
 whole drag or resize is one undo step.
 
+The undo manager uses a 60 s capture timeout, so undo steps are delimited
+explicitly: every gesture ends one (`endGesture`), and so does closing the
+text editor — a whole text-editing session is a single undo step. Undo and
+redo are ignored while a gesture is in progress.
+
 ### Yjs → Zustand Bridge
 
 `observeDeep` on `shapes` and `connectors` collects the ids touched by each
@@ -296,8 +301,11 @@ step(state: ToolState, event: ToolEvent, ctx: ToolContext)
   key down/up, cancel.
 - Effects: `command`, `preview` (local-only visual state), `awareness`,
   `setTool`, `endGesture`.
-- During drags, the local preview updates every frame; commands are
-  committed to the document throttled at 50 ms so peers see motion live;
+- During drags and resizes, the FSM emits an `overlay` effect with the
+  current geometry on every pointer move; the web app renders shapes with
+  that local geometry (so the gesture is smooth at display rate) while
+  `MoveShapes` / `ResizeShapes` commits to the document stay throttled at
+  50 ms, and a final exact commit plus `overlay: null` ends the gesture.
   `endGesture` triggers `stopCapturing()`.
 
 ### Rendering
@@ -314,9 +322,13 @@ Camera math: `screen = (world + cam.xy) * cam.zoom`,
 
 ### Hit-Testing and Spatial Index
 
-Clicks on shapes resolve through DOM events (`data-id`). Marquee selection,
-connector snapping and line hit-testing use an `rbush` R-tree maintained
-from snapshots plus point–segment distance with tolerance in screen pixels.
+Clicks resolve the shape under the pointer by position
+(`document.elementFromPoint`), because pointer capture retargets events to
+the `<svg>`. Resize handles carry `data-handle` and are reported to the tool
+FSM as `PointerInfo.handle`. Marquee selection uses a linear scan over shape
+bounds (`shapesInRect`), which is ample for the hundreds of shapes a board
+holds; an R-tree (`rbush`) can replace it behind the same signature if
+profiling ever shows a need. Lines are hit through a 14 px transparent stroke.
 
 ### Connectors
 

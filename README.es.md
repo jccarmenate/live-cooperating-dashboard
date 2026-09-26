@@ -24,9 +24,7 @@ GIF sale de la aplicación real, manejada por [`scripts/capture.mjs`](scripts/ca
   la vez en la misma nota.
 - **Presencia.** Cursores remotos con nombre y color, selecciones remotas, avatares y el
   contador `N online`.
-- **Edición.** Herramientas de selección, rectángulo, texto y nota, con atajos de teclado
-  (`V R T S`, `Supr`, `Esc`). Arrastrar para mover, doble clic para editar, etiqueta `W × H`
-  en la selección.
+- **Edición.** Herramientas de selección, rectángulo, elipse, línea, texto, nota adhesiva y bloque de código, con atajos de teclado (`V R O L T S C`). Arrastrar para mover y redimensionar desde 8 asas (Shift mantiene las proporciones); selección por marquesina; las flechas mueven un poco la selección; `Ctrl+Z` / `Ctrl+Shift+Z` deshace y rehace solo tus propios cambios; doble clic para editar el texto.
 - **Persistencia.** Cada sala vive en su propio Durable Object de Cloudflare, respaldado por
   SQLite. El navegador guarda además una copia local en IndexedDB para cargar al instante.
 - **Enlaces con capacidades.** Sin cuentas. El enlace de una sala lleva una clave HMAC que da
@@ -47,6 +45,8 @@ La idea central es que **el documento es un CRDT y todo lo demás es una funció
 | Convergencia | Un test basado en propiedades (fast-check) ejecuta tres réplicas con comandos concurrentes y orden de entrega aleatorios, y comprueba que el estado final es idéntico. En CI corren 10.000 casos cada noche. | La convergencia se prueba, no se da por hecha. |
 | Seguridad | Las claves son capacidades HMAC-SHA-256 comparadas en tiempo constante. Las claves inválidas se rechazan en el Worker antes de despertar ningún Durable Object. El rol viaja en un header que el servidor sobrescribe, así que el cliente no puede falsificarlo. Hay límites de tamaño por mensaje y un token bucket por conexión. | Todo cabe en el plan gratuito, y un cliente hostil no puede escribir sin clave. |
 | Edición de texto | Un `<textarea>` superpuesto cuyos cambios se aplican como diff sobre `Y.Text`. El diff nunca parte pares surrogate UTF-16 y el caret se recoloca cuando llegan ediciones remotas. | Los emoji y la escritura simultánea no se corrompen. |
+| Preview local | Los arrastres y redimensionados se dibujan desde un overlay local en cada fotograma, mientras los commits al CRDT se limitan a 50 ms | Gestos fluidos a 60 fps sin inundar a los demás ni el cupo de peticiones del plan gratuito |
+| Deshacer | Un `Y.UndoManager` por usuario que solo sigue los orígenes de este cliente; un paso por gesto o por sesión de edición de texto; se prueba con fuzzing en el test de convergencia | Deshacer nunca revierte el trabajo de otra persona, y las réplicas siguen convergiendo |
 
 El razonamiento completo está en la [spec de diseño](docs/superpowers/specs/2026-09-24-relay-design.md), junto con las
 alternativas descartadas (tldraw, Canvas 2D, y-websocket en un host Node). La construcción siguió un
@@ -133,13 +133,13 @@ Construido por fases desplegables; los detalles están en la spec.
 
 - [x] **F0 — Base:** monorepo, CI, tokens de diseño, spike que confirma el soporte de hibernación de WebSockets
 - [x] **F1 — MVP:** formas, notas y textos en vivo, cursores, presencia, persistencia, enlaces con capacidades
-- [ ] **F2 — Edición:** deshacer/rehacer, redimensionado, selección por marquesina, elipses y líneas, conectores, frames con columnas, preview de arrastre por fotograma
+- [x] **F2a — Edición core:** deshacer/rehacer por usuario, asas de redimensionado, selección por marquesina, elipses, líneas, bloques de código, preview de arrastre a 60 fps
+- [ ] **F2b — Estructura:** conectores anclados, frames con columnas
 - [ ] **F3 — Navegación y sesión:** zoom al cursor, minimapa, temporizador de votación compartido, "Typing…", comentarios
 - [ ] **F4 — Publicación:** interfaz de enlaces para compartir, sala demo que se reinicia cada noche, endurecimiento del protocolo, despliegue (Vercel + Workers), pulido offline
 - [ ] **F5 — IA:** "Cluster & summarize" para retros. El agrupamiento es determinista (embeddings más clustering aglomerativo) y corre en Workers AI; la salida del LLM se valida con un esquema y se mide con Adjusted Rand Index.
 
 **Limitaciones conocidas (previstas para F2/F4):**
-- Al arrastrar, el movimiento se confirma a 20 Hz y se ve algo a saltos hasta que llegue el preview por fotograma.
 - El protocolo de sincronización necesita el endurecimiento de F4 (validación de frames de awareness, un estimador de tamaño más fino) antes de abrir la sala demo pública.
 
 ## Licencia

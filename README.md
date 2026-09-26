@@ -23,8 +23,7 @@ the real app, driven by [`scripts/capture.mjs`](scripts/capture.mjs).*
   character by character, so two people can type in the same sticky at once.
 - **Presence.** Named, colored remote cursors, remote selections, presence avatars and an
   `N online` counter.
-- **Editing.** Tools for select, rectangle, text and sticky note, with keyboard shortcuts
-  (`V R T S`, `Delete`, `Esc`). Drag to move, double-click to edit, `W × H` selection label.
+- **Editing.** Select, rectangle, ellipse, line, text, sticky note and code-block tools with shortcuts (`V R O L T S C`). Drag to move and resize from 8 handles (Shift keeps proportions); marquee selection; arrow keys nudge; `Ctrl+Z` / `Ctrl+Shift+Z` undo and redo your own changes only; double-click to edit text.
 - **Persistence.** Every room lives in its own Cloudflare Durable Object, backed by SQLite.
   The browser also keeps a local copy in IndexedDB for instant loads.
 - **Capability links.** No accounts. A room link carries an HMAC key that grants either edit
@@ -46,6 +45,8 @@ it**.
 | Convergence | A property-based test (fast-check) runs three replicas with random concurrent commands and random delivery order, and asserts identical state. It runs 10,000 cases nightly in CI. | Convergence is tested, not assumed. |
 | Security | Keys are HMAC-SHA-256 capabilities, compared in constant time. Invalid keys are rejected in the Worker before any Durable Object wakes up. The role is forwarded in a header the server overwrites, so clients can't spoof it. Messages have size caps, and each connection has a token bucket. | Everything stays inside the free tier, and a hostile client can't write without a key. |
 | Text editing | A `<textarea>` overlay is diffed into `Y.Text`. The diff never splits UTF-16 surrogate pairs, and the caret is remapped on remote edits. | Emoji and simultaneous typing stay intact. |
+| Local preview | Drags and resizes render from a local overlay every frame while commits to the CRDT stay throttled at 50 ms | Smooth 60 fps gestures without flooding peers or the free-tier request quota |
+| Undo | Per-user `Y.UndoManager` tracking only this client's origins; one step per gesture or text-editing session; fuzzed in the convergence test | Undo never reverts someone else's work, and replicas still converge |
 
 The full reasoning, including rejected alternatives (tldraw, Canvas 2D, y-websocket on a Node host), is in the
 [design spec](docs/superpowers/specs/2026-09-24-relay-design.md). The build followed a written
@@ -132,13 +133,13 @@ Built in deployable phases; see the spec for details.
 
 - [x] **F0 — Foundation:** monorepo, CI, design tokens, spike confirming WebSocket hibernation support
 - [x] **F1 — MVP:** live shapes, sticky notes and text, cursors, presence, persistence, capability links
-- [ ] **F2 — Editing:** undo/redo, resize handles, marquee selection, ellipses and lines, connectors, frames with columns, per-frame drag preview
+- [x] **F2a — Editing core:** per-user undo/redo, resize handles, marquee selection, ellipses, lines, code blocks, 60 fps drag preview
+- [ ] **F2b — Structure:** anchored connectors, frames with columns
 - [ ] **F3 — Navigation & session:** zoom to cursor, minimap, shared vote timer, "Typing…" ghost, comments
 - [ ] **F4 — Ship:** share links UI, nightly-reset demo room, protocol hardening, deploy (Vercel + Workers), offline polish
 - [ ] **F5 — AI:** "Cluster & summarize" for retro boards. Clustering is deterministic (embeddings plus agglomerative clustering) and runs on Workers AI; the LLM output is schema-validated and measured with Adjusted Rand Index.
 
 **Known limitations (tracked for F2/F4):**
-- Local drags commit at 20 Hz, so they look slightly steppy until the per-frame preview lands.
 - The sync protocol still needs the F4 hardening pass (awareness frame validation, a refined document-size estimator) before the public demo room goes live.
 
 ## License
