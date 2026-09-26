@@ -1,9 +1,45 @@
-import { PALETTE, type PointerInfo, panBy, screenToWorld } from '@relay/core';
+import { PALETTE, type PointerInfo, type Preview, panBy, screenToWorld } from '@relay/core';
 import { type MouseEvent, type PointerEvent, useRef, type WheelEvent } from 'react';
 import { useStore } from 'zustand';
 import type { BoardSession } from '../board/session';
 import { SelectionLayer } from './SelectionLayer';
 import { ShapeView } from './ShapeView';
+
+function PreviewShape({ preview, zoom }: { preview: Preview; zoom: number }) {
+  const { kind, rect: r } = preview;
+  const stroke = {
+    stroke: PALETTE.cobalt,
+    strokeWidth: 2 / zoom,
+    strokeDasharray: `${6 / zoom} ${4 / zoom}`,
+    pointerEvents: 'none' as const,
+  };
+  if (kind === 'line') {
+    return <line x1={r.x} y1={r.y} x2={r.x + r.w} y2={r.y + r.h} {...stroke} />;
+  }
+  if (kind === 'ellipse') {
+    return (
+      <ellipse
+        cx={r.x + r.w / 2}
+        cy={r.y + r.h / 2}
+        rx={r.w / 2}
+        ry={r.h / 2}
+        fill="none"
+        {...stroke}
+      />
+    );
+  }
+  return (
+    <rect
+      data-testid={kind === 'marquee' ? 'marquee' : undefined}
+      x={r.x}
+      y={r.y}
+      width={r.w}
+      height={r.h}
+      fill={kind === 'marquee' ? `${PALETTE.cobalt}14` : 'none'}
+      {...stroke}
+    />
+  );
+}
 
 export function Canvas({ session }: { session: BoardSession }) {
   const { controller, publisher } = session;
@@ -84,19 +120,7 @@ export function Canvas({ session }: { session: BoardSession }) {
           <ShapeView key={id} id={id} session={session} />
         ))}
         <SelectionLayer session={session} />
-        {preview && (
-          <rect
-            x={preview.rect.x}
-            y={preview.rect.y}
-            width={preview.rect.w}
-            height={preview.rect.h}
-            fill="none"
-            stroke={PALETTE.cobalt}
-            strokeWidth={2 / camera.zoom}
-            strokeDasharray={`${6 / camera.zoom} ${4 / camera.zoom}`}
-            pointerEvents="none"
-          />
-        )}
+        {preview && <PreviewShape preview={preview} zoom={camera.zoom} />}
       </g>
     </svg>
   );

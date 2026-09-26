@@ -2,12 +2,7 @@ import { diffText, transformCaret, worldToScreen } from '@relay/core';
 import { useEffect, useLayoutEffect, useRef } from 'react';
 import { useStore } from 'zustand';
 import type { BoardSession } from '../board/session';
-
-const STYLE_BY_TYPE: Record<string, string> = {
-  sticky: 'p-3 text-[14px] font-semibold leading-snug',
-  text: 'font-display text-[28px] uppercase leading-tight',
-  rect: 'p-2 pt-[38px] text-center text-[13px] font-bold uppercase',
-};
+import { isCentered, TEXT_BOX, TEXT_STYLE } from './typography';
 
 export function TextEditor({ session }: { session: BoardSession }) {
   const { controller } = session;
@@ -57,6 +52,12 @@ export function TextEditor({ session }: { session: BoardSession }) {
   if (!editingId || !shape) return null;
   const pos = worldToScreen(camera, { x: shape.x, y: shape.y });
 
+  const commitValue = (id: string, next: string) => {
+    const d = diffText(lastText.current, next);
+    lastText.current = next;
+    if (d) controller.applyText(id, d);
+  };
+
   return (
     <div
       className="absolute left-0 top-0 origin-top-left"
@@ -70,16 +71,19 @@ export function TextEditor({ session }: { session: BoardSession }) {
         ref={ref}
         data-testid="text-editor"
         aria-label="Edit text"
-        className={`size-full resize-none bg-transparent outline-none ${STYLE_BY_TYPE[shape.type] ?? STYLE_BY_TYPE.rect}`}
-        onInput={(e) => {
-          const next = e.currentTarget.value;
-          const d = diffText(lastText.current, next);
-          lastText.current = next;
-          if (d) controller.applyText(editingId, d);
-        }}
+        className={`size-full resize-none bg-transparent outline-none ${TEXT_BOX[shape.type]} ${TEXT_STYLE[shape.type]}`}
+        style={isCentered(shape.type) ? { paddingTop: Math.max(8, shape.h / 2 - 10) } : undefined}
+        onInput={(e) => commitValue(editingId, e.currentTarget.value)}
         onKeyDown={(e) => {
           e.stopPropagation();
-          if (e.key === 'Escape') e.currentTarget.blur();
+          if (e.key === 'Escape') {
+            e.currentTarget.blur();
+          } else if (e.key === 'Tab' && shape.type === 'code') {
+            e.preventDefault();
+            const el = e.currentTarget;
+            el.setRangeText('  ', el.selectionStart, el.selectionEnd, 'end');
+            commitValue(editingId, el.value);
+          }
         }}
         onBlur={() => controller.stopEditing()}
       />

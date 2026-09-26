@@ -1,5 +1,5 @@
 import type { ToolId } from '@relay/core';
-import { MousePointer2, Square, StickyNote, Type } from 'lucide-react';
+import { Braces, Circle, MousePointer2, Slash, Square, StickyNote, Type } from 'lucide-react';
 import type { ComponentType } from 'react';
 import { useStore } from 'zustand';
 import type { BoardSession } from '../board/session';
@@ -12,8 +12,11 @@ const TOOLS: {
 }[] = [
   { id: 'select', label: 'Select', key: 'V', Icon: MousePointer2 },
   { id: 'rect', label: 'Rectangle', key: 'R', Icon: Square },
+  { id: 'ellipse', label: 'Ellipse', key: 'O', Icon: Circle },
+  { id: 'line', label: 'Line', key: 'L', Icon: Slash },
   { id: 'text', label: 'Text', key: 'T', Icon: Type },
   { id: 'sticky', label: 'Sticky note', key: 'S', Icon: StickyNote },
+  { id: 'code', label: 'Code block', key: 'C', Icon: Braces },
 ];
 
 export function Toolbar({ session }: { session: BoardSession }) {
