@@ -1,7 +1,8 @@
 // A scripted collaborator for live demos. Opens a board in a real Chromium
 // window and keeps working in it until you close the window or press Ctrl+C.
 //
-//   node scripts/demo-bot.mjs [--role writer|mover] [--x 40 --y 40] [--headless] [board-url]
+//   node scripts/demo-bot.mjs [--role writer|mover] [--x 40 --y 40] [--channel chrome|msedge]
+//                             [--headless] [board-url]
 //
 // writer: writes a sprint-retro board (stickies, a flow, a heading).
 // mover:  tidies up — drags shapes around and "+1"s stickies.
@@ -23,10 +24,16 @@ const url = args.find((a) => a.startsWith('http')) ?? (await createRoom());
 
 console.log(`[${role}] board: ${url}`);
 
-const browser = await chromium.launch({
-  headless,
-  args: [`--window-size=760,680`, `--window-position=${winX},${winY}`],
-});
+// Visible windows prefer the installed Chrome (some Windows setups block the
+// bundled Chromium binary); fall back to the bundled one if it isn't there.
+const channel = flag('channel', headless ? undefined : 'chrome');
+const launch = (extra) =>
+  chromium.launch({
+    headless,
+    args: [`--window-size=760,680`, `--window-position=${winX},${winY}`],
+    ...extra,
+  });
+const browser = await (channel ? launch({ channel }).catch(() => launch({})) : launch({}));
 const page = await browser.newPage({ viewport: { width: 740, height: 560 } });
 const actor = createActor(page);
 await actor.open(url);
