@@ -1,8 +1,15 @@
-import { applyCommand, DEFAULT_STYLE, getRoots, type PointerInfo } from '@relay/core';
+import { applyCommand, createUndo, DEFAULT_STYLE, getRoots, type PointerInfo } from '@relay/core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as Y from 'yjs';
 import { createBoardController } from '../src/board/controller';
 import { createDocStore } from '../src/store/docStore';
+
+// Wraps the real createUndo so tests can spy on the Undo instance a controller
+// creates internally (it isn't part of BoardController's public surface).
+vi.mock('@relay/core', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@relay/core')>();
+  return { ...actual, createUndo: vi.fn(actual.createUndo) };
+});
 
 const user = { id: 'u1', name: 'Brisk Otter', color: '#E85A1B' };
 const at = (x: number, y: number, hitId: string | null = null): PointerInfo => ({
@@ -172,6 +179,38 @@ describe('board controller', () => {
     expect(text()).toBe('');
     controller.undo();
     expect(getRoots(doc).shapes.has('s1')).toBe(false);
+  });
+
+  it('closes the undo step (not just the editor) when the edited shape is deleted remotely', () => {
+    const { doc, controller } = setup();
+    const undoInstance = vi.mocked(createUndo).mock.results.at(-1)?.value as ReturnType<
+      typeof createUndo
+    >;
+    const stopCapturing = vi.spyOn(undoInstance, 'stopCapturing');
+
+    controller.dispatch({ type: 'setTool', tool: 'sticky' });
+    controller.dispatch({ type: 'pointerDown', p: at(0, 0) }); // creates s1, opens the editor
+    addRect(doc, 'r1');
+    stopCapturing.mockClear(); // ignore the create's own endGesture call
+
+    controller.applyText('s1', { index: 0, deleteCount: 0, insert: 'Hi' });
+    expect(stopCapturing).not.toHaveBeenCalled(); // still mid text-editing session
+
+    applyCommand(doc, { type: 'DeleteShapes', ids: ['s1'] }, 'remote');
+    expect(controller.ui.getState().editingId).toBeNull();
+    // The text-editing step must be closed here — not left open for the next
+    // local change to merge into (React may not fire onBlur for an unmounted textarea).
+    expect(stopCapturing).toHaveBeenCalledTimes(1);
+
+    const x = () => getRoots(doc).shapes.get('r1')?.get('x');
+    controller.dispatch({ type: 'pointerDown', p: at(10, 10, 'r1') });
+    controller.dispatch({ type: 'pointerMove', p: at(20, 10) });
+    controller.dispatch({ type: 'pointerMove', p: at(30, 10) });
+    controller.dispatch({ type: 'pointerUp', p: at(40, 10) });
+    expect(x()).toBe(30);
+
+    controller.undo(); // must revert only the drag, not the unrelated text step
+    expect(x()).toBe(0);
   });
 
   it('ignores undo while a gesture is in progress', () => {

@@ -14,7 +14,7 @@ function Shadow({ s }: { s: Shape }) {
 
 function CenteredLabel({ s, editing }: { s: Shape; editing: boolean }) {
   return (
-    <foreignObject x={s.x} y={s.y} width={s.w} height={s.h}>
+    <foreignObject x={s.x} y={s.y} width={s.w} height={s.h} pointerEvents="none">
       <div className={`grid h-full place-items-center ${TEXT_BOX[s.type]}`}>
         <p
           className={`whitespace-pre-wrap break-words ${TEXT_STYLE[s.type]} ${editing ? 'invisible' : ''}`}
@@ -121,7 +121,15 @@ function Body({ s, editing }: { s: Shape; editing: boolean }) {
             strokeWidth={3}
           />
           <rect x={s.x} y={s.y} width={s.w} height={CODE_HEADER} fill={PALETTE.ink} />
-          <text x={s.x + 10} y={s.y + 15} fill={PALETTE.paper} fontSize={11} className="font-mono">
+          <text
+            x={s.x + 10}
+            y={s.y + 15}
+            fill={PALETTE.paper}
+            fontSize={11}
+            className="font-mono"
+            tabIndex={-1}
+            aria-hidden="true"
+          >
             {'{ }'}
           </text>
           <foreignObject x={s.x} y={s.y} width={s.w} height={s.h}>

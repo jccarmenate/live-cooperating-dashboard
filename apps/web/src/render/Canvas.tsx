@@ -106,10 +106,10 @@ export function Canvas({ session }: { session: BoardSession }) {
         controller.dispatch({ type: 'pointerMove', p });
       }}
       onPointerUp={(e) => {
+        controller.dispatch({ type: 'pointerUp', p: info(e) });
         if (e.currentTarget.hasPointerCapture(e.pointerId)) {
           e.currentTarget.releasePointerCapture(e.pointerId);
         }
-        controller.dispatch({ type: 'pointerUp', p: info(e) });
       }}
       onPointerCancel={() => controller.dispatch({ type: 'cancel' })}
       onLostPointerCapture={() => controller.dispatch({ type: 'cancel' })}
