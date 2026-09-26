@@ -287,7 +287,7 @@ function pointerDownIdle(state: IdleState, p: PointerInfo, ctx: ToolContext): St
         });
       }
       const hit = p.hitId && ctx.shapes[p.hitId] ? p.hitId : null;
-      if (!hit && p.connectorId)
+      if (!hit && p.connectorId && ctx.connectors?.[p.connectorId])
         return none(idle('select', toggled(state.selection, p.connectorId, p.shift)));
       if (!hit) {
         const base = p.shift ? state.selection : [];
@@ -372,12 +372,21 @@ function stepIdle(state: IdleState, event: ToolEvent, ctx: ToolContext): StepRes
         effects: [command({ type: 'DeleteShapes', ids: state.selection }), END],
       };
     case 'nudge': {
-      const moves = withChildren(state.selection, ctx).flatMap((id) => {
+      const rects: Record<string, Rect> = {};
+      for (const id of withChildren(state.selection, ctx)) {
         const s = ctx.shapes[id];
-        return s ? [{ id, x: s.x + event.dx, y: s.y + event.dy }] : [];
-      });
-      if (moves.length === 0) return none(state);
-      return { state, effects: [command({ type: 'MoveShapes', moves }), END] };
+        if (s) rects[id] = { x: s.x + event.dx, y: s.y + event.dy, w: s.w, h: s.h };
+      }
+      if (Object.keys(rects).length === 0) return none(state);
+      const reparent = reparentMoves(rects, ctx);
+      return {
+        state,
+        effects: [
+          command(moveCommand(rects)),
+          ...(reparent.length > 0 ? [command({ type: 'Reparent', moves: reparent })] : []),
+          END,
+        ],
+      };
     }
     case 'toggleRouting': {
       const flips = state.selection.flatMap((id) => {
@@ -397,7 +406,7 @@ function stepIdle(state: IdleState, event: ToolEvent, ctx: ToolContext): StepRes
     }
     case 'doubleClick': {
       const column = event.p.column;
-      if (column) {
+      if (column && ctx.shapes[column.frameId]?.type === 'frame') {
         return {
           state: idle('select', [column.frameId]),
           effects: [{ type: 'editColumn', frameId: column.frameId, columnId: column.columnId }],
@@ -560,9 +569,10 @@ function stepConnecting(state: ConnectingState, event: ToolEvent, ctx: ToolConte
     }
     case 'pointerUp': {
       const p = event.p.world;
+      const stay: StepResult = { state: idle('connector', []), effects: [preview(null)] };
+      if ('shapeId' in state.from && !ctx.shapes[state.from.shapeId]) return stay;
       const hit = event.p.hitId && ctx.shapes[event.p.hitId] ? event.p.hitId : null;
       const fromShape = 'shapeId' in state.from ? state.from.shapeId : null;
-      const stay: StepResult = { state: idle('connector', []), effects: [preview(null)] };
       if (hit && hit === fromShape) return stay;
       const to: Endpoint = hit ? { shapeId: hit, anchor: 'auto' } : { x: p.x, y: p.y };
       const freeToFree = !fromShape && !hit;

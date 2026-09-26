@@ -155,6 +155,47 @@ describe('connector tool', () => {
     );
     expect(commands(tiny.effects)).toEqual([]);
   });
+
+  it('creates nothing if the start shape was deleted mid-gesture', () => {
+    const c = ctx();
+    const down = step(
+      idle('connector', []),
+      { type: 'pointerDown', p: at(1050, 25, { hitId: 'a' }) },
+      c,
+    );
+    const gone: ToolContext = { ...c, shapes: { f1, s1, b } };
+    const up = step(down.state, { type: 'pointerUp', p: at(1350, 225, { hitId: 'b' }) }, gone);
+    expect(commands(up.effects)).toEqual([]);
+    expect(up.state).toEqual(idle('connector', []));
+  });
+
+  it('a drag from a shape to a nearby free point still creates a connector', () => {
+    const c = ctx();
+    const down = step(
+      idle('connector', []),
+      { type: 'pointerDown', p: at(1050, 25, { hitId: 'a' }) },
+      c,
+    );
+    const up = step(down.state, { type: 'pointerUp', p: at(1055, 25) }, c);
+    expect(commands(up.effects)[0]).toMatchObject({
+      type: 'Connect',
+      connector: { from: { shapeId: 'a', anchor: 'auto' }, to: { x: 1055, y: 25 } },
+    });
+  });
+
+  it('cancel while connecting returns to the connector tool with no preview', () => {
+    const c = ctx();
+    const down = step(
+      idle('connector', []),
+      { type: 'pointerDown', p: at(1050, 25, { hitId: 'a' }) },
+      c,
+    );
+    const r = step(down.state, { type: 'cancel' }, c);
+    expect(r).toEqual({
+      state: idle('connector', []),
+      effects: [{ type: 'preview', preview: null }],
+    });
+  });
 });
 
 describe('connector selection and routing', () => {
@@ -167,6 +208,31 @@ describe('connector selection and routing', () => {
     expect(r.state).toEqual(idle('select', ['k1']));
   });
 
+  it('shift-click on a connector toggles it in and out of the selection', () => {
+    const c = ctx();
+    let r = step(
+      idle('select', []),
+      { type: 'pointerDown', p: at(1200, 120, { connectorId: 'k1', shift: true }) },
+      c,
+    );
+    expect(r.state).toEqual(idle('select', ['k1']));
+    r = step(
+      r.state,
+      { type: 'pointerDown', p: at(1200, 120, { connectorId: 'k1', shift: true }) },
+      c,
+    );
+    expect(r.state).toEqual(idle('select', []));
+  });
+
+  it('ignores a connectorId that does not resolve to a live connector', () => {
+    const r = step(
+      idle('select', []),
+      { type: 'pointerDown', p: at(50, 50, { connectorId: 'ghost' }) },
+      ctx(),
+    );
+    expect(r.state.mode).toBe('marquee');
+  });
+
   it('toggleRouting flips the selected connectors as one gesture', () => {
     const r = step(idle('select', ['k1', 'a']), { type: 'toggleRouting' }, ctx());
     expect(r.effects).toEqual([
@@ -177,6 +243,11 @@ describe('connector selection and routing', () => {
       },
       { type: 'endGesture' },
     ]);
+  });
+
+  it('toggleRouting does nothing when no selected id is a connector', () => {
+    const r = step(idle('select', ['a', 'b']), { type: 'toggleRouting' }, ctx());
+    expect(r.effects).toEqual([]);
   });
 });
 
@@ -234,6 +305,54 @@ describe('frames', () => {
       { type: 'overlay', rects: null },
       { type: 'endGesture' },
     ]);
+  });
+
+  it('dragging a frame together with its pre-selected child does not reparent the child', () => {
+    const c = ctx();
+    let r = step(
+      idle('select', ['f1', 's1']),
+      { type: 'pointerDown', p: at(10, 10, { hitId: 'f1' }) },
+      c,
+    );
+    r = step(r.state, { type: 'pointerMove', p: at(60, 10) }, c);
+    r = step(r.state, { type: 'pointerUp', p: at(60, 10) }, c);
+    expect(commands(r.effects)).toEqual([
+      {
+        type: 'MoveShapes',
+        moves: [
+          { id: 'f1', x: 50, y: 0 },
+          { id: 's1', x: 70, y: 60 },
+        ],
+      },
+    ]);
+  });
+
+  it('dragging a frame onto another frame does not reparent it (frames never nest)', () => {
+    const c0 = ctx();
+    const f2 = shape('f2', {
+      type: 'frame',
+      x: 900,
+      y: 0,
+      w: 600,
+      h: 400,
+      z: 'a2',
+      style: DEFAULT_STYLE.frame,
+      columns: [{ id: 'd1', title: 'Notes' }],
+    });
+    const c: ToolContext = { ...c0, shapes: { ...c0.shapes, f2 } };
+    let r = step(idle('select', []), { type: 'pointerDown', p: at(10, 10, { hitId: 'f1' }) }, c);
+    r = step(r.state, { type: 'pointerMove', p: at(910, 10) }, c);
+    r = step(r.state, { type: 'pointerUp', p: at(910, 10) }, c);
+    expect(commands(r.effects).some((cmd) => cmd.type === 'Reparent')).toBe(false);
+  });
+
+  it('ignores a column whose frameId is not a live frame', () => {
+    const r = step(
+      idle('select', []),
+      { type: 'doubleClick', p: at(10, 10, { column: { frameId: 'ghost', columnId: 'c1' } }) },
+      ctx(),
+    );
+    expect(r).toEqual({ state: idle('select', []), effects: [] });
   });
 
   it('dropping a sticky into another column reparents it', () => {
@@ -297,5 +416,15 @@ describe('frames', () => {
         ],
       },
     ]);
+    expect(r.effects.at(-1)).toEqual({ type: 'endGesture' });
+  });
+
+  it('nudging a shape into another column reparents it', () => {
+    const r = step(idle('select', ['s1']), { type: 'nudge', dx: 200, dy: 0 }, ctx());
+    expect(commands(r.effects)).toEqual([
+      { type: 'MoveShapes', moves: [{ id: 's1', x: 220, y: 60 }] },
+      { type: 'Reparent', moves: [{ id: 's1', parentId: 'f1', columnId: 'c2' }] },
+    ]);
+    expect(r.effects.at(-1)).toEqual({ type: 'endGesture' });
   });
 });
