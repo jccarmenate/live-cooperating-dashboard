@@ -2,11 +2,13 @@ import {
   applyCommand,
   type Camera,
   type Command,
+  createUndo,
   type Effect,
   type Identity,
   initialToolState,
   LOCAL_ORIGIN,
   type Preview,
+  type Rect,
   step,
   type TextDiff,
   type ToolEvent,
@@ -20,6 +22,8 @@ import type { DocState } from '../store/docStore';
 export interface BoardUiState {
   tool: ToolState;
   preview: Preview | null;
+  /** Local-only geometry for shapes being dragged/resized, rendered every frame. */
+  overlay: Record<string, Rect> | null;
   editingId: string | null;
   camera: Camera;
 }
@@ -30,8 +34,13 @@ export interface BoardController {
   setCamera(camera: Camera): void;
   applyText(id: string, diff: TextDiff): void;
   stopEditing(): void;
+  undo(): void;
+  redo(): void;
   destroy(): void;
 }
+
+/** Undo steps are delimited explicitly (gesture end, text-session end), not by time. */
+const UNDO_CAPTURE_TIMEOUT = 60_000;
 
 export function createBoardController(opts: {
   doc: Y.Doc;
@@ -45,9 +54,11 @@ export function createBoardController(opts: {
   const ui = createStore<BoardUiState>(() => ({
     tool: initialToolState(),
     preview: null,
+    overlay: null,
     editingId: null,
     camera: { x: 0, y: 0, zoom: 1 },
   }));
+  const undoStack = createUndo(opts.doc, { captureTimeout: UNDO_CAPTURE_TIMEOUT });
 
   const commit = (command: Command) => applyCommand(opts.doc, command, LOCAL_ORIGIN);
   const throttledCommit = throttle(commit, 50);
@@ -66,17 +77,34 @@ export function createBoardController(opts: {
         case 'preview':
           ui.setState({ preview: effect.preview });
           break;
+        case 'overlay':
+          ui.setState({ overlay: effect.rects });
+          break;
         case 'editText':
           ui.setState({ editingId: effect.id });
           break;
         case 'endGesture':
-          // F2: UndoManager.stopCapturing() goes here.
+          undoStack.stopCapturing();
           break;
       }
     }
   };
 
-  // Close the editor if the edited shape is deleted (locally or remotely).
+  const stopEditing = () => {
+    ui.setState({ editingId: null });
+    undoStack.stopCapturing();
+  };
+
+  const travel = (direction: 'undo' | 'redo') => {
+    if (ui.getState().tool.mode !== 'idle') return;
+    throttledCommit.cancel();
+    if (ui.getState().editingId) stopEditing();
+    ui.setState({ overlay: null, preview: null });
+    if (direction === 'undo') undoStack.undo();
+    else undoStack.redo();
+  };
+
+  // Close the editor if the edited shape is deleted (locally, remotely or by undo).
   const unsubscribe = opts.docStore.subscribe((doc) => {
     const { editingId } = ui.getState();
     if (editingId && !doc.shapes[editingId]) ui.setState({ editingId: null });
@@ -101,12 +129,13 @@ export function createBoardController(opts: {
     applyText(id, diff) {
       commit({ type: 'SetText', id, ...diff });
     },
-    stopEditing() {
-      ui.setState({ editingId: null });
-    },
+    stopEditing,
+    undo: () => travel('undo'),
+    redo: () => travel('redo'),
     destroy() {
       throttledCommit.cancel();
       unsubscribe();
+      undoStack.destroy();
     },
   };
 }
