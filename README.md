@@ -19,8 +19,9 @@ the real app, driven by [`scripts/capture.mjs`](scripts/capture.mjs).*
 
 ## What it does
 
-- **Real-time collaboration.** Rectangles, sticky notes and text shapes sync live. Edits merge
-  character by character, so two people can type in the same sticky at once.
+- **Real-time collaboration.** All shapes (rectangles, ellipses, lines, text, sticky notes and
+  code blocks) sync live. Edits merge character by character, so two people can type in the
+  same sticky at once.
 - **Presence.** Named, colored remote cursors, remote selections, presence avatars and an
   `N online` counter.
 - **Editing.** Select, rectangle, ellipse, line, text, sticky note and code-block tools with shortcuts (`V R O L T S C`). Drag to move and resize from 8 handles (Shift keeps proportions); marquee selection; arrow keys nudge; `Ctrl+Z` / `Ctrl+Shift+Z` undo and redo your own changes only; double-click to edit text.

@@ -264,7 +264,7 @@ Inactive clients are dropped by the standard awareness timeout.
 ### Commands and Undo
 
 All mutations are values of a typed union — `CreateShape`, `MoveShapes`,
-`Resize`, `DeleteShapes`, `Reparent`, `Connect`, `SetZ`, `SetText`,
+`ResizeShapes`, `DeleteShapes`, `Reparent`, `Connect`, `SetZ`, `SetText`,
 `SetStyle`, `Vote`, `StartVote`, `AddComment`, `ResolveComment`,
 `ApplyAiProposal`, … — applied by `applyCommand(doc, cmd)` inside
 `doc.transact(fn, origin)`. UI code never touches Yjs types directly.
@@ -328,7 +328,8 @@ the `<svg>`. Resize handles carry `data-handle` and are reported to the tool
 FSM as `PointerInfo.handle`. Marquee selection uses a linear scan over shape
 bounds (`shapesInRect`), which is ample for the hundreds of shapes a board
 holds; an R-tree (`rbush`) can replace it behind the same signature if
-profiling ever shows a need. Lines are hit through a 14 px transparent stroke.
+profiling ever shows a need. Lines are hit through a 14-unit transparent
+stroke (world units, so it scales with zoom).
 
 ### Connectors
 
@@ -348,7 +349,7 @@ publishes `editing` in awareness so peers see an "editing" outline.
 ### Input
 
 Shortcuts: `V` select, `R` rectangle, `O` ellipse, `L` line, `T` text,
-`S` sticky, `Delete`, `Ctrl+Z` / `Ctrl+Shift+Z`, arrow keys to nudge
+`S` sticky, `C` code block, `Delete`, `Ctrl+Z` / `Ctrl+Shift+Z`, arrow keys to nudge
 (Shift = 10 px). Pan with space-drag or middle mouse; zoom with
 Ctrl/⌘+wheel or pinch.
 

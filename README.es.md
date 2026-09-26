@@ -19,9 +19,9 @@ GIF sale de la aplicación real, manejada por [`scripts/capture.mjs`](scripts/ca
 
 ## Qué hace
 
-- **Colaboración en tiempo real.** Rectángulos, notas adhesivas y textos se sincronizan en
-  vivo. Las ediciones se fusionan carácter a carácter, así que dos personas pueden escribir a
-  la vez en la misma nota.
+- **Colaboración en tiempo real.** Todas las formas (rectángulos, elipses, líneas, texto, notas
+  adhesivas y bloques de código) se sincronizan en vivo. Las ediciones se fusionan carácter a
+  carácter, así que dos personas pueden escribir a la vez en la misma nota.
 - **Presencia.** Cursores remotos con nombre y color, selecciones remotas, avatares y el
   contador `N online`.
 - **Edición.** Herramientas de selección, rectángulo, elipse, línea, texto, nota adhesiva y bloque de código, con atajos de teclado (`V R O L T S C`). Arrastrar para mover y redimensionar desde 8 asas (Shift mantiene las proporciones); selección por marquesina; las flechas mueven un poco la selección; `Ctrl+Z` / `Ctrl+Shift+Z` deshace y rehace solo tus propios cambios; doble clic para editar el texto.

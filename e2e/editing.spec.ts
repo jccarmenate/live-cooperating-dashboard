@@ -78,6 +78,12 @@ test('draws ellipses, lines and code blocks', async ({ page, request }) => {
   await drag(page, { x: 250, y: 200 }, { x: 400, y: 300 });
   await expect(page.locator('[data-shape-id] ellipse')).toHaveCount(2); // shadow + body
 
+  // The label's foreignObject must not steal hits from the empty corners of the
+  // ellipse's bounding box; a double-click on its centre should still open the editor.
+  await page.mouse.dblclick(325, 250);
+  await expect(page.getByTestId('text-editor')).toBeFocused();
+  await page.keyboard.press('Escape');
+
   await page.keyboard.press('l');
   await drag(page, { x: 450, y: 200 }, { x: 600, y: 320 });
   await expect(page.locator('[data-shape-id] line')).toHaveCount(2); // stroke + hit area
