@@ -72,7 +72,9 @@ type Step =
   | { kind: 'redo'; r: number }
   | { kind: 'deliver'; from: number; to: number; count: number }
   | { kind: 'connect'; r: number; a: number; b: number; elbow: boolean }
-  | { kind: 'reparent'; r: number; pick: number; parent: number; column: boolean };
+  | { kind: 'reparent'; r: number; pick: number; parent: number; column: boolean }
+  | { kind: 'rename'; r: number; pick: number; column: number; title: string }
+  | { kind: 'routing'; r: number; pick: number; elbow: boolean };
 
 const replica = fc.integer({ min: 0, max: N - 1 });
 const coord = fc.integer({ min: -1000, max: 1000 });
@@ -135,6 +137,25 @@ const stepArb: fc.Arbitrary<Step> = fc.oneof(
     parent: fc.nat(),
     column: fc.boolean(),
   }),
+  // 'rename' is weighted up alongside 'create' and 'connect' so a run reliably
+  // renames a frame column at least once (needed for the non-vacuousness
+  // check below) instead of depending on luck at low numRuns.
+  {
+    arbitrary: fc.record({
+      kind: fc.constant('rename' as const),
+      r: replica,
+      pick: fc.nat(),
+      column: fc.integer({ min: 0, max: 1 }),
+      title: fc.string({ maxLength: 6 }),
+    }),
+    weight: 3,
+  },
+  fc.record({
+    kind: fc.constant('routing' as const),
+    r: replica,
+    pick: fc.nat(),
+    elbow: fc.boolean(),
+  }),
 );
 
 function pickId(doc: Y.Doc, pick: number): string | undefined {
@@ -142,7 +163,11 @@ function pickId(doc: Y.Doc, pick: number): string | undefined {
   return ids.length ? ids[pick % ids.length] : undefined;
 }
 
-function run(net: Net, steps: Step[], counters?: { connectorsCreated: number }) {
+function run(
+  net: Net,
+  steps: Step[],
+  counters?: { connectorsCreated: number; columnsRenamed: number },
+) {
   let n = 0;
   for (const s of steps) {
     if (s.kind === 'deliver') {
@@ -227,6 +252,29 @@ function run(net: Net, steps: Step[], counters?: { connectorsCreated: number }) 
       );
       continue;
     }
+    if (s.kind === 'rename') {
+      const frameIds = [...getRoots(doc).shapes.entries()]
+        .filter(([, m]) => m.get('type') === 'frame')
+        .map(([id]) => id)
+        .sort();
+      const frameId = frameIds.length ? frameIds[s.pick % frameIds.length] : undefined;
+      if (!frameId) continue;
+      const columnId = s.column % 2 === 0 ? 'c1' : 'c2';
+      applyCommand(doc, { type: 'RenameColumn', frameId, columnId, title: s.title }, LOCAL_ORIGIN);
+      if (counters) counters.columnsRenamed++;
+      continue;
+    }
+    if (s.kind === 'routing') {
+      const connectorIds = [...getRoots(doc).connectors.keys()].sort();
+      const cid = connectorIds.length ? connectorIds[s.pick % connectorIds.length] : undefined;
+      if (!cid) continue;
+      applyCommand(
+        doc,
+        { type: 'SetRouting', id: cid, routing: s.elbow ? 'elbow' : 'straight' },
+        LOCAL_ORIGIN,
+      );
+      continue;
+    }
     const id = pickId(doc, s.pick);
     if (!id) continue;
     if (s.kind === 'move')
@@ -265,12 +313,14 @@ function snapshot(doc: Y.Doc) {
 describe('convergence', () => {
   it('replicas converge under arbitrary concurrent commands and delivery order', () => {
     let connectorsCreated = 0;
+    let columnsRenamed = 0;
     fc.assert(
       fc.property(fc.array(stepArb, { minLength: 20, maxLength: 60 }), (steps) => {
         const net = makeNet();
-        const counters = { connectorsCreated: 0 };
+        const counters = { connectorsCreated: 0, columnsRenamed: 0 };
         run(net, steps, counters);
         connectorsCreated += counters.connectorsCreated;
+        columnsRenamed += counters.columnsRenamed;
         flushAll(net);
         const [first, ...rest] = net.docs.map((d) => getRoots(d).shapes.toJSON());
         for (const json of rest) expect(json).toEqual(first);
@@ -305,6 +355,7 @@ describe('convergence', () => {
       { numRuns: RUNS },
     );
     expect(connectorsCreated).toBeGreaterThan(0);
+    expect(columnsRenamed).toBeGreaterThan(0);
   }, 600_000);
 
   it('a concurrent move and delete converge to deleted', () => {

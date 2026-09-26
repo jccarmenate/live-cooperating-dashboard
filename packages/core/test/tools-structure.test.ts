@@ -405,6 +405,18 @@ describe('frames', () => {
     expect(title.effects).toEqual([{ type: 'editText', id: 'f1' }]);
   });
 
+  it('double-clicking an unknown columnId on a real frame does not emit editColumn', () => {
+    const r = step(
+      idle('select', []),
+      {
+        type: 'doubleClick',
+        p: at(250, 50, { column: { frameId: 'f1', columnId: 'nope' } }),
+      },
+      ctx(),
+    );
+    expect(r.effects.some((e) => e.type === 'editColumn')).toBe(false);
+  });
+
   it('nudging a frame moves its children too', () => {
     const r = step(idle('select', ['f1']), { type: 'nudge', dx: 1, dy: 0 }, ctx());
     expect(commands(r.effects)).toEqual([

@@ -34,3 +34,6 @@ export const DEFAULT_SIZE: Record<
 
 /** Default columns of a new frame (retro-style). */
 export const DEFAULT_COLUMNS: readonly string[] = ['Went well', 'To improve', 'Actions'];
+
+/** Maximum number of columns a frame reads back; extra columns are dropped. */
+export const MAX_COLUMNS = 12;

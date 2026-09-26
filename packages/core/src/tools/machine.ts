@@ -1,6 +1,6 @@
 import type { Command, NewConnector, NewShape } from '../commands/types';
 import { clipToOutline } from '../geometry/connectors';
-import { childrenOf, dropTarget, rectContains } from '../geometry/frames';
+import { childrenOf, dropTarget, frameColumns, rectContains } from '../geometry/frames';
 import { centerOf, rectFromPoints } from '../geometry/rect';
 import {
   type Handle,
@@ -406,7 +406,12 @@ function stepIdle(state: IdleState, event: ToolEvent, ctx: ToolContext): StepRes
     }
     case 'doubleClick': {
       const column = event.p.column;
-      if (column && ctx.shapes[column.frameId]?.type === 'frame') {
+      const frame = column ? ctx.shapes[column.frameId] : undefined;
+      if (
+        column &&
+        frame?.type === 'frame' &&
+        frameColumns(frame).some((c) => c.id === column.columnId)
+      ) {
         return {
           state: idle('select', [column.frameId]),
           effects: [{ type: 'editColumn', frameId: column.frameId, columnId: column.columnId }],

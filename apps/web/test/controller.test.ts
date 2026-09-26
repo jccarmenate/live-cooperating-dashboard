@@ -140,6 +140,32 @@ describe('board controller', () => {
     expect(x()).toBe(30);
   });
 
+  it('dragging a shape into a frame column groups the move and reparent into one undo step', () => {
+    const { doc, controller } = setup();
+    controller.dispatch({ type: 'setTool', tool: 'frame' });
+    controller.dispatch({ type: 'pointerDown', p: at(0, 0) });
+    controller.dispatch({ type: 'pointerUp', p: at(600, 400) });
+    const frameId = controller.ui.getState().tool.selection[0] as string;
+    const cols = getRoots(doc).shapes.get(frameId)?.get('columns') as
+      | Y.Array<{ id: string; title: string }>
+      | undefined;
+    const firstColumnId = cols?.toArray()[0]?.id as string;
+    addRect(doc, 'r1', 800);
+    const rect = () => getRoots(doc).shapes.get('r1');
+    controller.dispatch({ type: 'pointerDown', p: at(850, 50, 'r1') });
+    controller.dispatch({ type: 'pointerMove', p: at(150, 150) });
+    controller.dispatch({ type: 'pointerUp', p: at(150, 150) });
+    expect(rect()?.get('x')).toBe(100);
+    expect(rect()?.get('y')).toBe(100);
+    expect(rect()?.get('parentId')).toBe(frameId);
+    expect(rect()?.get('columnId')).toBe(firstColumnId);
+    controller.undo();
+    expect(rect()?.get('x')).toBe(800);
+    expect(rect()?.get('y')).toBe(0);
+    expect(rect()?.get('parentId')).toBeUndefined();
+    expect(rect()?.get('columnId')).toBeUndefined();
+  });
+
   it('never undoes a remote change', () => {
     const { doc, controller } = setup();
     applyCommand(
@@ -236,6 +262,21 @@ describe('board controller', () => {
     expect(controller.ui.getState().tool.selection).toEqual([id]);
     controller.dispatch({ type: 'toggleRouting' });
     expect(connectors.get(id as string)?.get('routing')).toBe('elbow');
+  });
+
+  it('creates a connector as its own undo step', () => {
+    const { doc, controller } = setup();
+    addRect(doc, 'r1');
+    addRect(doc, 'r2', 400);
+    controller.dispatch({ type: 'setTool', tool: 'connector' });
+    controller.dispatch({ type: 'pointerDown', p: at(50, 50, 'r1') });
+    controller.dispatch({ type: 'pointerMove', p: at(300, 50) });
+    controller.dispatch({ type: 'pointerUp', p: at(450, 50, 'r2') });
+    expect(getRoots(doc).connectors.size).toBe(1);
+    controller.undo();
+    expect(getRoots(doc).connectors.size).toBe(0);
+    expect(getRoots(doc).shapes.has('r1')).toBe(true);
+    expect(getRoots(doc).shapes.has('r2')).toBe(true);
   });
 
   it('opens the column editor and renames a column as its own undo step', () => {

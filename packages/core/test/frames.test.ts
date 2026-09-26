@@ -10,6 +10,7 @@ import {
   FRAME_TITLE_H,
   frameColumns,
   getRoots,
+  MAX_COLUMNS,
   normalizeShapes,
   readShape,
   rectContains,
@@ -131,6 +132,17 @@ describe('frame commands and snapshots', () => {
     expect(m?.get('columns')).toBeInstanceOf(Y.Array);
     expect(m?.get('text')).toBeInstanceOf(Y.Text);
     expect(read(doc, 'f1')).toMatchObject({ type: 'frame', text: 'Sprint 14 retro', columns });
+  });
+
+  it('readShape caps columns at MAX_COLUMNS, keeping the first ones', () => {
+    const doc = new Y.Doc();
+    const manyColumns = Array.from({ length: 1000 }, (_, i) => ({
+      id: `c${i}`,
+      title: `Col ${i}`,
+    }));
+    applyCommand(doc, { type: 'CreateShape', shape: { ...newFrame, columns: manyColumns } });
+    expect(MAX_COLUMNS).toBe(12);
+    expect(read(doc, 'f1')?.columns).toEqual(manyColumns.slice(0, MAX_COLUMNS));
   });
 
   it('RenameColumn renames in place; Reparent sets and clears parents', () => {

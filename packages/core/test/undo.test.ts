@@ -88,6 +88,36 @@ describe('createUndo', () => {
     expect(read(doc, 's')).toMatchObject({ x: 0, text: 'hi' });
   });
 
+  it('undoing a shape delete restores the shape and a connector attached to it', () => {
+    const doc = new Y.Doc();
+    const undo = createUndo(doc);
+    applyCommand(doc, { type: 'CreateShape', shape: shape('a') }, LOCAL_ORIGIN);
+    applyCommand(doc, { type: 'CreateShape', shape: shape('b') }, LOCAL_ORIGIN);
+    applyCommand(
+      doc,
+      {
+        type: 'Connect',
+        connector: {
+          id: 'k1',
+          from: { shapeId: 'a', anchor: 'auto' },
+          to: { shapeId: 'b', anchor: 'auto' },
+          routing: 'straight',
+          head: 'arrow',
+          createdBy: 'u',
+        },
+      },
+      LOCAL_ORIGIN,
+    );
+    undo.stopCapturing();
+    applyCommand(doc, { type: 'DeleteShapes', ids: ['a'] }, LOCAL_ORIGIN);
+    expect(read(doc, 'a')).toBeNull();
+    expect(getRoots(doc).connectors.has('k1')).toBe(false);
+    expect(undo.undo()).toBe(true);
+    expect(read(doc, 'a')).not.toBeNull();
+    expect(read(doc, 'b')).not.toBeNull();
+    expect(getRoots(doc).connectors.has('k1')).toBe(true);
+  });
+
   it('notifies listeners until unsubscribed', () => {
     const doc = new Y.Doc();
     const undo = createUndo(doc);

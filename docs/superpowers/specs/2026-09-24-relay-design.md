@@ -197,6 +197,7 @@ connectors  Y.Map<id, Y.Map>
               routing     'straight' | 'elbow'
               head        'arrow' | 'none'
               z           fractional-index string
+              createdBy   user id
 session     Y.Map   { vote: { open: boolean, endsAt: number, maxPerUser: number } }
 votes       Y.Map<"<shapeId>:<userId>", true>
 comments    Y.Map<id, Y.Map>
@@ -222,9 +223,10 @@ geometry is derived from the shapes they attach to.
    that creates their parent (e.g. a comment's `thread`).
 3. **Normalize on read, not on write.** The read-side normalizer drops
    connectors whose endpoint shape no longer exists, treats a `parentId`
-   pointing to a missing frame as root, and breaks equal `z` values by id.
-   The `DeleteShapes` command also deletes attached connectors in the same
-   transaction; the read filter covers the concurrent connect-while-delete
+   pointing to a missing frame as root, drops a `columnId` that is not
+   present among its parent frame's columns, and breaks equal `z` values by
+   id. The `DeleteShapes` command also deletes attached connectors in the
+   same transaction; the read filter covers the concurrent connect-while-delete
    case. Frames cannot be nested, so parent cycles cannot occur.
 4. **Derive, never store, aggregates.** Column counters and vote totals are
    computed from the document.
@@ -353,16 +355,20 @@ and the read side drops connectors whose shape vanished concurrently.
 The frame tool (`F`) draws a frame with the default retro columns
 (`Went well`, `To improve`, `Actions`) stored as a `Y.Array<{ id, title }>`
 created by the frame's creator; the frame title is its `Y.Text`. Columns
-split the body equally under a 36-unit title band. Frames render in the
-bottom layer; only the title band is hit-testable, so clicks inside a frame
-reach the shapes and the canvas (marquee). A new shape created inside a
-frame, or a shape dropped there, is parented to the topmost frame under its
-centre and to the column under it (`Reparent`); dropped outside every frame
-it is unparented. Dragging or nudging a frame moves its children. Column
-counters are derived from `parentId`/`columnId`. Double-clicking a column
-header renames it (`RenameColumn`: delete + insert in one transaction;
-concurrent renames converge and readers de-duplicate columns by id).
-Marquee selection includes a frame only when it is fully inside the marquee.
+split the body equally under a 36-unit title band. A frame reads back at
+most `MAX_COLUMNS` (12) columns from its `Y.Array`, keeping the first valid,
+deduplicated ones and dropping the rest. Frames render in the bottom layer;
+only the title band and the column headers are hit-testable (the headers so
+that double-clicking one opens its rename editor) — clicks elsewhere inside
+a frame reach the shapes and the canvas (marquee). A new shape created
+inside a frame, or a shape dropped there, is parented to
+the topmost frame under its centre and to the column under it (`Reparent`);
+dropped outside every frame it is unparented. Dragging or nudging a frame
+moves its children. Column counters are derived from `parentId`/`columnId`.
+Double-clicking a column header renames it (`RenameColumn`: delete + insert
+in one transaction; concurrent renames converge and readers de-duplicate
+columns by id). Marquee selection includes a frame only when it is fully
+inside the marquee.
 
 ### Text Editing
 

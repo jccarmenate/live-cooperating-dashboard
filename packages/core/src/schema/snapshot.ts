@@ -1,5 +1,5 @@
 import * as Y from 'yjs';
-import { DEFAULT_STYLE } from './defaults';
+import { DEFAULT_STYLE, MAX_COLUMNS } from './defaults';
 import {
   type BoardMeta,
   type Connector,
@@ -57,13 +57,16 @@ export function readShape(id: string, m: Y.Map<unknown>): Shape | null {
   const cols = m.get('columns');
   if (cols instanceof Y.Array) {
     const seen = new Set<string>();
-    shape.columns = cols.toArray().flatMap((c: unknown) => {
-      if (!c || typeof c !== 'object') return [];
+    const result: { id: string; title: string }[] = [];
+    for (const c of cols.toArray()) {
+      if (result.length >= MAX_COLUMNS) break;
+      if (!c || typeof c !== 'object') continue;
       const o = c as Record<string, unknown>;
-      if (typeof o.id !== 'string' || typeof o.title !== 'string' || seen.has(o.id)) return [];
+      if (typeof o.id !== 'string' || typeof o.title !== 'string' || seen.has(o.id)) continue;
       seen.add(o.id);
-      return [{ id: o.id, title: o.title }];
-    });
+      result.push({ id: o.id, title: o.title });
+    }
+    shape.columns = result;
   }
   return shape;
 }
