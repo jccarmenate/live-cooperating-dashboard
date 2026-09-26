@@ -2,6 +2,7 @@ import { initials, PALETTE, type Shape } from '@relay/core';
 import { memo } from 'react';
 import { useStore } from 'zustand';
 import type { BoardSession } from '../board/session';
+import { FrameBody } from './FrameView';
 import { CODE_HEADER, TEXT_BOX, TEXT_STYLE } from './typography';
 import { useShape } from './useShape';
 
@@ -26,9 +27,11 @@ function CenteredLabel({ s, editing }: { s: Shape; editing: boolean }) {
   );
 }
 
-function Body({ s, editing }: { s: Shape; editing: boolean }) {
+function Body({ s, editing, session }: { s: Shape; editing: boolean; session: BoardSession }) {
   const hidden = editing ? 'invisible' : '';
   switch (s.type) {
+    case 'frame':
+      return <FrameBody s={s} editing={editing} session={session} />;
     case 'sticky':
       return (
         <>
@@ -172,7 +175,7 @@ export const ShapeView = memo(function ShapeView({
   if (!shape) return null;
   return (
     <g data-shape-id={id} className="cursor-move">
-      <Body s={shape} editing={editing} />
+      <Body s={shape} editing={editing} session={session} />
     </g>
   );
 });

@@ -11,7 +11,7 @@ export const TEXT_STYLE: Record<ShapeType, string> = {
   sticky: 'text-[14px] font-semibold leading-snug',
   text: 'font-display text-[28px] uppercase leading-tight',
   code: 'font-mono text-[12px] leading-relaxed',
-  frame: 'font-mono text-[11px] uppercase',
+  frame: 'font-mono text-[13px] font-bold uppercase tracking-wider',
 };
 
 /** Padding of the text box inside the shape. */
@@ -22,7 +22,7 @@ export const TEXT_BOX: Record<ShapeType, string> = {
   sticky: 'p-3',
   text: '',
   code: 'px-3 pt-8 pb-3',
-  frame: 'p-3',
+  frame: 'px-3 pt-2.5',
 };
 
 /** Height of the dark header strip on code blocks (fits under `pt-8`). */

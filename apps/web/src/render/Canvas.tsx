@@ -52,9 +52,13 @@ function PreviewShape({ preview, zoom }: { preview: Preview; zoom: number }) {
 
 export function Canvas({ session }: { session: BoardSession }) {
   const { controller, publisher } = session;
-  const order = useStore(
+  const frameOrder = useStore(
     session.doc,
-    useShallow((s) => s.order),
+    useShallow((s) => s.order.filter((id) => s.shapes[id]?.type === 'frame')),
+  );
+  const shapeOrder = useStore(
+    session.doc,
+    useShallow((s) => s.order.filter((id) => s.shapes[id]?.type !== 'frame')),
   );
   const connectorOrder = useStore(
     session.doc,
@@ -108,6 +112,9 @@ export function Canvas({ session }: { session: BoardSession }) {
           controller.stopEditing();
           (document.activeElement as HTMLElement | null)?.blur();
         }
+        if (controller.ui.getState().editingColumn) {
+          (document.activeElement as HTMLElement | null)?.blur();
+        }
         controller.dispatch({ type: 'pointerDown', p });
       }}
       onPointerMove={(e) => {
@@ -142,10 +149,13 @@ export function Canvas({ session }: { session: BoardSession }) {
       </defs>
       <rect width="100%" height="100%" fill="url(#relay-dots)" />
       <g transform={transform}>
+        {frameOrder.map((id) => (
+          <ShapeView key={id} id={id} session={session} />
+        ))}
         {connectorOrder.map((id) => (
           <ConnectorView key={id} id={id} session={session} />
         ))}
-        {order.map((id) => (
+        {shapeOrder.map((id) => (
           <ShapeView key={id} id={id} session={session} />
         ))}
         <SelectionLayer session={session} />

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { Canvas } from '../render/Canvas';
+import { ColumnTitleEditor } from '../render/ColumnTitleEditor';
 import { RemoteCursors } from '../render/RemoteCursors';
 import { TextEditor } from '../render/TextEditor';
 import { keyFromHash } from '../sync/key';
@@ -20,6 +21,7 @@ function BoardView({ session }: { session: BoardSession }) {
         <Canvas session={session} />
         <RemoteCursors session={session} />
         <TextEditor session={session} />
+        <ColumnTitleEditor session={session} />
         <Toolbar session={session} />
         <StatusBanner session={session} />
       </div>

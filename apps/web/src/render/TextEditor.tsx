@@ -1,4 +1,4 @@
-import { diffText, transformCaret, worldToScreen } from '@relay/core';
+import { diffText, FRAME_TITLE_H, transformCaret, worldToScreen } from '@relay/core';
 import { useEffect, useLayoutEffect, useRef } from 'react';
 import { useStore } from 'zustand';
 import type { BoardSession } from '../board/session';
@@ -65,7 +65,7 @@ export function TextEditor({ session }: { session: BoardSession }) {
       style={{
         transform: `translate(${pos.x}px, ${pos.y}px) scale(${camera.zoom})`,
         width: shape.w,
-        height: shape.h,
+        height: shape.type === 'frame' ? FRAME_TITLE_H : shape.h,
       }}
     >
       <textarea
