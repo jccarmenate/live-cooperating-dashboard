@@ -20,7 +20,7 @@ export const DEFAULT_STYLE: Record<ShapeType, Style> = {
 };
 
 export const DEFAULT_SIZE: Record<
-  'rect' | 'ellipse' | 'line' | 'sticky' | 'text' | 'code',
+  'rect' | 'ellipse' | 'line' | 'sticky' | 'text' | 'code' | 'frame',
   { w: number; h: number }
 > = {
   rect: { w: 160, h: 96 },
@@ -29,4 +29,8 @@ export const DEFAULT_SIZE: Record<
   sticky: { w: 180, h: 140 },
   text: { w: 320, h: 56 },
   code: { w: 280, h: 140 },
+  frame: { w: 720, h: 440 },
 };
+
+/** Default columns of a new frame (retro-style). */
+export const DEFAULT_COLUMNS: readonly string[] = ['Went well', 'To improve', 'Actions'];

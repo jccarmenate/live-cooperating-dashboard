@@ -15,13 +15,18 @@ export interface Normalized {
 /**
  * Read-side normalization (spec: "normalize on read, not on write").
  * A parentId that does not point to an existing frame is treated as root.
+ * Frames never nest. A columnId that is not a column of the parent frame is dropped.
  * Untouched shapes keep object identity so per-shape selectors stay stable.
  */
 export function normalizeShapes(raw: Readonly<Record<string, Shape>>): Normalized {
   const shapes: Record<string, Shape> = {};
   for (const s of Object.values(raw)) {
-    if (s.parentId !== undefined && raw[s.parentId]?.type !== 'frame') {
+    const parent = s.parentId !== undefined ? raw[s.parentId] : undefined;
+    if (s.parentId !== undefined && (s.type === 'frame' || parent?.type !== 'frame')) {
       const { parentId: _parent, columnId: _column, ...rest } = s;
+      shapes[s.id] = rest;
+    } else if (s.columnId !== undefined && !parent?.columns?.some((c) => c.id === s.columnId)) {
+      const { columnId: _column, ...rest } = s;
       shapes[s.id] = rest;
     } else {
       shapes[s.id] = s;

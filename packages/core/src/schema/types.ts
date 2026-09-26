@@ -17,6 +17,7 @@ export const TEXT_TYPES: ReadonlySet<ShapeType> = new Set<ShapeType>([
   'text',
   'sticky',
   'code',
+  'frame',
 ]);
 
 export type FontRole = 'sans' | 'mono' | 'display';
@@ -46,6 +47,11 @@ export type FreeEnd = { x: number; y: number };
 export type Endpoint = AttachedEnd | FreeEnd;
 export type Routing = 'straight' | 'elbow';
 
+export interface FrameColumn {
+  id: string;
+  title: string;
+}
+
 export interface Connector {
   id: string;
   from: Endpoint;
@@ -68,6 +74,7 @@ export interface Shape extends Rect {
   text?: string;
   tag?: string;
   lang?: string;
+  columns?: FrameColumn[];
   createdBy: string;
   authorName: string;
   createdAt: number;

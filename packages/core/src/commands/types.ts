@@ -10,4 +10,9 @@ export type Command =
   | { type: 'SetText'; id: string; index: number; deleteCount: number; insert: string }
   | { type: 'DeleteShapes'; ids: string[] }
   | { type: 'Connect'; connector: NewConnector }
-  | { type: 'SetRouting'; id: string; routing: Routing };
+  | { type: 'SetRouting'; id: string; routing: Routing }
+  | {
+      type: 'Reparent';
+      moves: { id: string; parentId: string | null; columnId: string | null }[];
+    }
+  | { type: 'RenameColumn'; frameId: string; columnId: string; title: string };

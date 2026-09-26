@@ -63,7 +63,7 @@ function flushAll(net: Net) {
 }
 
 type Step =
-  | { kind: 'create'; r: number; type: 'rect' | 'sticky' | 'text'; x: number; y: number }
+  | { kind: 'create'; r: number; type: 'rect' | 'sticky' | 'text' | 'frame'; x: number; y: number }
   | { kind: 'move'; r: number; pick: number; x: number; y: number }
   | { kind: 'resize'; r: number; pick: number; x: number; y: number; w: number; h: number }
   | { kind: 'text'; r: number; pick: number; index: number; del: number; insert: string }
@@ -71,7 +71,8 @@ type Step =
   | { kind: 'undo'; r: number }
   | { kind: 'redo'; r: number }
   | { kind: 'deliver'; from: number; to: number; count: number }
-  | { kind: 'connect'; r: number; a: number; b: number; elbow: boolean };
+  | { kind: 'connect'; r: number; a: number; b: number; elbow: boolean }
+  | { kind: 'reparent'; r: number; pick: number; parent: number; column: boolean };
 
 const replica = fc.integer({ min: 0, max: N - 1 });
 const coord = fc.integer({ min: -1000, max: 1000 });
@@ -84,7 +85,7 @@ const stepArb: fc.Arbitrary<Step> = fc.oneof(
     arbitrary: fc.record({
       kind: fc.constant('create' as const),
       r: replica,
-      type: fc.constantFrom('rect' as const, 'sticky' as const, 'text' as const),
+      type: fc.constantFrom('rect' as const, 'sticky' as const, 'text' as const, 'frame' as const),
       x: coord,
       y: coord,
     }),
@@ -127,6 +128,13 @@ const stepArb: fc.Arbitrary<Step> = fc.oneof(
     }),
     weight: 3,
   },
+  fc.record({
+    kind: fc.constant('reparent' as const),
+    r: replica,
+    pick: fc.nat(),
+    parent: fc.nat(),
+    column: fc.boolean(),
+  }),
 );
 
 function pickId(doc: Y.Doc, pick: number): string | undefined {
@@ -187,10 +195,33 @@ function run(net: Net, steps: Step[], counters?: { connectorsCreated: number }) 
             h: 80,
             style: DEFAULT_STYLE[s.type],
             text: '',
+            columns:
+              s.type === 'frame'
+                ? [
+                    { id: 'c1', title: 'A' },
+                    { id: 'c2', title: 'B' },
+                  ]
+                : undefined,
             createdBy: `u${s.r}`,
             authorName: `User ${s.r}`,
             createdAt: 0,
           },
+        },
+        LOCAL_ORIGIN,
+      );
+      continue;
+    }
+    if (s.kind === 'reparent') {
+      const id = pickId(doc, s.pick);
+      if (!id) continue;
+      const parentId = pickId(doc, s.parent) ?? null;
+      applyCommand(
+        doc,
+        {
+          type: 'Reparent',
+          moves: [
+            { id, parentId: parentId === id ? null : parentId, columnId: s.column ? 'c1' : null },
+          ],
         },
         LOCAL_ORIGIN,
       );
@@ -247,6 +278,12 @@ describe('convergence', () => {
         for (const [i, snap] of snaps.entries()) {
           expect(snap.order.length).toBe(getRoots(net.docs[i] as Y.Doc).shapes.size);
           expect(snap.order).toEqual(snaps[0]?.order);
+        }
+        for (const snap of snaps) {
+          for (const sh of Object.values(snap.shapes)) {
+            if (sh.type === 'frame') expect(sh.parentId).toBeUndefined();
+            if (sh.parentId) expect(snap.shapes[sh.parentId]?.type).toBe('frame');
+          }
         }
         const conns = net.docs.map((d) => getRoots(d).connectors.toJSON());
         for (const json of conns.slice(1)) expect(json).toEqual(conns[0]);

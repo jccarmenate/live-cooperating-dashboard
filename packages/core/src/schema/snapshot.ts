@@ -54,6 +54,17 @@ export function readShape(id: string, m: Y.Map<unknown>): Shape | null {
   if (lang) shape.lang = lang;
   const text = m.get('text');
   if (text instanceof Y.Text) shape.text = text.toString();
+  const cols = m.get('columns');
+  if (cols instanceof Y.Array) {
+    const seen = new Set<string>();
+    shape.columns = cols.toArray().flatMap((c: unknown) => {
+      if (!c || typeof c !== 'object') return [];
+      const o = c as Record<string, unknown>;
+      if (typeof o.id !== 'string' || typeof o.title !== 'string' || seen.has(o.id)) return [];
+      seen.add(o.id);
+      return [{ id: o.id, title: o.title }];
+    });
+  }
   return shape;
 }
 

@@ -1,6 +1,7 @@
 import { generateKeyBetween } from 'fractional-indexing';
 import * as Y from 'yjs';
 import { getRoots } from '../schema/doc';
+import type { FrameColumn } from '../schema/types';
 import { TEXT_TYPES } from '../schema/types';
 import type { Command } from './types';
 
@@ -39,7 +40,7 @@ function apply(doc: Y.Doc, cmd: Command): void {
   const { shapes, connectors } = getRoots(doc);
   switch (cmd.type) {
     case 'CreateShape': {
-      const { text, z, ...fields } = cmd.shape;
+      const { text, z, columns, ...fields } = cmd.shape;
       if (shapes.has(fields.id) || connectors.has(fields.id)) return;
       const m = new Y.Map<unknown>();
       for (const [key, value] of Object.entries(fields)) {
@@ -47,6 +48,11 @@ function apply(doc: Y.Doc, cmd: Command): void {
       }
       m.set('z', z ?? keyAbove(topZ(doc)));
       if (TEXT_TYPES.has(fields.type)) m.set('text', new Y.Text(text ?? ''));
+      if (fields.type === 'frame') {
+        const arr = new Y.Array<FrameColumn>();
+        arr.push((columns ?? []).map((c) => ({ id: c.id, title: c.title })));
+        m.set('columns', arr);
+      }
       shapes.set(fields.id, m);
       return;
     }
@@ -105,6 +111,28 @@ function apply(doc: Y.Doc, cmd: Command): void {
     }
     case 'SetRouting': {
       connectors.get(cmd.id)?.set('routing', cmd.routing);
+      return;
+    }
+    case 'Reparent': {
+      for (const { id, parentId, columnId } of cmd.moves) {
+        const m = shapes.get(id);
+        if (!m) continue;
+        if (parentId) m.set('parentId', parentId);
+        else m.delete('parentId');
+        if (columnId) m.set('columnId', columnId);
+        else m.delete('columnId');
+      }
+      return;
+    }
+    case 'RenameColumn': {
+      const cols = shapes.get(cmd.frameId)?.get('columns');
+      if (!(cols instanceof Y.Array)) return;
+      const index = cols
+        .toArray()
+        .findIndex((c: unknown) => (c as { id?: unknown } | null)?.id === cmd.columnId);
+      if (index < 0) return;
+      cols.delete(index, 1);
+      cols.insert(index, [{ id: cmd.columnId, title: cmd.title }]);
       return;
     }
   }
