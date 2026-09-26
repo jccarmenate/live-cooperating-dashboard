@@ -73,6 +73,32 @@ describe('presence parsing', () => {
     ).toEqual({ user: alice, cursor: { x: 1, y: 2 }, selection: ['s1'], editing: 's1' });
   });
 
+  it('rejects a user.color that is not a plain #rrggbb hex value', () => {
+    // user.color is used verbatim in inline `style.background`; anything
+    // other than a strict 6-hex-digit color (e.g. `url(https://evil)`) could
+    // leak a viewer's IP to a peer-controlled URL.
+    expect(parsePresence({ user: { ...alice, color: 'url(https://evil.example)' } })).toBeNull();
+    expect(parsePresence({ user: { ...alice, color: 'red' } })).toBeNull();
+    expect(parsePresence({ user: { ...alice, color: '#E85A1' } })).toBeNull();
+    expect(parsePresence({ user: { ...alice, color: '#E85A1BFF' } })).toBeNull();
+    expect(parsePresence({ user: { ...alice, color: '#e85a1b' } })).toEqual({
+      user: { ...alice, color: '#e85a1b' },
+      cursor: null,
+      selection: [],
+      editing: null,
+    });
+  });
+
+  it('rejects a user.id longer than 64 characters', () => {
+    expect(parsePresence({ user: { ...alice, id: 'x'.repeat(65) } })).toBeNull();
+    expect(parsePresence({ user: { ...alice, id: 'x'.repeat(64) } })).toEqual({
+      user: { ...alice, id: 'x'.repeat(64) },
+      cursor: null,
+      selection: [],
+      editing: null,
+    });
+  });
+
   it('peersFrom excludes self and invalid states, sorted by clientId', () => {
     const states = new Map<number, unknown>([
       [3, { user: bob }],

@@ -20,11 +20,18 @@ const isPoint = (v: unknown): v is Point =>
   Number.isFinite((v as Point).x) &&
   Number.isFinite((v as Point).y);
 
+const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
+
 /** Validates an untrusted awareness state. */
 export function parsePresence(raw: unknown): PresenceState | null {
   if (typeof raw !== 'object' || raw === null) return null;
   const o = raw as Record<string, unknown>;
   if (!isIdentity(o.user)) return null;
+  // user.color is rendered verbatim in inline `style.background` and
+  // user.id is untrusted network input; without these bounds a peer could
+  // smuggle a `url(...)` background (leaking every viewer's IP) or an
+  // unbounded id.
+  if (!HEX_COLOR.test(o.user.color) || o.user.id.length > 64) return null;
   return {
     user: { id: o.user.id, name: o.user.name.slice(0, 40), color: o.user.color },
     cursor: isPoint(o.cursor) ? { x: o.cursor.x, y: o.cursor.y } : null,
