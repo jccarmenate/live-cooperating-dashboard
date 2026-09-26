@@ -70,6 +70,7 @@ function withoutRepeats(points: Point[]): Point[] {
 
 /** Orthogonal polyline with at most two bends, leaving `a` along `sa` and entering `b` along `sb`. */
 export function elbowPath(a: Point, sa: AnchorSide, b: Point, sb: AnchorSide): Point[] {
+  if (a.x === b.x && a.y === b.y) return [a, b];
   if (horizontal(sa) && horizontal(sb)) {
     if (a.y === b.y) return [a, b];
     const mx = (a.x + b.x) / 2;

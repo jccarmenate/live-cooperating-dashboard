@@ -100,6 +100,58 @@ describe('connectorPath', () => {
       connectorPath({ from: at('a'), to: at('gone'), routing: 'straight' }, shapes),
     ).toBeNull();
   });
+
+  it('handles coinciding anchors (mixed horizontal/vertical) with 2-point path', () => {
+    // Repro case: anchors at (100, 50)
+    const A2 = { type: 'rect' as const, x: 0, y: 0, w: 100, h: 100 };
+    const B2 = { type: 'rect' as const, x: 50, y: 50, w: 100, h: 0 };
+    const shapes2 = { a: A2, b: B2 };
+    const path = connectorPath(
+      {
+        from: { shapeId: 'a', anchor: 'e' as const },
+        to: { shapeId: 'b', anchor: 'n' as const },
+        routing: 'elbow' as const,
+      },
+      shapes2,
+    );
+    expect(path).toEqual([
+      { x: 100, y: 50 },
+      { x: 100, y: 50 },
+    ]);
+    expect(path?.length).toBe(2);
+  });
+
+  it('handles zero-size shape with all finite coordinates', () => {
+    const zeroSize = { type: 'rect' as const, x: 10, y: 10, w: 0, h: 0 };
+    const shapesWithZero = { a: A, zero: zeroSize };
+    const path = connectorPath(
+      {
+        from: { shapeId: 'a', anchor: 'auto' as const },
+        to: { shapeId: 'zero', anchor: 'auto' as const },
+        routing: 'straight' as const,
+      },
+      shapesWithZero,
+    );
+    expect(path).not.toBeNull();
+    expect(path?.length).toBe(2);
+    expect(path?.every((p) => Number.isFinite(p.x) && Number.isFinite(p.y))).toBe(true);
+  });
+
+  it('handles line shape with negative vector', () => {
+    const negLine = { type: 'line' as const, x: 400, y: 100, w: -100, h: 50 };
+    const shapesWithLine = { a: A, line: negLine };
+    const path = connectorPath(
+      {
+        from: { shapeId: 'a', anchor: 'auto' as const },
+        to: { shapeId: 'line', anchor: 'auto' as const },
+        routing: 'straight' as const,
+      },
+      shapesWithLine,
+    );
+    expect(path).not.toBeNull();
+    expect(path?.length).toBe(2);
+    expect(path?.every((p) => Number.isFinite(p.x) && Number.isFinite(p.y))).toBe(true);
+  });
 });
 
 describe('elbowPath and arrowHead', () => {
