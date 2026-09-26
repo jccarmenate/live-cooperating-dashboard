@@ -383,8 +383,9 @@ snapshot row per room; update-log compaction is unnecessary at this scale.
 
 | Limit | Value |
 |---|---|
-| Document size | 1 MB (a room whose saved snapshot exceeds it becomes read-only) |
+| Document size | 1 MB, enforced on arrival (running estimate of accepted updates, re-measured exactly when the estimate crosses the limit); snapshots over 1.9 MB are never written |
 | Message size | 256 KB |
+| Awareness frame | 8 KB, at most 2 awareness client ids per connection |
 | Per-connection rate | Token bucket, 60 messages/s, burst 120; exceeding it closes the socket (4429) so the reconnect resyncs |
 | Connections per room | 25 |
 | `POST /api/rooms` | Per-IP rate limit |
