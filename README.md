@@ -49,8 +49,9 @@ it**.
 | Undo | Per-user `Y.UndoManager` tracking only this client's origins; one step per gesture or text-editing session; fuzzed in the convergence test | Undo never reverts someone else's work, and replicas still converge |
 
 The full reasoning, including rejected alternatives (tldraw, Canvas 2D, y-websocket on a Node host), is in the
-[design spec](docs/superpowers/specs/2026-09-24-relay-design.md). The build followed a written
-[implementation plan](docs/superpowers/plans/2026-09-24-relay-f0-f1-foundation-mvp.md), with a spec and
+[design spec](docs/superpowers/specs/2026-09-24-relay-design.md). The build followed written
+implementation plans for [F0/F1](docs/superpowers/plans/2026-09-24-relay-f0-f1-foundation-mvp.md)
+and [F2a](docs/superpowers/plans/2026-09-26-relay-f2a-editing.md), with a spec and
 code-quality review after every task.
 
 ## Architecture
@@ -115,17 +116,18 @@ Or run it in Docker: `docker compose up`.
 ## Tests
 
 ```bash
-npm test         # unit, property and integration tests (≈96 tests)
-npm run e2e      # Playwright: two users collaborating, double-click editing, invalid links
+npm test         # unit, property and integration tests (≈140 tests)
+npm run e2e      # Playwright: two users collaborating, double-click editing, invalid links,
+                 # resize + undo/redo seen by a second user, marquee + delete, drawing ellipses/lines/code blocks
 npm run lint && npm run typecheck
 ```
 
 | Suite | What it proves |
 |---|---|
-| `packages/core` (Vitest + fast-check) | Geometry, the tool FSM transition tables, commands on a real `Y.Doc`, text diff (including emoji), and three-replica convergence |
+| `packages/core` (Vitest + fast-check) | Geometry, the tool FSM transition tables, commands on a real `Y.Doc`, text diff (including emoji), resize geometry, marquee hit-testing, per-user undo, and three-replica convergence |
 | `apps/sync-server` (Vitest + real `wrangler dev`) | Sync between editors, read-only viewers, 4401 on bad keys, a spoofed role header, message and awareness limits, the size cap, and persistence across a server restart |
-| `apps/web` (Vitest) | The Yjs → Zustand bridge (only touched shapes are rebuilt), the board controller (throttled drag commits), and the presence signature |
-| `e2e/` (Playwright) | Two browsers see each other's edits and named cursors, state outlives all peers, double-click edits, and invalid links are rejected |
+| `apps/web` (Vitest) | The Yjs → Zustand bridge (only touched shapes are rebuilt), the board controller (throttled drag commits, local overlay, undo/redo), and the presence signature |
+| `e2e/` (Playwright) | Two browsers see each other's edits and named cursors, state outlives all peers, double-click edits, invalid links are rejected, resize + undo/redo seen by a second user, marquee selection + delete, and drawing ellipses/lines/code blocks |
 
 ## Roadmap
 

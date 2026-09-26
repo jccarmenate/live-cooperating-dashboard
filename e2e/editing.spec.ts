@@ -53,6 +53,7 @@ test('resize, undo and redo a rectangle, seen by a second user', async ({
 
   await page.keyboard.press('Control+Shift+z');
   await expect(page.getByText('220 × 140')).toBeVisible();
+  await expect(pb.locator('[data-shape-id] rect').first()).toHaveAttribute('width', '220');
   await other.close();
 });
 
@@ -81,6 +82,7 @@ test('draws ellipses, lines and code blocks', async ({ page, request }) => {
   await drag(page, { x: 450, y: 200 }, { x: 600, y: 320 });
   await expect(page.locator('[data-shape-id] line')).toHaveCount(2); // stroke + hit area
   await expect(page.locator('[data-handle=start]')).toBeVisible();
+  await expect(page.locator('[data-handle=end]')).toBeVisible();
 
   await page.keyboard.press('c');
   await page.mouse.click(400, 480);

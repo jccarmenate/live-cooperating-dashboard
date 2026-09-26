@@ -49,8 +49,9 @@ La idea central es que **el documento es un CRDT y todo lo demás es una funció
 | Deshacer | Un `Y.UndoManager` por usuario que solo sigue los orígenes de este cliente; un paso por gesto o por sesión de edición de texto; se prueba con fuzzing en el test de convergencia | Deshacer nunca revierte el trabajo de otra persona, y las réplicas siguen convergiendo |
 
 El razonamiento completo está en la [spec de diseño](docs/superpowers/specs/2026-09-24-relay-design.md), junto con las
-alternativas descartadas (tldraw, Canvas 2D, y-websocket en un host Node). La construcción siguió un
-[plan de implementación](docs/superpowers/plans/2026-09-24-relay-f0-f1-foundation-mvp.md) escrito, con
+alternativas descartadas (tldraw, Canvas 2D, y-websocket en un host Node). La construcción siguió planes de
+implementación escritos para [F0/F1](docs/superpowers/plans/2026-09-24-relay-f0-f1-foundation-mvp.md)
+y [F2a](docs/superpowers/plans/2026-09-26-relay-f2a-editing.md), con
 revisión de spec y de calidad de código después de cada tarea.
 
 ## Arquitectura
@@ -115,17 +116,18 @@ O con Docker: `docker compose up`.
 ## Tests
 
 ```bash
-npm test         # tests unitarios, de propiedades y de integración (≈96)
-npm run e2e      # Playwright: dos usuarios colaborando, edición con doble clic, enlaces inválidos
+npm test         # tests unitarios, de propiedades y de integración (≈140)
+npm run e2e      # Playwright: dos usuarios colaborando, edición con doble clic, enlaces inválidos,
+                 # redimensionado + deshacer/rehacer visto por un segundo usuario, marquesina + borrado, dibujo de elipses/líneas/bloques de código
 npm run lint && npm run typecheck
 ```
 
 | Suite | Qué demuestra |
 |---|---|
-| `packages/core` (Vitest + fast-check) | Geometría, tablas de transiciones de la FSM, comandos sobre un `Y.Doc` real, diff de texto (incluidos emoji) y convergencia de tres réplicas |
+| `packages/core` (Vitest + fast-check) | Geometría, tablas de transiciones de la FSM, comandos sobre un `Y.Doc` real, diff de texto (incluidos emoji), geometría de redimensionado, hit-testing de marquesina, deshacer por usuario y convergencia de tres réplicas |
 | `apps/sync-server` (Vitest + `wrangler dev` real) | Sincronización entre editores, lectores de solo lectura, 4401 con claves inválidas, header de rol falsificado, límites de mensaje y de awareness, tope de tamaño y persistencia tras reiniciar el servidor |
-| `apps/web` (Vitest) | El puente Yjs → Zustand (solo se reconstruyen las formas tocadas), el controlador del tablero (commits de arrastre con throttle) y la firma de presencia |
-| `e2e/` (Playwright) | Dos navegadores ven las ediciones y los cursores con nombre del otro, el estado sobrevive a que todos se vayan, la edición con doble clic y el rechazo de enlaces inválidos |
+| `apps/web` (Vitest) | El puente Yjs → Zustand (solo se reconstruyen las formas tocadas), el controlador del tablero (commits de arrastre con throttle, overlay local, deshacer/rehacer) y la firma de presencia |
+| `e2e/` (Playwright) | Dos navegadores ven las ediciones y los cursores con nombre del otro, el estado sobrevive a que todos se vayan, la edición con doble clic, el rechazo de enlaces inválidos, redimensionado + deshacer/rehacer visto por un segundo usuario, selección por marquesina + borrado, y el dibujo de elipses/líneas/bloques de código |
 
 ## Hoja de ruta
 
