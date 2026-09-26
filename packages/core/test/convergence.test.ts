@@ -76,14 +76,20 @@ type Step =
 const replica = fc.integer({ min: 0, max: N - 1 });
 const coord = fc.integer({ min: -1000, max: 1000 });
 
+// 'create' and 'connect' are weighted up so that a run of the property test
+// reliably creates at least one connector (needed for the non-vacuousness
+// check below) instead of depending on luck at low numRuns.
 const stepArb: fc.Arbitrary<Step> = fc.oneof(
-  fc.record({
-    kind: fc.constant('create' as const),
-    r: replica,
-    type: fc.constantFrom('rect' as const, 'sticky' as const, 'text' as const),
-    x: coord,
-    y: coord,
-  }),
+  {
+    arbitrary: fc.record({
+      kind: fc.constant('create' as const),
+      r: replica,
+      type: fc.constantFrom('rect' as const, 'sticky' as const, 'text' as const),
+      x: coord,
+      y: coord,
+    }),
+    weight: 3,
+  },
   fc.record({ kind: fc.constant('move' as const), r: replica, pick: fc.nat(), x: coord, y: coord }),
   fc.record({
     kind: fc.constant('resize' as const),
@@ -111,13 +117,16 @@ const stepArb: fc.Arbitrary<Step> = fc.oneof(
     to: replica,
     count: fc.integer({ min: 1, max: 3 }),
   }),
-  fc.record({
-    kind: fc.constant('connect' as const),
-    r: replica,
-    a: fc.nat(),
-    b: fc.nat(),
-    elbow: fc.boolean(),
-  }),
+  {
+    arbitrary: fc.record({
+      kind: fc.constant('connect' as const),
+      r: replica,
+      a: fc.nat(),
+      b: fc.nat(),
+      elbow: fc.boolean(),
+    }),
+    weight: 3,
+  },
 );
 
 function pickId(doc: Y.Doc, pick: number): string | undefined {
@@ -125,7 +134,7 @@ function pickId(doc: Y.Doc, pick: number): string | undefined {
   return ids.length ? ids[pick % ids.length] : undefined;
 }
 
-function run(net: Net, steps: Step[]) {
+function run(net: Net, steps: Step[], counters?: { connectorsCreated: number }) {
   let n = 0;
   for (const s of steps) {
     if (s.kind === 'deliver') {
@@ -160,6 +169,7 @@ function run(net: Net, steps: Step[]) {
           },
           LOCAL_ORIGIN,
         );
+        if (counters) counters.connectorsCreated++;
       }
       continue;
     }
@@ -223,10 +233,13 @@ function snapshot(doc: Y.Doc) {
 
 describe('convergence', () => {
   it('replicas converge under arbitrary concurrent commands and delivery order', () => {
+    let connectorsCreated = 0;
     fc.assert(
-      fc.property(fc.array(stepArb, { maxLength: 60 }), (steps) => {
+      fc.property(fc.array(stepArb, { minLength: 20, maxLength: 60 }), (steps) => {
         const net = makeNet();
-        run(net, steps);
+        const counters = { connectorsCreated: 0 };
+        run(net, steps, counters);
+        connectorsCreated += counters.connectorsCreated;
         flushAll(net);
         const [first, ...rest] = net.docs.map((d) => getRoots(d).shapes.toJSON());
         for (const json of rest) expect(json).toEqual(first);
@@ -254,6 +267,7 @@ describe('convergence', () => {
       }),
       { numRuns: RUNS },
     );
+    expect(connectorsCreated).toBeGreaterThan(0);
   }, 600_000);
 
   it('a concurrent move and delete converge to deleted', () => {

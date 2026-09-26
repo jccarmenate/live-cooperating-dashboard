@@ -182,4 +182,40 @@ describe('applyCommand', () => {
     applyCommand(doc, { type: 'DeleteShapes', ids: ['k1'] });
     expect(getRoots(doc).connectors.has('k1')).toBe(false);
   });
+
+  it('Connect is a no-op when the id is already used by a shape', () => {
+    const doc = new Y.Doc();
+    applyCommand(doc, { type: 'CreateShape', shape: sticky('dup') });
+    applyCommand(doc, {
+      type: 'Connect',
+      connector: {
+        id: 'dup',
+        from: { x: 0, y: 0 },
+        to: { x: 1, y: 1 },
+        routing: 'straight',
+        head: 'arrow',
+        createdBy: 'u1',
+      },
+    });
+    expect(getRoots(doc).connectors.has('dup')).toBe(false);
+    expect(read(doc, 'dup')).not.toBeNull();
+  });
+
+  it('CreateShape is a no-op when the id is already used by a connector', () => {
+    const doc = new Y.Doc();
+    applyCommand(doc, {
+      type: 'Connect',
+      connector: {
+        id: 'dup',
+        from: { x: 0, y: 0 },
+        to: { x: 1, y: 1 },
+        routing: 'straight',
+        head: 'arrow',
+        createdBy: 'u1',
+      },
+    });
+    applyCommand(doc, { type: 'CreateShape', shape: sticky('dup') });
+    expect(read(doc, 'dup')).toBeNull();
+    expect(getRoots(doc).connectors.has('dup')).toBe(true);
+  });
 });

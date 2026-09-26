@@ -40,7 +40,7 @@ function apply(doc: Y.Doc, cmd: Command): void {
   switch (cmd.type) {
     case 'CreateShape': {
       const { text, z, ...fields } = cmd.shape;
-      if (shapes.has(fields.id)) return;
+      if (shapes.has(fields.id) || connectors.has(fields.id)) return;
       const m = new Y.Map<unknown>();
       for (const [key, value] of Object.entries(fields)) {
         if (value !== undefined) m.set(key, value);
@@ -92,7 +92,7 @@ function apply(doc: Y.Doc, cmd: Command): void {
     }
     case 'Connect': {
       const { z, ...fields } = cmd.connector;
-      if (connectors.has(fields.id)) return;
+      if (shapes.has(fields.id) || connectors.has(fields.id)) return;
       const m = new Y.Map<unknown>();
       m.set('from', fields.from);
       m.set('to', fields.to);
