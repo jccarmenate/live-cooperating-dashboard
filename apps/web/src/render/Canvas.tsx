@@ -15,7 +15,10 @@ export function Canvas({ session }: { session: BoardSession }) {
   const info = (e: PointerEvent | MouseEvent): PointerInfo => {
     const bounds = svgRef.current?.getBoundingClientRect();
     const screen = { x: e.clientX - (bounds?.left ?? 0), y: e.clientY - (bounds?.top ?? 0) };
-    const hit = (e.target as Element).closest('[data-shape-id]');
+    // Hit-test by position, not e.target: while the SVG holds pointer capture —
+    // and for the click/dblclick that follows it — the browser retargets events
+    // to the <svg> itself, which would hide the shape under the pointer.
+    const hit = document.elementFromPoint(e.clientX, e.clientY)?.closest('[data-shape-id]');
     return {
       world: screenToWorld(controller.ui.getState().camera, screen),
       shift: e.shiftKey,

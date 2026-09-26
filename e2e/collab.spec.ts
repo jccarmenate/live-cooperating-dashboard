@@ -56,6 +56,26 @@ test('two users collaborate live in a new board', async ({ browser, request }) =
   await c.close();
 });
 
+test('double-clicking an existing shape edits its text', async ({ page, request }) => {
+  const res = await request.post(`${SYNC}/api/rooms`);
+  const { roomId, editKey } = (await res.json()) as { roomId: string; editKey: string };
+  await openBoard(page, `/r/${roomId}#k=${editKey}`);
+
+  await page.getByTestId('tool-sticky').click();
+  await page.getByTestId('canvas').click({ position: { x: 500, y: 300 } });
+  await page.getByTestId('text-editor').fill('Ship it');
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('text-editor')).toBeHidden();
+
+  // The canvas holds pointer capture during a click, so the dblclick is
+  // retargeted to the <svg>; hit-testing must still find the sticky.
+  await page.getByText('Ship it').dblclick();
+  await expect(page.getByTestId('text-editor')).toBeFocused();
+  await page.keyboard.type(' now');
+  await page.keyboard.press('Escape');
+  await expect(page.getByText('Ship it now')).toBeVisible();
+});
+
 test('an invalid key is rejected', async ({ page }) => {
   await page.goto('/r/doesnotexist#k=bogus');
   await expect(page.getByText('This link is invalid')).toBeVisible({ timeout: 20_000 });
