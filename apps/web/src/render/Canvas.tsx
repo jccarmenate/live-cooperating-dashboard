@@ -10,6 +10,7 @@ import { type MouseEvent, type PointerEvent, useRef, type WheelEvent } from 'rea
 import { useStore } from 'zustand';
 import { useShallow } from 'zustand/react/shallow';
 import type { BoardSession } from '../board/session';
+import { ConnectorView } from './ConnectorView';
 import { SelectionLayer } from './SelectionLayer';
 import { ShapeView } from './ShapeView';
 
@@ -55,6 +56,10 @@ export function Canvas({ session }: { session: BoardSession }) {
     session.doc,
     useShallow((s) => s.order),
   );
+  const connectorOrder = useStore(
+    session.doc,
+    useShallow((s) => s.connectorOrder),
+  );
   const camera = useStore(controller.ui, (s) => s.camera);
   const preview = useStore(controller.ui, (s) => s.preview);
   const svgRef = useRef<SVGSVGElement>(null);
@@ -68,11 +73,16 @@ export function Canvas({ session }: { session: BoardSession }) {
     const el = document.elementFromPoint(e.clientX, e.clientY);
     const hit = el?.closest('[data-shape-id]');
     const handle = el?.closest('[data-handle]')?.getAttribute('data-handle');
+    const connectorId = el?.closest('[data-connector-id]')?.getAttribute('data-connector-id');
+    const columnId = el?.closest('[data-column-id]')?.getAttribute('data-column-id');
+    const frameId = columnId ? hit?.getAttribute('data-shape-id') : null;
     return {
       world: screenToWorld(controller.ui.getState().camera, screen),
       shift: e.shiftKey,
       hitId: hit?.getAttribute('data-shape-id') ?? null,
       ...(isHandle(handle) ? { handle } : {}),
+      ...(connectorId ? { connectorId } : {}),
+      ...(columnId && frameId ? { column: { frameId, columnId } } : {}),
     };
   };
 
@@ -132,6 +142,9 @@ export function Canvas({ session }: { session: BoardSession }) {
       </defs>
       <rect width="100%" height="100%" fill="url(#relay-dots)" />
       <g transform={transform}>
+        {connectorOrder.map((id) => (
+          <ConnectorView key={id} id={id} session={session} />
+        ))}
         {order.map((id) => (
           <ShapeView key={id} id={id} session={session} />
         ))}

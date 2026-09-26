@@ -1,5 +1,15 @@
 import type { ToolId } from '@relay/core';
-import { Braces, Circle, MousePointer2, Slash, Square, StickyNote, Type } from 'lucide-react';
+import {
+  ArrowUpRight,
+  Braces,
+  Circle,
+  Frame,
+  MousePointer2,
+  Slash,
+  Square,
+  StickyNote,
+  Type,
+} from 'lucide-react';
 import type { ComponentType } from 'react';
 import { useStore } from 'zustand';
 import type { BoardSession } from '../board/session';
@@ -14,9 +24,11 @@ const TOOLS: {
   { id: 'rect', label: 'Rectangle', key: 'R', Icon: Square },
   { id: 'ellipse', label: 'Ellipse', key: 'O', Icon: Circle },
   { id: 'line', label: 'Line', key: 'L', Icon: Slash },
+  { id: 'connector', label: 'Connector', key: 'A', Icon: ArrowUpRight },
   { id: 'text', label: 'Text', key: 'T', Icon: Type },
   { id: 'sticky', label: 'Sticky note', key: 'S', Icon: StickyNote },
   { id: 'code', label: 'Code block', key: 'C', Icon: Braces },
+  { id: 'frame', label: 'Frame', key: 'F', Icon: Frame },
 ];
 
 export function Toolbar({ session }: { session: BoardSession }) {
