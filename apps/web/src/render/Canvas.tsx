@@ -1,6 +1,14 @@
-import { PALETTE, type PointerInfo, type Preview, panBy, screenToWorld } from '@relay/core';
+import {
+  isHandle,
+  PALETTE,
+  type PointerInfo,
+  type Preview,
+  panBy,
+  screenToWorld,
+} from '@relay/core';
 import { type MouseEvent, type PointerEvent, useRef, type WheelEvent } from 'react';
 import { useStore } from 'zustand';
+import { useShallow } from 'zustand/react/shallow';
 import type { BoardSession } from '../board/session';
 import { SelectionLayer } from './SelectionLayer';
 import { ShapeView } from './ShapeView';
@@ -43,7 +51,10 @@ function PreviewShape({ preview, zoom }: { preview: Preview; zoom: number }) {
 
 export function Canvas({ session }: { session: BoardSession }) {
   const { controller, publisher } = session;
-  const order = useStore(session.doc, (s) => s.order);
+  const order = useStore(
+    session.doc,
+    useShallow((s) => s.order),
+  );
   const camera = useStore(controller.ui, (s) => s.camera);
   const preview = useStore(controller.ui, (s) => s.preview);
   const svgRef = useRef<SVGSVGElement>(null);
@@ -54,11 +65,14 @@ export function Canvas({ session }: { session: BoardSession }) {
     // Hit-test by position, not e.target: while the SVG holds pointer capture —
     // and for the click/dblclick that follows it — the browser retargets events
     // to the <svg> itself, which would hide the shape under the pointer.
-    const hit = document.elementFromPoint(e.clientX, e.clientY)?.closest('[data-shape-id]');
+    const el = document.elementFromPoint(e.clientX, e.clientY);
+    const hit = el?.closest('[data-shape-id]');
+    const handle = el?.closest('[data-handle]')?.getAttribute('data-handle');
     return {
       world: screenToWorld(controller.ui.getState().camera, screen),
       shift: e.shiftKey,
       hitId: hit?.getAttribute('data-shape-id') ?? null,
+      ...(isHandle(handle) ? { handle } : {}),
     };
   };
 
@@ -97,6 +111,8 @@ export function Canvas({ session }: { session: BoardSession }) {
         }
         controller.dispatch({ type: 'pointerUp', p: info(e) });
       }}
+      onPointerCancel={() => controller.dispatch({ type: 'cancel' })}
+      onLostPointerCapture={() => controller.dispatch({ type: 'cancel' })}
       onPointerLeave={() => publisher.setCursor(null)}
       onDoubleClick={(e) => controller.dispatch({ type: 'doubleClick', p: info(e) })}
       onWheel={(e: WheelEvent) =>

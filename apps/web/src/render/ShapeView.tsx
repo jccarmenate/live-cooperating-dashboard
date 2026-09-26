@@ -3,6 +3,7 @@ import { memo } from 'react';
 import { useStore } from 'zustand';
 import type { BoardSession } from '../board/session';
 import { CODE_HEADER, TEXT_BOX, TEXT_STYLE } from './typography';
+import { useShape } from './useShape';
 
 const timeOf = (ts: number) =>
   new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
@@ -158,7 +159,7 @@ export const ShapeView = memo(function ShapeView({
   id: string;
   session: BoardSession;
 }) {
-  const shape = useStore(session.doc, (s) => s.shapes[id]);
+  const shape = useShape(session, id);
   const editing = useStore(session.controller.ui, (s) => s.editingId === id);
   if (!shape) return null;
   return (

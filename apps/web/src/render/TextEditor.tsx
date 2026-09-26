@@ -3,11 +3,12 @@ import { useEffect, useLayoutEffect, useRef } from 'react';
 import { useStore } from 'zustand';
 import type { BoardSession } from '../board/session';
 import { isCentered, TEXT_BOX, TEXT_STYLE } from './typography';
+import { useShape } from './useShape';
 
 export function TextEditor({ session }: { session: BoardSession }) {
   const { controller } = session;
   const editingId = useStore(controller.ui, (s) => s.editingId);
-  const shape = useStore(session.doc, (s) => (editingId ? s.shapes[editingId] : undefined));
+  const shape = useShape(session, editingId);
   const camera = useStore(controller.ui, (s) => s.camera);
   const ref = useRef<HTMLTextAreaElement>(null);
   const lastText = useRef('');
