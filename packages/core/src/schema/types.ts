@@ -39,6 +39,24 @@ export interface Rect {
   h: number;
 }
 
+export type AnchorSide = 'n' | 's' | 'e' | 'w';
+export type Anchor = AnchorSide | 'auto';
+export type AttachedEnd = { shapeId: string; anchor: Anchor };
+export type FreeEnd = { x: number; y: number };
+export type Endpoint = AttachedEnd | FreeEnd;
+export type Routing = 'straight' | 'elbow';
+
+export interface Connector {
+  id: string;
+  from: Endpoint;
+  to: Endpoint;
+  routing: Routing;
+  head: 'arrow' | 'none';
+  /** Fractional-index key; ties are broken by id. */
+  z: string;
+  createdBy: string;
+}
+
 export interface Shape extends Rect {
   id: string;
   type: ShapeType;

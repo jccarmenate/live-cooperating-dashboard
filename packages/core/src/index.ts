@@ -3,6 +3,7 @@ export * from './commands/origins';
 export * from './commands/types';
 export * from './commands/undo';
 export * from './geometry/camera';
+export * from './geometry/connectors';
 export * from './geometry/rect';
 export * from './geometry/shapes';
 export * from './presence/identity';
