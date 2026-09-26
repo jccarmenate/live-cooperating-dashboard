@@ -264,10 +264,11 @@ Inactive clients are dropped by the standard awareness timeout.
 ### Commands and Undo
 
 All mutations are values of a typed union — `CreateShape`, `MoveShapes`,
-`ResizeShapes`, `DeleteShapes`, `Reparent`, `Connect`, `SetZ`, `SetText`,
-`SetStyle`, `Vote`, `StartVote`, `AddComment`, `ResolveComment`,
-`ApplyAiProposal`, … — applied by `applyCommand(doc, cmd)` inside
-`doc.transact(fn, origin)`. UI code never touches Yjs types directly.
+`ResizeShapes`, `DeleteShapes`, `Reparent`, `Connect`, `SetRouting`,
+`RenameColumn`, `SetZ`, `SetText`, `SetStyle`, `Vote`, `StartVote`,
+`AddComment`, `ResolveComment`, `ApplyAiProposal`, … — applied by
+`applyCommand(doc, cmd)` inside `doc.transact(fn, origin)`. UI code never
+touches Yjs types directly.
 
 `Y.UndoManager` tracks the `LOCAL` and `AI` origins only, so each user undoes
 only their own changes. Gestures call `stopCapturing()` on completion so a
@@ -333,10 +334,35 @@ stroke (world units, so it scales with zoom).
 
 ### Connectors
 
-Endpoints attached to a shape are clipped to the shape boundary (rectangle
-or ellipse intersection along the line between centers, or a fixed anchor).
-Elbow routing produces an orthogonal polyline with at most two bends chosen
-from the anchor sides. Obstacle-avoiding routing is out of scope.
+Connectors are drawn with the connector tool (`A`): press on a shape (or on
+empty canvas for a free end) and release on another shape (or anywhere for a
+free end). Attached ends use the `auto` anchor. Geometry is derived on every
+render from the current — overlay-aware — shape geometry, so connectors
+follow shapes while they are dragged. Straight connectors clip to the shape
+outline (rectangle bounds or the ellipse curve) along the line between
+centres; elbow connectors leave and enter through the facing sides with an
+orthogonal polyline of at most two bends (obstacle-avoiding routing is out of
+scope). New connectors are straight with an arrowhead; `E` toggles the
+selected connectors between straight and elbow (`SetRouting`). Connectors
+are selected by clicking them (14-unit hit stroke) and deleted with the
+selection; deleting a shape deletes its connectors in the same transaction,
+and the read side drops connectors whose shape vanished concurrently.
+
+### Frames
+
+The frame tool (`F`) draws a frame with the default retro columns
+(`Went well`, `To improve`, `Actions`) stored as a `Y.Array<{ id, title }>`
+created by the frame's creator; the frame title is its `Y.Text`. Columns
+split the body equally under a 36-unit title band. Frames render in the
+bottom layer; only the title band is hit-testable, so clicks inside a frame
+reach the shapes and the canvas (marquee). A new shape created inside a
+frame, or a shape dropped there, is parented to the topmost frame under its
+centre and to the column under it (`Reparent`); dropped outside every frame
+it is unparented. Dragging or nudging a frame moves its children. Column
+counters are derived from `parentId`/`columnId`. Double-clicking a column
+header renames it (`RenameColumn`: delete + insert in one transaction;
+concurrent renames converge and readers de-duplicate columns by id).
+Marquee selection includes a frame only when it is fully inside the marquee.
 
 ### Text Editing
 
@@ -349,7 +375,8 @@ publishes `editing` in awareness so peers see an "editing" outline.
 ### Input
 
 Shortcuts: `V` select, `R` rectangle, `O` ellipse, `L` line, `T` text,
-`S` sticky, `C` code block, `Delete`, `Ctrl+Z` / `Ctrl+Shift+Z`, arrow keys to nudge
+`S` sticky, `C` code block, `A` connector, `F` frame, `E` toggle connector
+routing, `Delete`, `Ctrl+Z` / `Ctrl+Shift+Z`, arrow keys to nudge
 (Shift = 10 px). Pan with space-drag or middle mouse; zoom with
 Ctrl/⌘+wheel or pinch.
 
