@@ -5,11 +5,14 @@ import { describe, expect, it } from 'vitest';
 import * as Y from 'yjs';
 import {
   applyCommand,
+  type Connector,
   createUndo,
   DEFAULT_STYLE,
   getRoots,
   LOCAL_ORIGIN,
+  normalizeConnectors,
   normalizeShapes,
+  readConnector,
   readShape,
   type Shape,
   type Undo,
@@ -67,7 +70,8 @@ type Step =
   | { kind: 'delete'; r: number; pick: number }
   | { kind: 'undo'; r: number }
   | { kind: 'redo'; r: number }
-  | { kind: 'deliver'; from: number; to: number; count: number };
+  | { kind: 'deliver'; from: number; to: number; count: number }
+  | { kind: 'connect'; r: number; a: number; b: number; elbow: boolean };
 
 const replica = fc.integer({ min: 0, max: N - 1 });
 const coord = fc.integer({ min: -1000, max: 1000 });
@@ -107,6 +111,13 @@ const stepArb: fc.Arbitrary<Step> = fc.oneof(
     to: replica,
     count: fc.integer({ min: 1, max: 3 }),
   }),
+  fc.record({
+    kind: fc.constant('connect' as const),
+    r: replica,
+    a: fc.nat(),
+    b: fc.nat(),
+    elbow: fc.boolean(),
+  }),
 );
 
 function pickId(doc: Y.Doc, pick: number): string | undefined {
@@ -129,6 +140,29 @@ function run(net: Net, steps: Step[]) {
     }
     const doc = net.docs[s.r];
     if (!doc) continue;
+    if (s.kind === 'connect') {
+      const ids = [...getRoots(doc).shapes.keys()].sort();
+      const a = ids[s.a % Math.max(1, ids.length)];
+      const b = ids[s.b % Math.max(1, ids.length)];
+      if (a && b && a !== b) {
+        applyCommand(
+          doc,
+          {
+            type: 'Connect',
+            connector: {
+              id: `k${s.r}-${n++}`,
+              from: { shapeId: a, anchor: 'auto' },
+              to: { shapeId: b, anchor: 'auto' },
+              routing: s.elbow ? 'elbow' : 'straight',
+              head: 'arrow',
+              createdBy: `u${s.r}`,
+            },
+          },
+          LOCAL_ORIGIN,
+        );
+      }
+      continue;
+    }
     if (s.kind === 'create') {
       applyCommand(
         doc,
@@ -200,6 +234,22 @@ describe('convergence', () => {
         for (const [i, snap] of snaps.entries()) {
           expect(snap.order.length).toBe(getRoots(net.docs[i] as Y.Doc).shapes.size);
           expect(snap.order).toEqual(snaps[0]?.order);
+        }
+        const conns = net.docs.map((d) => getRoots(d).connectors.toJSON());
+        for (const json of conns.slice(1)) expect(json).toEqual(conns[0]);
+        for (const d of net.docs) {
+          const raw: Record<string, Connector> = {};
+          for (const [id, m] of getRoots(d).connectors.entries()) {
+            const c = readConnector(id, m);
+            if (c) raw[id] = c;
+          }
+          const { shapes } = snapshot(d);
+          const { connectors } = normalizeConnectors(raw, shapes);
+          for (const c of Object.values(connectors)) {
+            for (const end of [c.from, c.to]) {
+              if ('shapeId' in end) expect(shapes[end.shapeId]).toBeDefined();
+            }
+          }
         }
       }),
       { numRuns: RUNS },

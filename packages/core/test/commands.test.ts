@@ -6,6 +6,7 @@ import {
   getRoots,
   LOCAL_ORIGIN,
   type NewShape,
+  readConnector,
   readShape,
 } from '../src';
 
@@ -120,5 +121,65 @@ describe('applyCommand', () => {
     doc.on('afterTransaction', (tr) => origins.push(tr.origin));
     applyCommand(doc, { type: 'CreateShape', shape: sticky('s1') }, LOCAL_ORIGIN);
     expect(origins).toEqual([LOCAL_ORIGIN]);
+  });
+
+  it('Connect stores a connector once, above existing ones', () => {
+    const doc = new Y.Doc();
+    const base = {
+      from: { shapeId: 'a', anchor: 'auto' as const },
+      to: { x: 10, y: 20 },
+      routing: 'straight' as const,
+      head: 'arrow' as const,
+      createdBy: 'u1',
+    };
+    applyCommand(doc, { type: 'Connect', connector: { id: 'k1', ...base } });
+    applyCommand(doc, { type: 'Connect', connector: { id: 'k2', ...base } });
+    applyCommand(doc, { type: 'Connect', connector: { id: 'k1', ...base, routing: 'elbow' } });
+    const { connectors } = getRoots(doc);
+    const k1 = readConnector('k1', connectors.get('k1') as Y.Map<unknown>);
+    const k2 = readConnector('k2', connectors.get('k2') as Y.Map<unknown>);
+    expect(k1).toMatchObject({
+      from: { shapeId: 'a', anchor: 'auto' },
+      to: { x: 10, y: 20 },
+      routing: 'straight',
+      head: 'arrow',
+    });
+    expect((k2?.z ?? '') > (k1?.z ?? '')).toBe(true);
+  });
+
+  it('SetRouting switches a connector between straight and elbow', () => {
+    const doc = new Y.Doc();
+    applyCommand(doc, {
+      type: 'Connect',
+      connector: {
+        id: 'k1',
+        from: { x: 0, y: 0 },
+        to: { x: 1, y: 1 },
+        routing: 'straight',
+        head: 'arrow',
+        createdBy: 'u1',
+      },
+    });
+    applyCommand(doc, { type: 'SetRouting', id: 'k1', routing: 'elbow' });
+    applyCommand(doc, { type: 'SetRouting', id: 'gone', routing: 'elbow' });
+    expect(getRoots(doc).connectors.get('k1')?.get('routing')).toBe('elbow');
+    expect(getRoots(doc).connectors.has('gone')).toBe(false);
+  });
+
+  it('DeleteShapes also deletes listed connectors', () => {
+    const doc = new Y.Doc();
+    applyCommand(doc, {
+      type: 'Connect',
+      connector: {
+        id: 'k1',
+        from: { x: 0, y: 0 },
+        to: { x: 1, y: 1 },
+        routing: 'straight',
+        head: 'arrow',
+        createdBy: 'u1',
+      },
+    });
+    applyCommand(doc, { type: 'DeleteShapes', ids: ['k1'] });
+    expect(getRoots(doc).connectors.has('k1')).toBe(false);
   });
 });

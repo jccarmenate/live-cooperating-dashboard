@@ -1,10 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import * as Y from 'yjs';
 import {
+  type Connector,
   DEFAULT_STYLE,
   getRoots,
   initMeta,
+  normalizeConnectors,
   normalizeShapes,
+  readConnector,
   readMeta,
   readShape,
   type Shape,
@@ -126,5 +129,55 @@ describe('normalizeShapes', () => {
     expect(shapes.orphan?.parentId).toBeUndefined();
     expect(shapes.orphan?.columnId).toBeUndefined();
     expect(shapes.bad?.parentId).toBeUndefined();
+  });
+});
+
+describe('connectors', () => {
+  const connector = (id: string, partial: Partial<Connector> = {}): Connector => ({
+    id,
+    from: { shapeId: 'a', anchor: 'auto' },
+    to: { shapeId: 'b', anchor: 'e' },
+    routing: 'straight',
+    head: 'arrow',
+    z: 'a0',
+    createdBy: 'u',
+    ...partial,
+  });
+
+  it('readConnector validates endpoints and defaults routing and head', () => {
+    const doc = new Y.Doc();
+    const m = new Y.Map<unknown>();
+    getRoots(doc).connectors.set('k', m);
+    doc.transact(() => {
+      m.set('from', { shapeId: 'a', anchor: 'auto' });
+      m.set('to', { x: 5, y: 6 });
+      m.set('routing', 'zigzag');
+    });
+    expect(readConnector('k', m)).toEqual({
+      id: 'k',
+      from: { shapeId: 'a', anchor: 'auto' },
+      to: { x: 5, y: 6 },
+      routing: 'straight',
+      head: 'arrow',
+      z: 'a0',
+      createdBy: 'unknown',
+    });
+    m.set('to', { shapeId: 'b', anchor: 'middle' });
+    expect(readConnector('k', m)).toBeNull();
+  });
+
+  it('normalizeConnectors drops connectors whose shapes are gone and orders by z', () => {
+    const shapes = { a: shape({ id: 'a' }), b: shape({ id: 'b' }) };
+    const keep = connector('keep', { z: 'a2' });
+    const first = connector('first', { z: 'a1', to: { x: 0, y: 0 } });
+    const raw = {
+      keep,
+      first,
+      orphan: connector('orphan', { to: { shapeId: 'gone', anchor: 'auto' } }),
+    };
+    const { connectors, connectorOrder } = normalizeConnectors(raw, shapes);
+    expect(connectorOrder).toEqual(['first', 'keep']);
+    expect(connectors.keep).toBe(keep);
+    expect(connectors.orphan).toBeUndefined();
   });
 });

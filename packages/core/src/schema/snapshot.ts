@@ -2,6 +2,8 @@ import * as Y from 'yjs';
 import { DEFAULT_STYLE } from './defaults';
 import {
   type BoardMeta,
+  type Connector,
+  type Endpoint,
   SCHEMA_VERSION,
   SHAPE_TYPES,
   type Shape,
@@ -53,6 +55,43 @@ export function readShape(id: string, m: Y.Map<unknown>): Shape | null {
   const text = m.get('text');
   if (text instanceof Y.Text) shape.text = text.toString();
   return shape;
+}
+
+const ANCHORS = ['n', 's', 'e', 'w', 'auto'] as const;
+
+function readEndpoint(v: unknown): Endpoint | null {
+  if (!v || typeof v !== 'object') return null;
+  const o = v as Record<string, unknown>;
+  if (typeof o.shapeId === 'string') {
+    const anchor = o.anchor;
+    if (typeof anchor !== 'string' || !(ANCHORS as readonly string[]).includes(anchor)) return null;
+    return { shapeId: o.shapeId, anchor: anchor as (typeof ANCHORS)[number] };
+  }
+  if (
+    typeof o.x === 'number' &&
+    Number.isFinite(o.x) &&
+    typeof o.y === 'number' &&
+    Number.isFinite(o.y)
+  ) {
+    return { x: o.x, y: o.y };
+  }
+  return null;
+}
+
+/** Immutable snapshot of one connector, or null if an endpoint is malformed. */
+export function readConnector(id: string, m: Y.Map<unknown>): Connector | null {
+  const from = readEndpoint(m.get('from'));
+  const to = readEndpoint(m.get('to'));
+  if (!from || !to) return null;
+  return {
+    id,
+    from,
+    to,
+    routing: m.get('routing') === 'elbow' ? 'elbow' : 'straight',
+    head: m.get('head') === 'none' ? 'none' : 'arrow',
+    z: str(m.get('z')) ?? 'a0',
+    createdBy: str(m.get('createdBy')) ?? 'unknown',
+  };
 }
 
 export function readMeta(meta: Y.Map<unknown>): BoardMeta {

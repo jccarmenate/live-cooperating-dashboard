@@ -6,14 +6,18 @@ import type { Command } from './types';
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 
-/** Highest z key among current shapes, or null if there are none. */
-export function topZ(doc: Y.Doc): string | null {
+function topKey(map: Y.Map<Y.Map<unknown>>): string | null {
   let max: string | null = null;
-  for (const m of getRoots(doc).shapes.values()) {
+  for (const m of map.values()) {
     const z = m.get('z');
     if (typeof z === 'string' && (max === null || z > max)) max = z;
   }
   return max;
+}
+
+/** Highest z key among current shapes, or null if there are none. */
+export function topZ(doc: Y.Doc): string | null {
+  return topKey(getRoots(doc).shapes);
 }
 
 function keyAbove(top: string | null): string {
@@ -78,11 +82,29 @@ function apply(doc: Y.Doc, cmd: Command): void {
     case 'DeleteShapes': {
       const ids = new Set(cmd.ids);
       for (const id of ids) shapes.delete(id);
+      for (const id of ids) if (connectors.has(id)) connectors.delete(id);
       const doomed: string[] = [];
       for (const [cid, c] of connectors.entries()) {
         if (refersTo(c.get('from'), ids) || refersTo(c.get('to'), ids)) doomed.push(cid);
       }
       for (const cid of doomed) connectors.delete(cid);
+      return;
+    }
+    case 'Connect': {
+      const { z, ...fields } = cmd.connector;
+      if (connectors.has(fields.id)) return;
+      const m = new Y.Map<unknown>();
+      m.set('from', fields.from);
+      m.set('to', fields.to);
+      m.set('routing', fields.routing);
+      m.set('head', fields.head);
+      m.set('createdBy', fields.createdBy);
+      m.set('z', z ?? keyAbove(topKey(connectors)));
+      connectors.set(fields.id, m);
+      return;
+    }
+    case 'SetRouting': {
+      connectors.get(cmd.id)?.set('routing', cmd.routing);
       return;
     }
   }
