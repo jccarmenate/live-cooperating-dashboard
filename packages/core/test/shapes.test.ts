@@ -84,6 +84,33 @@ describe('resizeGeometry — boxes', () => {
     });
   });
 
+  it('clamps w handle while keeping right edge fixed', () => {
+    expect(resizeGeometry('rect', box, 'w', { x: 195, y: 0 })).toEqual({
+      x: 292,
+      y: 100,
+      w: 8,
+      h: 100,
+    });
+  });
+
+  it('clamps corner handles while keeping opposite corner fixed', () => {
+    expect(resizeGeometry('rect', box, 'nw', { x: 195, y: 95 })).toEqual({
+      x: 292,
+      y: 192,
+      w: 8,
+      h: 8,
+    });
+  });
+
+  it('clamps n handle while keeping bottom edge fixed', () => {
+    expect(resizeGeometry('rect', box, 'n', { x: 0, y: 100 })).toEqual({
+      x: 100,
+      y: 192,
+      w: 200,
+      h: 8,
+    });
+  });
+
   it('keeps the aspect ratio on corner handles when asked', () => {
     expect(resizeGeometry('rect', box, 'se', { x: 100, y: 0 }, true)).toEqual({
       x: 100,

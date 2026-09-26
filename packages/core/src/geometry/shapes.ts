@@ -53,6 +53,14 @@ export function shapesInRect(shapes: Readonly<Record<string, Shape>>, rect: Rect
     .sort();
 }
 
+/** Keeps `moving` at least MIN_SIZE away from `fixed`, on the side it was dragged to. */
+function clampFrom(fixed: number, moving: number, movingIsMin: boolean): number {
+  const d = moving - fixed;
+  if (Math.abs(d) >= MIN_SIZE) return moving;
+  const side = d === 0 ? (movingIsMin ? -1 : 1) : Math.sign(d);
+  return fixed + side * MIN_SIZE;
+}
+
 /**
  * New geometry when `handle` of a shape whose geometry was `start` is dragged by `delta`.
  * Boxes flip instead of going negative and never shrink below MIN_SIZE; `keepAspect`
@@ -102,6 +110,10 @@ export function resizeGeometry(
     else bottom = top + nh;
   }
 
-  const r = rectFromPoints({ x: left, y: top }, { x: right, y: bottom });
-  return { x: r.x, y: r.y, w: Math.max(MIN_SIZE, r.w), h: Math.max(MIN_SIZE, r.h) };
+  if (handle.includes('w')) left = clampFrom(right, left, true);
+  if (handle.includes('e')) right = clampFrom(left, right, false);
+  if (handle.includes('n')) top = clampFrom(bottom, top, true);
+  if (handle.includes('s')) bottom = clampFrom(top, bottom, false);
+
+  return rectFromPoints({ x: left, y: top }, { x: right, y: bottom });
 }
