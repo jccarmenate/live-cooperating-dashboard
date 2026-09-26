@@ -127,12 +127,18 @@ function apply(doc: Y.Doc, cmd: Command): void {
     case 'RenameColumn': {
       const cols = shapes.get(cmd.frameId)?.get('columns');
       if (!(cols instanceof Y.Array)) return;
-      const index = cols
-        .toArray()
-        .findIndex((c: unknown) => (c as { id?: unknown } | null)?.id === cmd.columnId);
-      if (index < 0) return;
-      cols.delete(index, 1);
-      cols.insert(index, [{ id: cmd.columnId, title: cmd.title }]);
+      const indexes: number[] = [];
+      cols.toArray().forEach((c: unknown, i: number) => {
+        if ((c as { id?: unknown } | null)?.id === cmd.columnId) indexes.push(i);
+      });
+      if (indexes.length === 0) return;
+      // Delete highest index first so earlier indices stay valid, then
+      // compact any duplicate entries a prior concurrent rename left behind.
+      for (let i = indexes.length - 1; i >= 0; i--) {
+        const idx = indexes[i];
+        if (idx !== undefined) cols.delete(idx, 1);
+      }
+      cols.insert(indexes[0] as number, [{ id: cmd.columnId, title: cmd.title }]);
       return;
     }
   }

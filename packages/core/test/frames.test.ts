@@ -171,6 +171,16 @@ describe('frame commands and snapshots', () => {
     const ca = read(a, 'f1')?.columns ?? [];
     expect(ca).toHaveLength(3);
     expect(read(b, 'f1')?.columns).toEqual(ca);
+
+    applyCommand(a, { type: 'RenameColumn', frameId: 'f1', columnId: 'c1', title: 'Wins!' });
+    Y.applyUpdate(b, Y.encodeStateAsUpdate(a));
+    const rawA = getRoots(a).shapes.get('f1')?.get('columns') as Y.Array<unknown>;
+    const rawB = getRoots(b).shapes.get('f1')?.get('columns') as Y.Array<unknown>;
+    expect(rawA.length).toBe(3);
+    expect(rawB.length).toBe(3);
+    const cb = read(b, 'f1')?.columns ?? [];
+    expect(read(a, 'f1')?.columns).toEqual(cb);
+    expect(cb[0]).toEqual({ id: 'c1', title: 'Wins!' });
   });
 });
 
