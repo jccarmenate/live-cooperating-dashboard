@@ -12,7 +12,9 @@
     "format": "biome check --write .",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
-    "e2e": "playwright test"
+    "e2e": "playwright test",
+    "demo:bot": "node scripts/demo-bot.mjs",
+    "demo:capture": "node scripts/capture.mjs"
   },
   "overrides": {
     "yjs": "^13.6.33"
