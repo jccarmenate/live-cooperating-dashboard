@@ -242,15 +242,18 @@ geometry is derived from the shapes they attach to.
   user: { id: string; name: string; color: string };
   cursor: { x: number; y: number } | null;   // world coordinates
   selection: string[];
-  editing: string | null;                    // shape id being text-edited
-  typing: { rect: Rect; parentId?: string } | null;  // "Typing..." ghost
-  viewport: { x: number; y: number; zoom: number; w: number; h: number };
+  editing: string | null;                    // shape id being text-edited ("typing…")
+  viewport: { x: number; y: number; w: number; h: number } | null;  // world rect in view
   ai?: { status: 'thinking'; target: string };
 }
 ```
 
 Awareness updates are throttled to 50 ms (≈20 messages/s per active user).
-Inactive clients are dropped by the standard awareness timeout.
+Inactive clients are dropped by the standard awareness timeout. There is no
+separate "typing" field: shapes are created on click, so a peer's `editing`
+id is enough to show a "Name · typing…" tag on the shape being edited.
+Untrusted `viewport` values are accepted only when finite with a positive,
+bounded size (≤ 1e6 world units per side).
 
 ## Client
 
@@ -349,6 +352,9 @@ selected connectors between straight and elbow (`SetRouting`). Connectors
 are selected by clicking them (14-unit hit stroke) and deleted with the
 selection; deleting a shape deletes its connectors in the same transaction,
 and the read side drops connectors whose shape vanished concurrently.
+With an arrowhead, the visible stroke ends at the arrowhead's base (so the
+round cap never pokes past the tip) and the arrowhead length is clamped to
+the last segment's length.
 
 ### Frames
 
@@ -363,7 +369,15 @@ that double-clicking one opens its rename editor) — clicks elsewhere inside
 a frame reach the shapes and the canvas (marquee). A new shape created
 inside a frame, or a shape dropped there, is parented to
 the topmost frame under its centre and to the column under it (`Reparent`);
-dropped outside every frame it is unparented. Dragging or nudging a frame
+dropped outside every frame it is unparented. Frames also adopt: when a
+frame is created, moved, nudged or resized, every non-frame shape whose
+centre is inside the frame's old or new rectangle is re-evaluated with the
+same drop rule, so shapes the frame now covers join it (in the column under
+their centre), shapes it no longer covers are released, and children of a
+resized frame are re-assigned to the column now under them. These
+`Reparent` moves are emitted in the same gesture as the frame's own
+command, so one undo reverts both. A frame is never smaller than its title
+band plus the column header (64 units tall). Dragging or nudging a frame
 moves its children. Column counters are derived from `parentId`/`columnId`.
 Double-clicking a column header renames it (`RenameColumn`: delete + insert
 in one transaction; concurrent renames converge and readers de-duplicate
@@ -384,7 +398,44 @@ Shortcuts: `V` select, `R` rectangle, `O` ellipse, `L` line, `T` text,
 `S` sticky, `C` code block, `A` connector, `F` frame, `E` toggle connector
 routing, `Delete`, `Ctrl+Z` / `Ctrl+Shift+Z`, arrow keys to nudge
 (Shift = 10 px). Pan with space-drag or middle mouse; zoom with
-Ctrl/⌘+wheel or pinch.
+Ctrl/⌘+wheel or pinch. Keyboard shortcuts are ignored while typing in an
+input, textarea or contenteditable element. Enter commits a frame title
+(frame titles are single-line); in other text shapes Enter inserts a line
+break and Escape or a click outside ends editing.
+
+### Navigation
+
+The camera is local view state (Zustand), never part of the document, and
+is driven outside the tool state machine: the canvas and controller own a
+separate pan gesture, so the FSM stays about document edits.
+
+- **Zoom:** Ctrl/⌘+wheel and trackpad pinch (delivered by browsers as
+  ctrl+wheel) zoom anchored at the cursor with `zoomAt`, factor
+  `exp(-deltaY · 0.01)` per event, clamped to 10%–400%. A plain wheel pans.
+- **Pan:** holding Space (outside text inputs) turns a left-drag into a pan
+  with a grab cursor; a middle-button drag always pans. A pan never
+  dispatches tool events.
+- **Zoom controls:** bottom-left `− 100% +`; the buttons zoom ×1.25 / ÷1.25
+  anchored at the viewport centre, and clicking the percentage resets to
+  100% around the viewport centre.
+- **Coordinates:** next to the zoom controls, `X 1240 · Y 380` shows the
+  world position of the local pointer (rounded), hidden when the pointer is
+  off the canvas.
+- **Camera persistence:** the camera is saved per room in `localStorage`
+  (reads and writes wrapped in try/catch; a failure just means no restore).
+  With no saved camera the board opens fitted to its content (`fitBounds`,
+  48 px padding, zoom clamped to ≤ 100%); an empty board opens at the origin.
+- **Minimap:** bottom-right, 200 × 140 px. It projects the union of all
+  shape bounds and the current viewport (padded) into the box, draws shapes
+  as simplified rectangles (frames outlined, other shapes filled grey), the
+  local viewport as a cobalt rectangle and each peer's published viewport
+  as an outline in the peer's colour. Clicking the minimap centres the
+  camera on that point; dragging pans continuously. The local viewport is
+  published to awareness (world rectangle) whenever the camera or window
+  size changes, through the shared 50 ms awareness throttle.
+- **Remote presence:** peers' selections render as outlines in their colour
+  (above shapes, below the local selection); a peer's `editing` shape gets
+  a dashed outline and a `Name · typing…` tag.
 
 ## Server (`apps/sync-server`)
 
@@ -516,7 +567,7 @@ workflow.
 | F0 — Foundation | This spec, monorepo, CI, Makefile, docker-compose, design tokens, **hibernation spike** | 10 |
 | F1 — MVP | One room, grid, rect/sticky/text, move, cursors, presence, DO persistence | 30 |
 | F2 — Editing | Ellipse, lines, connectors, selection + marquee, resize, undo/redo, frames with columns, code block | 50 |
-| F3 — Navigation & session | Pan/zoom, coordinates, minimap, voting + timer, "Typing…", comments | 40 |
+| F3 — Navigation & session | F3a: pan/zoom, zoom controls, coordinates, camera persistence, interactive minimap with peer viewports, remote selections and "typing…", frame adoption and F2b polish. F3b: server time, voting + timer, comments | 40 |
 | F4 — Ship | Offline, capability links, demo room + cron, E2E, deploy, bilingual README, mermaid, GIF | 40 |
 | F5 — AI | Clustering pipeline, proposal UI, evaluation | 15 |
 | **Total** | | **~185** |
