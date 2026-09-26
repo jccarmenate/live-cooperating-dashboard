@@ -32,17 +32,22 @@ test('two users collaborate live in a new board', async ({ browser, request }) =
   await expect(pb.getByText('Hello from A')).toBeVisible();
 
   // B sees A's named cursor.
+  const nameA = await pa.evaluate(
+    () => JSON.parse(localStorage.getItem('relay:identity') ?? '{}').name as string,
+  );
   await pa.mouse.move(700, 450);
   await pa.mouse.move(720, 460);
-  await expect(pb.getByTestId('remote-cursor').first()).toBeVisible();
+  await expect(pb.getByTestId('remote-cursor').filter({ hasText: nameA })).toBeVisible();
 
-  // A late joiner receives the persisted state.
+  // Room state outlives all peers disconnecting (on-disk SQLite persistence across a
+  // server restart is covered by the sync-server integration test).
+  await Promise.all([a.close(), b.close()]);
   const c = await browser.newContext();
   const pc = await c.newPage();
   await openBoard(pc, path);
   await expect(pc.getByText('Hello from A')).toBeVisible();
 
-  await Promise.all([a.close(), b.close(), c.close()]);
+  await c.close();
 });
 
 test('an invalid key is rejected', async ({ page }) => {
