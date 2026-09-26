@@ -3,6 +3,9 @@ export const LIMITS = {
   /** Cloudflare's per-row BLOB limit leaves headroom below this before the INSERT itself would throw. */
   maxRowBytes: 1_900_000,
   maxMessageBytes: 256 * 1024,
+  maxAwarenessBytes: 8 * 1024,
+  /** Per connection: a normal client controls exactly one awareness client id (occasionally two, briefly, across a reconnect). */
+  maxAwarenessIds: 2,
   maxConnections: 25,
   ratePerSecond: 60,
   burst: 120,

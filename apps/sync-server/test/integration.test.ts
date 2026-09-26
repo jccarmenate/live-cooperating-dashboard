@@ -7,6 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import WebSocket from 'ws';
 import YProvider from 'y-partyserver/provider';
 import { Awareness, encodeAwarenessUpdate } from 'y-protocols/awareness';
+import { writeUpdate } from 'y-protocols/sync';
 import * as Y from 'yjs';
 import { LIMITS } from '../src/limits';
 import { type RunningWorker, startWorker } from './helpers/worker';
@@ -86,6 +87,14 @@ function encodeAwarenessMessage(state: Record<string, unknown>): Uint8Array {
   const encoder = encoding.createEncoder();
   encoding.writeVarUint(encoder, 1); // messageAwareness
   encoding.writeVarUint8Array(encoder, encodeAwarenessUpdate(awareness, [awareness.clientID]));
+  return encoding.toUint8Array(encoder);
+}
+
+/** Encodes a raw `messageSync` (type byte 0) frame carrying a sync-protocol Update (sub-type 2). */
+function encodeUpdateMessage(update: Uint8Array): Uint8Array {
+  const encoder = encoding.createEncoder();
+  encoding.writeVarUint(encoder, 0); // messageSync
+  writeUpdate(encoder, update);
   return encoding.toUint8Array(encoder);
 }
 
@@ -233,6 +242,67 @@ describe('sync server', () => {
     addSticky(a.doc, 'after-cap');
     await new Promise((r) => setTimeout(r, 1000));
     expect(getRoots(b.doc).shapes.has('after-cap')).toBe(false);
+  });
+
+  it('does not stay frozen forever from re-sent no-op sync messages, once the real size is re-measured', async () => {
+    const { roomId, editKey } = await createRoom();
+    const a = connect(roomId, editKey);
+    const b = connect(roomId, editKey);
+    await Promise.all([synced(a.provider), synced(b.provider)]);
+    addSticky(a.doc, 'growing');
+    await waitFor(() => getRoots(b.doc).shapes.has('growing'));
+
+    // A single real edit, captured as a raw sync-protocol Update frame the
+    // room already fully knows about (it came from `a`'s own provider).
+    applyCommand(a.doc, {
+      type: 'SetText',
+      id: 'growing',
+      index: 0,
+      deleteCount: 0,
+      insert: 'x'.repeat(150_000),
+    });
+    await new Promise((r) => setTimeout(r, 300));
+    const duplicateFrame = encodeUpdateMessage(Y.encodeStateAsUpdate(a.doc));
+
+    const raw = rawConnect(roomId, { key: editKey });
+    await waitForOpen(raw);
+    // Re-send the *same* already-applied update several times. Each resend
+    // is a no-op for the real document (Yjs already has this state), but a
+    // naive byte-counter that adds the full frame size every time would
+    // still cross the 1 MB cap and freeze the room forever.
+    for (let i = 0; i < 8; i++) {
+      raw.send(duplicateFrame);
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    await new Promise((r) => setTimeout(r, 500));
+
+    addSticky(a.doc, 'after-duplicates');
+    await waitFor(() => getRoots(b.doc).shapes.has('after-duplicates'));
+  });
+
+  it('closes a connection sending an oversized awareness frame with code 1009', async () => {
+    const { roomId, editKey } = await createRoom();
+    const ws = rawConnect(roomId, { key: editKey });
+    await waitForOpen(ws);
+    const closed = waitForClose(ws);
+    ws.send(encodeAwarenessMessage({ name: 'x'.repeat(20_000) }));
+    const { code } = await closed;
+    expect(code).toBe(1009);
+  });
+
+  it('closes a connection controlling more than 2 awareness client ids with code 4429', async () => {
+    const { roomId, editKey } = await createRoom();
+    const ws = rawConnect(roomId, { key: editKey });
+    await waitForOpen(ws);
+    const closed = waitForClose(ws);
+    // Each call creates a fresh Awareness backed by a fresh Y.Doc, so each
+    // encodes a distinct clientID — as if one socket were puppeting several
+    // awareness identities.
+    ws.send(encodeAwarenessMessage({ name: 'first' }));
+    ws.send(encodeAwarenessMessage({ name: 'second' }));
+    ws.send(encodeAwarenessMessage({ name: 'third' }));
+    const { code } = await closed;
+    expect(code).toBe(4429);
   });
 
   it('lets anyone into the demo room and initializes its metadata', async () => {

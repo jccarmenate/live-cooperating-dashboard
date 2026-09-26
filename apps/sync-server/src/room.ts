@@ -10,13 +10,41 @@ const roleOf = (connection: Connection): Role | undefined =>
 
 /** Yjs sync protocol message type byte for a document-update (`messageSync`) frame. */
 const MESSAGE_SYNC = 0;
+/** Yjs awareness protocol message type byte. */
+const MESSAGE_AWARENESS = 1;
+/** Sync-protocol sub-types (the varuint right after the message-type byte). */
+const SYNC_STEP2 = 1;
+const SYNC_UPDATE = 2;
 
-/** True for a binary sync-protocol frame (not awareness, not a string custom message). */
-function isSyncMessage(message: WSMessage): boolean {
-  if (typeof message === 'string') return false;
-  const view =
-    message instanceof ArrayBuffer ? new Uint8Array(message) : new Uint8Array(message.buffer);
-  return view.length > 0 && view[0] === MESSAGE_SYNC;
+function toBytes(message: ArrayBuffer | ArrayBufferView): Uint8Array {
+  return message instanceof ArrayBuffer ? new Uint8Array(message) : new Uint8Array(message.buffer);
+}
+
+/** First byte of a binary message, or null for a string (custom) message or an empty frame. */
+function messageTypeByte(message: WSMessage): number | null {
+  if (typeof message === 'string') return null;
+  return toBytes(message)[0] ?? null;
+}
+
+/** True for a binary awareness-protocol frame. */
+function isAwarenessMessage(message: WSMessage): boolean {
+  return messageTypeByte(message) === MESSAGE_AWARENESS;
+}
+
+/**
+ * The sync sub-type (SyncStep1/SyncStep2/Update) of a sync-protocol message,
+ * i.e. the varuint immediately after the type byte. For these three values
+ * (0, 1, 2) the varuint is always a single byte, so byte[1] suffices.
+ */
+function syncSubType(message: WSMessage): number | null {
+  if (typeof message === 'string' || messageTypeByte(message) !== MESSAGE_SYNC) return null;
+  return toBytes(message)[1] ?? null;
+}
+
+/** Number of awareness client ids this connection currently controls (y-partyserver tracked). */
+function awarenessIdCount(connection: Connection): number {
+  const ids = (connection.state as { __ypsAwarenessIds?: unknown[] } | null)?.__ypsAwarenessIds;
+  return Array.isArray(ids) ? ids.length : 0;
 }
 
 /** One Durable Object per room: Yjs sync, capability roles, limits, SQLite persistence. */
@@ -107,6 +135,10 @@ export class Room extends YServer {
       connection.close(1009, 'message too large');
       return;
     }
+    if (isAwarenessMessage(message) && messageBytes(message) > LIMITS.maxAwarenessBytes) {
+      connection.close(1009, 'awareness frame too large');
+      return;
+    }
     let bucket = this.#buckets.get(connection.id);
     if (!bucket) {
       bucket = new TokenBucket(LIMITS.ratePerSecond, LIMITS.burst);
@@ -117,10 +149,28 @@ export class Room extends YServer {
       connection.close(4429, 'rate limited');
       return;
     }
-    if (roleOf(connection) === 'edit' && isSyncMessage(message)) {
-      this.#estimatedBytes += messageBytes(message);
-    }
+    // Only Update and SyncStep2 sub-messages can grow the document; SyncStep1
+    // (a state-vector request, sent on every connect) never does and must
+    // not be mistaken for document growth.
+    const subType = roleOf(connection) === 'edit' ? syncSubType(message) : null;
+    const countsTowardSize = subType === SYNC_STEP2 || subType === SYNC_UPDATE;
+    const wasUnderLimit = this.#estimatedBytes <= LIMITS.maxDocBytes;
+    if (countsTowardSize) this.#estimatedBytes += messageBytes(message);
+
     super.onMessage(connection, message);
+
+    // The running estimate over-counts no-op resends (a reconnecting editor
+    // re-sending updates the room already has). Rather than trust it forever
+    // once it crosses the cap, re-measure the real encoded size exactly once
+    // per crossing and only freeze if that's actually over.
+    if (countsTowardSize && wasUnderLimit && this.#estimatedBytes > LIMITS.maxDocBytes) {
+      const real = Y.encodeStateAsUpdate(this.document).byteLength;
+      this.#estimatedBytes = real;
+      this.#frozen = real > LIMITS.maxDocBytes;
+    }
+    if (isAwarenessMessage(message) && awarenessIdCount(connection) > LIMITS.maxAwarenessIds) {
+      connection.close(4429, 'too many awareness identities');
+    }
   }
 
   onClose(connection: Connection, code: number, reason: string, wasClean: boolean): void {
