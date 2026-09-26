@@ -310,6 +310,15 @@ describe('creation tools', () => {
     }
   });
 
+  it('a long thin drag clamps the short side instead of falling back to the default size', () => {
+    const c = ctx();
+    const down = step(idle('rect', []), { type: 'pointerDown', p: at(10, 10) }, c);
+    const up = step(down.state, { type: 'pointerUp', p: at(210, 12) }, c);
+    expect(commands(up.effects)[0]).toMatchObject({
+      shape: { type: 'rect', x: 10, y: 10, w: 200, h: 8 },
+    });
+  });
+
   it('ellipse tool previews an ellipse', () => {
     const c = ctx();
     let r = step(idle('ellipse', []), { type: 'pointerDown', p: at(10, 10) }, c);

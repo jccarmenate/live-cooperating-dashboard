@@ -62,7 +62,7 @@ function flushAll(net: Net) {
 type Step =
   | { kind: 'create'; r: number; type: 'rect' | 'sticky' | 'text'; x: number; y: number }
   | { kind: 'move'; r: number; pick: number; x: number; y: number }
-  | { kind: 'resize'; r: number; pick: number; w: number; h: number }
+  | { kind: 'resize'; r: number; pick: number; x: number; y: number; w: number; h: number }
   | { kind: 'text'; r: number; pick: number; index: number; del: number; insert: string }
   | { kind: 'delete'; r: number; pick: number }
   | { kind: 'undo'; r: number }
@@ -85,6 +85,8 @@ const stepArb: fc.Arbitrary<Step> = fc.oneof(
     kind: fc.constant('resize' as const),
     r: replica,
     pick: fc.nat(),
+    x: coord,
+    y: coord,
     w: fc.integer({ min: 8, max: 400 }),
     h: fc.integer({ min: 8, max: 400 }),
   }),
@@ -157,7 +159,7 @@ function run(net: Net, steps: Step[]) {
     if (s.kind === 'resize')
       applyCommand(
         doc,
-        { type: 'ResizeShapes', rects: [{ id, x: s.w, y: s.h, w: s.w, h: s.h }] },
+        { type: 'ResizeShapes', rects: [{ id, x: s.x, y: s.y, w: s.w, h: s.h }] },
         LOCAL_ORIGIN,
       );
     if (s.kind === 'text')

@@ -1,6 +1,6 @@
 import type { Command, NewShape } from '../commands/types';
 import { rectFromPoints } from '../geometry/rect';
-import { type Handle, resizeGeometry, shapesInRect } from '../geometry/shapes';
+import { type Handle, MIN_SIZE, resizeGeometry, shapesInRect } from '../geometry/shapes';
 import { DEFAULT_SIZE, DEFAULT_STYLE } from '../schema/defaults';
 import { type Point, type Rect, type Shape, type ShapeType, TEXT_TYPES } from '../schema/types';
 
@@ -375,11 +375,15 @@ function stepDrawing(state: DrawingState, event: ToolEvent, ctx: ToolContext): S
       };
     case 'pointerUp': {
       let rect = drawnRect(state.tool, state.origin, event.p.world);
-      const tooSmall =
-        state.tool === 'line'
-          ? Math.hypot(rect.w, rect.h) < MIN_DRAW
-          : rect.w < MIN_DRAW || rect.h < MIN_DRAW;
-      if (tooSmall) rect = { x: state.origin.x, y: state.origin.y, ...DEFAULT_SIZE[state.tool] };
+      if (state.tool === 'line') {
+        if (Math.hypot(rect.w, rect.h) < MIN_DRAW) {
+          rect = { x: state.origin.x, y: state.origin.y, ...DEFAULT_SIZE.line };
+        }
+      } else if (rect.w < MIN_DRAW && rect.h < MIN_DRAW) {
+        rect = { x: state.origin.x, y: state.origin.y, ...DEFAULT_SIZE[state.tool] };
+      } else {
+        rect = { ...rect, w: Math.max(rect.w, MIN_SIZE), h: Math.max(rect.h, MIN_SIZE) };
+      }
       const shape = newShape(ctx, state.tool, rect);
       return {
         state: idle('select', [shape.id]),
