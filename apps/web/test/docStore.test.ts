@@ -60,4 +60,31 @@ describe('createDocStore', () => {
     expect(store.getState().shapes.late).toBeUndefined();
     expect(getRoots(doc).shapes.has('late')).toBe(true);
   });
+
+  it('projects connectors and drops those whose shapes are deleted', () => {
+    const doc = new Y.Doc();
+    const { store } = createDocStore(doc);
+    applyCommand(doc, { type: 'CreateShape', shape: sticky('a') });
+    applyCommand(doc, { type: 'CreateShape', shape: sticky('b') });
+    applyCommand(doc, {
+      type: 'Connect',
+      connector: {
+        id: 'k1',
+        from: { shapeId: 'a', anchor: 'auto' },
+        to: { shapeId: 'b', anchor: 'auto' },
+        routing: 'straight',
+        head: 'arrow',
+        createdBy: 'u1',
+      },
+    });
+    expect(store.getState().connectorOrder).toEqual(['k1']);
+    const before = store.getState().connectors.k1;
+    applyCommand(doc, { type: 'MoveShapes', moves: [{ id: 'a', x: 5, y: 5 }] });
+    expect(store.getState().connectors.k1).toBe(before);
+    applyCommand(doc, { type: 'SetRouting', id: 'k1', routing: 'elbow' });
+    expect(store.getState().connectors.k1?.routing).toBe('elbow');
+    applyCommand(doc, { type: 'DeleteShapes', ids: ['b'] });
+    expect(store.getState().connectors.k1).toBeUndefined();
+    expect(store.getState().connectorOrder).toEqual([]);
+  });
 });

@@ -10,6 +10,8 @@ const TOOL_KEYS: Record<string, ToolId> = {
   t: 'text',
   s: 'sticky',
   c: 'code',
+  a: 'connector',
+  f: 'frame',
 };
 
 const NUDGE: Record<string, [number, number]> = {
@@ -39,6 +41,10 @@ export function useShortcuts(controller: BoardController) {
           e.preventDefault();
           controller.redo();
         }
+        return;
+      }
+      if (key === 'e') {
+        controller.dispatch({ type: 'toggleRouting' });
         return;
       }
       const tool = TOOL_KEYS[key];

@@ -25,6 +25,7 @@ export interface BoardUiState {
   /** Local-only geometry for shapes being dragged/resized, rendered every frame. */
   overlay: Record<string, Rect> | null;
   editingId: string | null;
+  editingColumn: { frameId: string; columnId: string } | null;
   camera: Camera;
 }
 
@@ -34,6 +35,8 @@ export interface BoardController {
   setCamera(camera: Camera): void;
   applyText(id: string, diff: TextDiff): void;
   stopEditing(): void;
+  renameColumn(frameId: string, columnId: string, title: string): void;
+  stopEditingColumn(): void;
   undo(): void;
   redo(): void;
   destroy(): void;
@@ -56,6 +59,7 @@ export function createBoardController(opts: {
     preview: null,
     overlay: null,
     editingId: null,
+    editingColumn: null,
     camera: { x: 0, y: 0, zoom: 1 },
   }));
   const undoStack = createUndo(opts.doc, { captureTimeout: UNDO_CAPTURE_TIMEOUT });
@@ -83,6 +87,9 @@ export function createBoardController(opts: {
         case 'editText':
           ui.setState({ editingId: effect.id });
           break;
+        case 'editColumn':
+          ui.setState({ editingColumn: { frameId: effect.frameId, columnId: effect.columnId } });
+          break;
         case 'endGesture':
           undoStack.stopCapturing();
           break;
@@ -99,6 +106,7 @@ export function createBoardController(opts: {
     if (ui.getState().tool.mode !== 'idle') return;
     throttledCommit.cancel();
     if (ui.getState().editingId) stopEditing();
+    if (ui.getState().editingColumn) ui.setState({ editingColumn: null });
     ui.setState({ overlay: null, preview: null });
     if (direction === 'undo') undoStack.undo();
     else undoStack.redo();
@@ -115,6 +123,7 @@ export function createBoardController(opts: {
     dispatch(event) {
       const { state, effects } = step(ui.getState().tool, event, {
         shapes: opts.docStore.getState().shapes,
+        connectors: opts.docStore.getState().connectors,
         userId: opts.user.id,
         userName: opts.user.name,
         newId,
@@ -130,6 +139,14 @@ export function createBoardController(opts: {
       commit({ type: 'SetText', id, ...diff });
     },
     stopEditing,
+    renameColumn(frameId, columnId, title) {
+      commit({ type: 'RenameColumn', frameId, columnId, title });
+      ui.setState({ editingColumn: null });
+      undoStack.stopCapturing();
+    },
+    stopEditingColumn() {
+      ui.setState({ editingColumn: null });
+    },
     undo: () => travel('undo'),
     redo: () => travel('redo'),
     destroy() {

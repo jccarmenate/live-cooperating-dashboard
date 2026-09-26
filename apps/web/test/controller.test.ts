@@ -92,13 +92,13 @@ describe('board controller', () => {
     expect(controller.ui.getState().editingId).toBeNull();
   });
 
-  function addRect(doc: Y.Doc, id = 'r1') {
+  function addRect(doc: Y.Doc, id = 'r1', x = 0) {
     applyCommand(doc, {
       type: 'CreateShape',
       shape: {
         id,
         type: 'rect',
-        x: 0,
+        x,
         y: 0,
         w: 100,
         h: 100,
@@ -220,5 +220,47 @@ describe('board controller', () => {
     controller.dispatch({ type: 'pointerMove', p: at(60, 10) });
     controller.undo();
     expect(controller.ui.getState().tool.mode).toBe('dragging');
+  });
+
+  it('creates a connector between two shapes and toggles its routing', () => {
+    const { doc, controller } = setup();
+    addRect(doc, 'r1');
+    addRect(doc, 'r2', 400);
+    controller.dispatch({ type: 'setTool', tool: 'connector' });
+    controller.dispatch({ type: 'pointerDown', p: at(50, 50, 'r1') });
+    controller.dispatch({ type: 'pointerMove', p: at(300, 50) });
+    controller.dispatch({ type: 'pointerUp', p: at(450, 50, 'r2') });
+    const { connectors } = getRoots(doc);
+    expect(connectors.size).toBe(1);
+    const [id] = [...connectors.keys()];
+    expect(controller.ui.getState().tool.selection).toEqual([id]);
+    controller.dispatch({ type: 'toggleRouting' });
+    expect(connectors.get(id as string)?.get('routing')).toBe('elbow');
+  });
+
+  it('opens the column editor and renames a column as its own undo step', () => {
+    const { doc, controller } = setup();
+    controller.dispatch({ type: 'setTool', tool: 'frame' });
+    controller.dispatch({ type: 'pointerDown', p: at(0, 0) });
+    controller.dispatch({ type: 'pointerUp', p: at(600, 400) });
+    const frameId = controller.ui.getState().tool.selection[0] as string;
+    const columns = () => {
+      const cols = getRoots(doc).shapes.get(frameId)?.get('columns') as
+        | Y.Array<{ id: string; title: string }>
+        | undefined;
+      return cols?.toArray() ?? [];
+    };
+    const firstColumn = columns()[0]?.id as string;
+    controller.dispatch({
+      type: 'doubleClick',
+      p: { ...at(50, 50, frameId), column: { frameId, columnId: firstColumn } },
+    });
+    expect(controller.ui.getState().editingColumn).toEqual({ frameId, columnId: firstColumn });
+    controller.renameColumn(frameId, firstColumn, 'Wins');
+    expect(controller.ui.getState().editingColumn).toBeNull();
+    expect(columns()[0]?.title).toBe('Wins');
+    controller.undo();
+    expect(columns()[0]?.title).toBe('Went well');
+    expect(getRoots(doc).shapes.has(frameId)).toBe(true);
   });
 });
