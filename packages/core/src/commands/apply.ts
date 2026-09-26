@@ -55,6 +55,17 @@ function apply(doc: Y.Doc, cmd: Command): void {
       }
       return;
     }
+    case 'ResizeShapes': {
+      for (const { id, x, y, w, h } of cmd.rects) {
+        const m = shapes.get(id);
+        if (!m) continue;
+        m.set('x', x);
+        m.set('y', y);
+        m.set('w', w);
+        m.set('h', h);
+      }
+      return;
+    }
     case 'SetText': {
       const text = shapes.get(cmd.id)?.get('text');
       if (!(text instanceof Y.Text)) return;

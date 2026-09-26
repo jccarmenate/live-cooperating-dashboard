@@ -100,6 +100,20 @@ describe('applyCommand', () => {
     expect(connectors.has('c2')).toBe(true);
   });
 
+  it('ResizeShapes sets geometry and ignores missing ids', () => {
+    const doc = new Y.Doc();
+    applyCommand(doc, { type: 'CreateShape', shape: sticky('s1') });
+    applyCommand(doc, {
+      type: 'ResizeShapes',
+      rects: [
+        { id: 's1', x: 5, y: 6, w: 300, h: 200 },
+        { id: 'gone', x: 0, y: 0, w: 1, h: 1 },
+      ],
+    });
+    expect(read(doc, 's1')).toMatchObject({ x: 5, y: 6, w: 300, h: 200 });
+    expect(getRoots(doc).shapes.has('gone')).toBe(false);
+  });
+
   it('passes the origin to the transaction', () => {
     const doc = new Y.Doc();
     const origins: unknown[] = [];

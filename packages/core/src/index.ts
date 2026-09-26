@@ -1,6 +1,7 @@
 export * from './commands/apply';
 export * from './commands/origins';
 export * from './commands/types';
+export * from './commands/undo';
 export * from './geometry/camera';
 export * from './geometry/rect';
 export * from './geometry/shapes';

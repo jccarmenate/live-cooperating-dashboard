@@ -5,11 +5,14 @@ import { describe, expect, it } from 'vitest';
 import * as Y from 'yjs';
 import {
   applyCommand,
+  createUndo,
   DEFAULT_STYLE,
   getRoots,
+  LOCAL_ORIGIN,
   normalizeShapes,
   readShape,
   type Shape,
+  type Undo,
 } from '../src';
 
 const RUNS = Number(process.env.RELAY_FC_RUNS ?? 200);
@@ -20,6 +23,7 @@ interface Net {
   docs: Y.Doc[];
   /** queues[from][to] */
   queues: Uint8Array[][][];
+  undos: Undo[];
 }
 
 function makeNet(): Net {
@@ -36,7 +40,8 @@ function makeNet(): Net {
       for (let to = 0; to < N; to++) if (to !== from) queues[from]?.[to]?.push(update);
     });
   });
-  return { docs, queues };
+  const undos = docs.map((d) => createUndo(d, { captureTimeout: 0 }));
+  return { docs, queues, undos };
 }
 
 function deliver(net: Net, from: number, to: number, count: number) {
@@ -57,8 +62,11 @@ function flushAll(net: Net) {
 type Step =
   | { kind: 'create'; r: number; type: 'rect' | 'sticky' | 'text'; x: number; y: number }
   | { kind: 'move'; r: number; pick: number; x: number; y: number }
+  | { kind: 'resize'; r: number; pick: number; w: number; h: number }
   | { kind: 'text'; r: number; pick: number; index: number; del: number; insert: string }
   | { kind: 'delete'; r: number; pick: number }
+  | { kind: 'undo'; r: number }
+  | { kind: 'redo'; r: number }
   | { kind: 'deliver'; from: number; to: number; count: number };
 
 const replica = fc.integer({ min: 0, max: N - 1 });
@@ -74,6 +82,13 @@ const stepArb: fc.Arbitrary<Step> = fc.oneof(
   }),
   fc.record({ kind: fc.constant('move' as const), r: replica, pick: fc.nat(), x: coord, y: coord }),
   fc.record({
+    kind: fc.constant('resize' as const),
+    r: replica,
+    pick: fc.nat(),
+    w: fc.integer({ min: 8, max: 400 }),
+    h: fc.integer({ min: 8, max: 400 }),
+  }),
+  fc.record({
     kind: fc.constant('text' as const),
     r: replica,
     pick: fc.nat(),
@@ -82,6 +97,8 @@ const stepArb: fc.Arbitrary<Step> = fc.oneof(
     insert: fc.string({ maxLength: 4 }),
   }),
   fc.record({ kind: fc.constant('delete' as const), r: replica, pick: fc.nat() }),
+  fc.record({ kind: fc.constant('undo' as const), r: replica }),
+  fc.record({ kind: fc.constant('redo' as const), r: replica }),
   fc.record({
     kind: fc.constant('deliver' as const),
     from: replica,
@@ -102,40 +119,60 @@ function run(net: Net, steps: Step[]) {
       if (s.from !== s.to) deliver(net, s.from, s.to, s.count);
       continue;
     }
+    if (s.kind === 'undo' || s.kind === 'redo') {
+      const undo = net.undos[s.r];
+      if (s.kind === 'undo') undo?.undo();
+      else undo?.redo();
+      continue;
+    }
     const doc = net.docs[s.r];
     if (!doc) continue;
     if (s.kind === 'create') {
-      applyCommand(doc, {
-        type: 'CreateShape',
-        shape: {
-          id: `r${s.r}-${n++}`,
-          type: s.type,
-          x: s.x,
-          y: s.y,
-          w: 100,
-          h: 80,
-          style: DEFAULT_STYLE[s.type],
-          text: '',
-          createdBy: `u${s.r}`,
-          authorName: `User ${s.r}`,
-          createdAt: 0,
+      applyCommand(
+        doc,
+        {
+          type: 'CreateShape',
+          shape: {
+            id: `r${s.r}-${n++}`,
+            type: s.type,
+            x: s.x,
+            y: s.y,
+            w: 100,
+            h: 80,
+            style: DEFAULT_STYLE[s.type],
+            text: '',
+            createdBy: `u${s.r}`,
+            authorName: `User ${s.r}`,
+            createdAt: 0,
+          },
         },
-      });
+        LOCAL_ORIGIN,
+      );
       continue;
     }
     const id = pickId(doc, s.pick);
     if (!id) continue;
     if (s.kind === 'move')
-      applyCommand(doc, { type: 'MoveShapes', moves: [{ id, x: s.x, y: s.y }] });
+      applyCommand(doc, { type: 'MoveShapes', moves: [{ id, x: s.x, y: s.y }] }, LOCAL_ORIGIN);
+    if (s.kind === 'resize')
+      applyCommand(
+        doc,
+        { type: 'ResizeShapes', rects: [{ id, x: s.w, y: s.h, w: s.w, h: s.h }] },
+        LOCAL_ORIGIN,
+      );
     if (s.kind === 'text')
-      applyCommand(doc, {
-        type: 'SetText',
-        id,
-        index: s.index,
-        deleteCount: s.del,
-        insert: s.insert,
-      });
-    if (s.kind === 'delete') applyCommand(doc, { type: 'DeleteShapes', ids: [id] });
+      applyCommand(
+        doc,
+        {
+          type: 'SetText',
+          id,
+          index: s.index,
+          deleteCount: s.del,
+          insert: s.insert,
+        },
+        LOCAL_ORIGIN,
+      );
+    if (s.kind === 'delete') applyCommand(doc, { type: 'DeleteShapes', ids: [id] }, LOCAL_ORIGIN);
   }
 }
 
