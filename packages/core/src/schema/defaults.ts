@@ -19,8 +19,14 @@ export const DEFAULT_STYLE: Record<ShapeType, Style> = {
   frame: { fill: PALETTE.white, stroke: PALETTE.ink, font: 'mono' },
 };
 
-export const DEFAULT_SIZE: Record<'rect' | 'sticky' | 'text', { w: number; h: number }> = {
+export const DEFAULT_SIZE: Record<
+  'rect' | 'ellipse' | 'line' | 'sticky' | 'text' | 'code',
+  { w: number; h: number }
+> = {
   rect: { w: 160, h: 96 },
+  ellipse: { w: 160, h: 96 },
+  line: { w: 160, h: 0 },
   sticky: { w: 180, h: 140 },
   text: { w: 320, h: 56 },
+  code: { w: 280, h: 140 },
 };

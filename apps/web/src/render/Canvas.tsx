@@ -86,10 +86,10 @@ export function Canvas({ session }: { session: BoardSession }) {
         <SelectionLayer session={session} />
         {preview && (
           <rect
-            x={preview.x}
-            y={preview.y}
-            width={preview.w}
-            height={preview.h}
+            x={preview.rect.x}
+            y={preview.rect.y}
+            width={preview.rect.w}
+            height={preview.rect.h}
             fill="none"
             stroke={PALETTE.cobalt}
             strokeWidth={2 / camera.zoom}

@@ -6,7 +6,7 @@ import {
   type Identity,
   initialToolState,
   LOCAL_ORIGIN,
-  type Rect,
+  type Preview,
   step,
   type TextDiff,
   type ToolEvent,
@@ -19,7 +19,7 @@ import type { DocState } from '../store/docStore';
 
 export interface BoardUiState {
   tool: ToolState;
-  preview: Rect | null;
+  preview: Preview | null;
   editingId: string | null;
   camera: Camera;
 }
@@ -64,7 +64,7 @@ export function createBoardController(opts: {
           }
           break;
         case 'preview':
-          ui.setState({ preview: effect.rect });
+          ui.setState({ preview: effect.preview });
           break;
         case 'editText':
           ui.setState({ editingId: effect.id });
