@@ -39,4 +39,12 @@ describe('onlineUsersSignature', () => {
     const b = [user('u2', 'Bold Fox', '#0E9F6E'), user('self', 'Calm Lynx', '#3B3BF5')];
     expect(onlineUsersSignature(a)).not.toBe(onlineUsersSignature(b));
   });
+
+  it('does not collide when a field contains the old "|" join separator', () => {
+    // A name containing '|' used to be indistinguishable from the same
+    // characters split across the id/name boundary once joined with '|'.
+    const nameHasPipe = [user('a', 'b|c', '#111111')];
+    const idHasPipe = [user('a|b', 'c', '#111111')];
+    expect(onlineUsersSignature(nameHasPipe)).not.toBe(onlineUsersSignature(idHasPipe));
+  });
 });

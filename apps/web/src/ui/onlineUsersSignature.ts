@@ -8,5 +8,5 @@ import type { Identity } from '@relay/core';
  * set of online users actually changes, via `useStore`'s default `Object.is` equality on strings.
  */
 export function onlineUsersSignature(users: readonly Identity[]): string {
-  return users.map((u) => `${u.id}|${u.name}|${u.color}`).join(',');
+  return JSON.stringify(users.map((u) => [u.id, u.name, u.color]));
 }

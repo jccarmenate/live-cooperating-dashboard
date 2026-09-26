@@ -33,9 +33,19 @@ export function Canvas({ session }: { session: BoardSession }) {
       className="absolute inset-0 size-full touch-none select-none"
       onPointerDown={(e) => {
         if (e.button !== 0) return;
+        // Needed so a freshly created shape's textarea keeps focus (below);
+        // it also means the browser won't blur an already-open editor on
+        // its own, so we must do that explicitly when the click lands
+        // outside the shape currently being edited.
         e.preventDefault();
         e.currentTarget.setPointerCapture(e.pointerId);
-        controller.dispatch({ type: 'pointerDown', p: info(e) });
+        const p = info(e);
+        const { editingId } = controller.ui.getState();
+        if (editingId && p.hitId !== editingId) {
+          controller.stopEditing();
+          (document.activeElement as HTMLElement | null)?.blur();
+        }
+        controller.dispatch({ type: 'pointerDown', p });
       }}
       onPointerMove={(e) => {
         const p = info(e);
@@ -50,7 +60,9 @@ export function Canvas({ session }: { session: BoardSession }) {
       }}
       onPointerLeave={() => publisher.setCursor(null)}
       onDoubleClick={(e) => controller.dispatch({ type: 'doubleClick', p: info(e) })}
-      onWheel={(e: WheelEvent) => controller.setCamera(panBy(camera, -e.deltaX, -e.deltaY))}
+      onWheel={(e: WheelEvent) =>
+        controller.setCamera(panBy(controller.ui.getState().camera, -e.deltaX, -e.deltaY))
+      }
     >
       <defs>
         <pattern

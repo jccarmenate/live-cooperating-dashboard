@@ -28,7 +28,13 @@ test('two users collaborate live in a new board', async ({ browser, request }) =
   await pa.getByTestId('tool-sticky').click();
   await pa.getByTestId('canvas').click({ position: { x: 500, y: 300 } });
   await pa.getByTestId('text-editor').fill('Hello from A');
-  await pa.keyboard.press('Escape');
+
+  // Clicking empty canvas (not Escape) must also close the editor: it's the
+  // click itself that needs to close a still-open editor before creating or
+  // selecting anything else, otherwise Delete/Backspace can end up editing
+  // the wrong shape's text.
+  await pa.getByTestId('canvas').click({ position: { x: 900, y: 500 } });
+  await expect(pa.getByTestId('text-editor')).toBeHidden();
   await expect(pb.getByText('Hello from A')).toBeVisible();
 
   // B sees A's named cursor.
