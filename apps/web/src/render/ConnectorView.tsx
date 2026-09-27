@@ -1,4 +1,4 @@
-import { arrowHead, connectorPath, isAttached, PALETTE, type Point } from '@relay/core';
+import { arrowGeometry, connectorPath, isAttached, PALETTE, type Point } from '@relay/core';
 import { memo } from 'react';
 import { useStore } from 'zustand';
 import type { BoardSession } from '../board/session';
@@ -29,14 +29,13 @@ export const ConnectorView = memo(function ConnectorView({
   const path = connectorPath(connector, lookup);
   if (!path || path.length < 2) return null;
   const color = selected ? PALETTE.cobalt : PALETTE.ink;
-  const tip = path[path.length - 1] as Point;
-  const before = path[path.length - 2] as Point;
-  const head = connector.head === 'arrow' ? arrowHead(tip, before) : null;
+  const { stroke, head } =
+    connector.head === 'arrow' ? arrowGeometry(path) : { stroke: path, head: null };
 
   return (
     <g data-connector-id={id} className="cursor-pointer">
       <polyline
-        points={toPoints(path)}
+        points={toPoints(stroke)}
         fill="none"
         stroke={color}
         strokeWidth={3}

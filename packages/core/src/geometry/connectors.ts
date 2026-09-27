@@ -121,8 +121,15 @@ export function connectorPath(
   return elbowPath(a.p, a.side, b.p, b.side);
 }
 
+/** Default arrowhead length in world units. */
+export const ARROW_SIZE = 12;
+
 /** Triangle [tip, left, right] for an arrowhead at `tip` coming from `from`. */
-export function arrowHead(tip: Point, from: Point, size = 12): [Point, Point, Point] | null {
+export function arrowHead(
+  tip: Point,
+  from: Point,
+  size = ARROW_SIZE,
+): [Point, Point, Point] | null {
   const dx = tip.x - from.x;
   const dy = tip.y - from.y;
   const len = Math.hypot(dx, dy);
@@ -134,4 +141,26 @@ export function arrowHead(tip: Point, from: Point, size = 12): [Point, Point, Po
   const px = -uy * (size / 2);
   const py = ux * (size / 2);
   return [tip, { x: bx + px, y: by + py }, { x: bx - px, y: by - py }];
+}
+
+/**
+ * Stroke and arrowhead for a connector path. The head's length is clamped to the last segment
+ * (so it never reaches back past an elbow bend), and the stroke ends at the head's base (so its
+ * round cap never pokes past the tip).
+ */
+export function arrowGeometry(
+  path: readonly Point[],
+  size = ARROW_SIZE,
+): { stroke: Point[]; head: [Point, Point, Point] | null } {
+  const tip = path[path.length - 1];
+  const before = path[path.length - 2];
+  if (!tip || !before) return { stroke: [...path], head: null };
+  const len = Math.hypot(tip.x - before.x, tip.y - before.y);
+  if (len === 0) return { stroke: [...path], head: null };
+  const s = Math.min(size, len);
+  const base = {
+    x: tip.x - ((tip.x - before.x) / len) * s,
+    y: tip.y - ((tip.y - before.y) / len) * s,
+  };
+  return { stroke: [...path.slice(0, -1), base], head: arrowHead(tip, before, s) };
 }

@@ -79,6 +79,10 @@ export function TextEditor({ session }: { session: BoardSession }) {
           e.stopPropagation();
           if (e.key === 'Escape') {
             e.currentTarget.blur();
+          } else if (e.key === 'Enter' && shape.type === 'frame') {
+            // Frame titles are single-line: Enter commits (blur ends the editing session).
+            e.preventDefault();
+            e.currentTarget.blur();
           } else if (e.key === 'Tab' && shape.type === 'code') {
             e.preventDefault();
             const el = e.currentTarget;

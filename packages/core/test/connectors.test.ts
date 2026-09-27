@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   anchorPoint,
+  arrowGeometry,
   arrowHead,
   clipToOutline,
   connectorPath,
@@ -175,5 +176,52 @@ describe('elbowPath and arrowHead', () => {
       { x: 90, y: -5 },
     ]);
     expect(arrowHead({ x: 1, y: 1 }, { x: 1, y: 1 })).toBeNull();
+  });
+});
+
+describe('arrowGeometry', () => {
+  it('ends the stroke at the arrowhead base', () => {
+    expect(
+      arrowGeometry([
+        { x: 0, y: 0 },
+        { x: 100, y: 0 },
+      ]),
+    ).toEqual({
+      stroke: [
+        { x: 0, y: 0 },
+        { x: 88, y: 0 },
+      ],
+      head: [
+        { x: 100, y: 0 },
+        { x: 88, y: 6 },
+        { x: 88, y: -6 },
+      ],
+    });
+  });
+
+  it('clamps the head to a short last segment', () => {
+    const g = arrowGeometry([
+      { x: 0, y: 0 },
+      { x: 0, y: 50 },
+      { x: 5, y: 50 },
+    ]);
+    expect(g.head).toEqual([
+      { x: 5, y: 50 },
+      { x: 0, y: 52.5 },
+      { x: 0, y: 47.5 },
+    ]);
+    expect(g.stroke).toEqual([
+      { x: 0, y: 0 },
+      { x: 0, y: 50 },
+      { x: 0, y: 50 },
+    ]);
+  });
+
+  it('draws no head on a zero-length last segment', () => {
+    const path = [
+      { x: 5, y: 5 },
+      { x: 5, y: 5 },
+    ];
+    expect(arrowGeometry(path)).toEqual({ stroke: path, head: null });
   });
 });
