@@ -1,7 +1,7 @@
 import { useStore } from 'zustand';
 import { toasts } from './toasts';
 
-export function Toasts() {
+export function ToastHost() {
   const items = useStore(toasts, (s) => s.items);
   return (
     <div
