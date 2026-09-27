@@ -1,25 +1,6 @@
-import type { ToolId } from '@relay/core';
 import { useEffect } from 'react';
 import type { BoardController } from '../board/controller';
-
-const TOOL_KEYS: Record<string, ToolId> = {
-  v: 'select',
-  r: 'rect',
-  o: 'ellipse',
-  l: 'line',
-  t: 'text',
-  s: 'sticky',
-  c: 'code',
-  a: 'connector',
-  f: 'frame',
-};
-
-const NUDGE: Record<string, [number, number]> = {
-  ArrowLeft: [-1, 0],
-  ArrowRight: [1, 0],
-  ArrowUp: [0, -1],
-  ArrowDown: [0, 1],
-};
+import { keyDownAction, keyUpAction, type ShortcutAction } from './shortcuts';
 
 function isTyping(target: EventTarget | null): boolean {
   return (
@@ -30,43 +11,38 @@ function isTyping(target: EventTarget | null): boolean {
 
 export function useShortcuts(controller: BoardController) {
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (isTyping(e.target) || e.altKey) return;
-      const key = e.key.toLowerCase();
-      if (e.ctrlKey || e.metaKey) {
-        if (key === 'z' && !e.shiftKey) {
+    const run = (action: ShortcutAction | null, e: KeyboardEvent) => {
+      if (!action) return;
+      switch (action.type) {
+        case 'undo':
           e.preventDefault();
           controller.undo();
-        } else if ((key === 'z' && e.shiftKey) || key === 'y') {
+          break;
+        case 'redo':
           e.preventDefault();
           controller.redo();
-        }
-        return;
-      }
-      if (key === 'e') {
-        controller.dispatch({ type: 'toggleRouting' });
-        return;
-      }
-      const tool = TOOL_KEYS[key];
-      if (tool) {
-        controller.dispatch({ type: 'setTool', tool });
-        return;
-      }
-      const nudge = NUDGE[e.key];
-      if (nudge) {
-        e.preventDefault();
-        const stepSize = e.shiftKey ? 10 : 1;
-        controller.dispatch({ type: 'nudge', dx: nudge[0] * stepSize, dy: nudge[1] * stepSize });
-        return;
-      }
-      if (e.key === 'Delete' || e.key === 'Backspace') {
-        e.preventDefault();
-        controller.dispatch({ type: 'deleteSelection' });
-      } else if (e.key === 'Escape') {
-        controller.dispatch({ type: 'cancel' });
+          break;
+        case 'space':
+          // Holding Space must not scroll the page or press a focused button.
+          if (action.held) e.preventDefault();
+          controller.setSpaceHeld(action.held);
+          break;
+        case 'dispatch':
+          if (action.preventDefault) e.preventDefault();
+          controller.dispatch(action.event);
+          break;
       }
     };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    const onKeyDown = (e: KeyboardEvent) => run(keyDownAction(e, isTyping(e.target)), e);
+    const onKeyUp = (e: KeyboardEvent) => run(keyUpAction(e), e);
+    const onBlur = () => controller.setSpaceHeld(false);
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('keyup', onKeyUp);
+    window.addEventListener('blur', onBlur);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('keyup', onKeyUp);
+      window.removeEventListener('blur', onBlur);
+    };
   }, [controller]);
 }
