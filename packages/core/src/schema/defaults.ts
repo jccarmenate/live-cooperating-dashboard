@@ -37,3 +37,12 @@ export const DEFAULT_COLUMNS: readonly string[] = ['Went well', 'To improve', 'A
 
 /** Maximum number of columns a frame reads back; extra columns are dropped. */
 export const MAX_COLUMNS = 12;
+
+/** Retro dot voting: votes each user may cast, and the offered vote durations. */
+export const VOTES_PER_USER = 3;
+export const VOTE_DURATIONS_MIN = [1, 3, 5] as const;
+
+/** Comment limits, enforced on read. */
+export const MAX_COMMENT_BODY = 2000;
+export const MAX_AUTHOR_NAME = 40;
+export const MAX_THREAD_ENTRIES = 200;

@@ -7,6 +7,9 @@ export interface Roots {
   meta: Y.Map<unknown>;
   shapes: Y.Map<YShape>;
   connectors: Y.Map<Y.Map<unknown>>;
+  session: Y.Map<unknown>;
+  votes: Y.Map<boolean>;
+  comments: Y.Map<Y.Map<unknown>>;
 }
 
 export function getRoots(doc: Y.Doc): Roots {
@@ -14,6 +17,9 @@ export function getRoots(doc: Y.Doc): Roots {
     meta: doc.getMap<unknown>('meta'),
     shapes: doc.getMap<YShape>('shapes'),
     connectors: doc.getMap<Y.Map<unknown>>('connectors'),
+    session: doc.getMap<unknown>('session'),
+    votes: doc.getMap<boolean>('votes'),
+    comments: doc.getMap<Y.Map<unknown>>('comments'),
   };
 }
 

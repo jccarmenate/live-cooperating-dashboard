@@ -87,3 +87,31 @@ export interface BoardMeta {
 }
 
 export const SCHEMA_VERSION = 1;
+
+export interface VoteState {
+  open: boolean;
+  /** Server epoch ms; the vote is open while `open && serverNow < endsAt`. */
+  endsAt: number;
+  maxPerUser: number;
+  startedBy: string;
+}
+
+/** A comment pinned to a shape (offset from its top-left) or to a world point. */
+export type CommentAnchor = { shapeId: string; dx: number; dy: number } | { x: number; y: number };
+
+export interface CommentEntry {
+  id: string;
+  authorId: string;
+  author: string;
+  body: string;
+  ts: number;
+}
+
+export interface CommentThread {
+  id: string;
+  anchor: CommentAnchor;
+  resolved: boolean;
+  createdBy: string;
+  createdAt: number;
+  entries: CommentEntry[];
+}

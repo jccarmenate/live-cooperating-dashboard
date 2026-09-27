@@ -1,7 +1,8 @@
 import { generateKeyBetween } from 'fractional-indexing';
 import * as Y from 'yjs';
 import { getRoots } from '../schema/doc';
-import type { FrameColumn } from '../schema/types';
+import { readVote, voteKey } from '../schema/session';
+import type { CommentEntry, FrameColumn } from '../schema/types';
 import { TEXT_TYPES } from '../schema/types';
 import type { Command } from './types';
 
@@ -37,7 +38,7 @@ function refersTo(end: unknown, ids: ReadonlySet<string>): boolean {
 }
 
 function apply(doc: Y.Doc, cmd: Command): void {
-  const { shapes, connectors } = getRoots(doc);
+  const { shapes, connectors, session, votes, comments } = getRoots(doc);
   switch (cmd.type) {
     case 'CreateShape': {
       const { text, z, columns, ...fields } = cmd.shape;
@@ -141,6 +142,48 @@ function apply(doc: Y.Doc, cmd: Command): void {
       cols.insert(indexes[0] as number, [{ id: cmd.columnId, title: cmd.title }]);
       return;
     }
+    case 'StartVote': {
+      session.set('vote', {
+        open: true,
+        endsAt: cmd.endsAt,
+        maxPerUser: cmd.maxPerUser,
+        startedBy: cmd.startedBy,
+      });
+      for (const key of [...votes.keys()]) votes.delete(key);
+      return;
+    }
+    case 'EndVote': {
+      const vote = readVote(session);
+      if (vote?.open) session.set('vote', { ...vote, open: false });
+      return;
+    }
+    case 'CastVote':
+      votes.set(voteKey(cmd.shapeId, cmd.userId), true);
+      return;
+    case 'RetractVote':
+      votes.delete(voteKey(cmd.shapeId, cmd.userId));
+      return;
+    case 'AddComment': {
+      if (comments.has(cmd.id)) return;
+      const m = new Y.Map<unknown>();
+      m.set('anchor', cmd.anchor);
+      m.set('resolved', false);
+      m.set('createdBy', cmd.createdBy);
+      m.set('createdAt', cmd.createdAt);
+      const thread = new Y.Array<CommentEntry>();
+      thread.push([cmd.entry]);
+      m.set('thread', thread);
+      comments.set(cmd.id, m);
+      return;
+    }
+    case 'ReplyComment': {
+      const thread = comments.get(cmd.commentId)?.get('thread');
+      if (thread instanceof Y.Array) thread.push([cmd.entry]);
+      return;
+    }
+    case 'ResolveComment':
+      comments.get(cmd.id)?.set('resolved', cmd.resolved);
+      return;
   }
 }
 
