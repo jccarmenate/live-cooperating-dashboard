@@ -11,6 +11,22 @@ describe('server messages', () => {
     expect(parseServerMessage('{"type":"time","now":7}')).toEqual({ type: 'time', now: 7 });
   });
 
+  it('keeps a bounded viewKey on hello', () => {
+    expect(parseServerMessage('{"type":"hello","role":"edit","now":1,"viewKey":"abc"}')).toEqual({
+      type: 'hello',
+      role: 'edit',
+      now: 1,
+      viewKey: 'abc',
+    });
+    expect(
+      parseServerMessage(`{"type":"hello","role":"edit","now":1,"viewKey":"${'k'.repeat(65)}"}`),
+    ).toEqual({
+      type: 'hello',
+      role: 'edit',
+      now: 1,
+    });
+  });
+
   it('ignores malformed or unknown messages', () => {
     for (const raw of [
       'nope',

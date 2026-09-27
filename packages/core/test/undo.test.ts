@@ -160,28 +160,14 @@ describe('createUndo', () => {
   it('clear() empties the undo and redo stacks', () => {
     const doc = new Y.Doc();
     const undo = createUndo(doc, { captureTimeout: 0 });
-    applyCommand(doc, { type: 'MoveShapes', moves: [] }, LOCAL_ORIGIN);
-    applyCommand(
-      doc,
-      {
-        type: 'CreateShape',
-        shape: {
-          id: 'r',
-          type: 'rect',
-          x: 0,
-          y: 0,
-          w: 10,
-          h: 10,
-          style: DEFAULT_STYLE.rect,
-          text: '',
-          createdBy: 'u',
-          authorName: 'U',
-          createdAt: 0,
-        },
-      },
-      LOCAL_ORIGIN,
-    );
+    applyCommand(doc, { type: 'CreateShape', shape: shape('r1') }, LOCAL_ORIGIN);
+    undo.stopCapturing();
+    applyCommand(doc, { type: 'CreateShape', shape: shape('r2') }, LOCAL_ORIGIN);
+    expect(undo.undo()).toBe(true);
+    expect(read(doc, 'r2')).toBeNull();
+    expect(read(doc, 'r1')).not.toBeNull();
     expect(undo.canUndo()).toBe(true);
+    expect(undo.canRedo()).toBe(true);
     undo.clear();
     expect(undo.canUndo()).toBe(false);
     expect(undo.canRedo()).toBe(false);

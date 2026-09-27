@@ -154,6 +154,132 @@ describe('pages', () => {
     expect(readPages(getRoots(doc).pages).map((p) => p.id)).toEqual(['p2']);
   });
 
+  it('a concurrent rename never resurrects a deleted main page', () => {
+    // Both client-id orderings, so the test does not depend on which concurrent write Yjs keeps.
+    for (const [idA, idB] of [
+      [1, 2],
+      [2, 1],
+    ] as const) {
+      const a = new Y.Doc();
+      const b = new Y.Doc();
+      a.clientID = idA;
+      b.clientID = idB;
+      applyCommand(a, { type: 'CreatePage', page: newPage('p2', 'a1') }, LOCAL_ORIGIN);
+      Y.applyUpdate(b, Y.encodeStateAsUpdate(a));
+      applyCommand(a, { type: 'DeletePage', id: 'main' }, LOCAL_ORIGIN);
+      applyCommand(b, { type: 'RenamePage', id: 'main', title: 'Retro' }, LOCAL_ORIGIN);
+      Y.applyUpdate(b, Y.encodeStateAsUpdate(a, Y.encodeStateVector(b)));
+      Y.applyUpdate(a, Y.encodeStateAsUpdate(b, Y.encodeStateVector(a)));
+      const pagesA = readPages(getRoots(a).pages);
+      expect(readPages(getRoots(b).pages)).toEqual(pagesA);
+      expect(pagesA.map((p) => p.id)).toEqual(['p2']);
+    }
+  });
+
+  it('DeletePage also deletes connectors on other pages that point at its shapes', () => {
+    const doc = new Y.Doc();
+    applyCommand(doc, { type: 'CreatePage', page: newPage('p2', 'a1') }, LOCAL_ORIGIN);
+    sticky(doc, 's-main');
+    sticky(doc, 't-main');
+    sticky(doc, 's-p2', 'p2');
+    const connect = (id: string, from: string, to: string) =>
+      applyCommand(
+        doc,
+        {
+          type: 'Connect',
+          connector: {
+            id,
+            from: { shapeId: from, anchor: 'auto' },
+            to: { shapeId: to, anchor: 'auto' },
+            routing: 'straight',
+            head: 'arrow',
+            createdBy: 'u1',
+          },
+        },
+        LOCAL_ORIGIN,
+      );
+    connect('cross-from', 's-main', 's-p2');
+    connect('cross-to', 's-p2', 's-main');
+    connect('local', 's-main', 't-main');
+    applyCommand(doc, { type: 'DeletePage', id: 'p2' }, LOCAL_ORIGIN);
+    const { shapes, connectors } = getRoots(doc);
+    expect([...shapes.keys()].sort()).toEqual(['s-main', 't-main']);
+    expect([...connectors.keys()]).toEqual(['local']);
+  });
+
+  it('rename and move are no-ops on a deleted page', () => {
+    const doc = new Y.Doc();
+    applyCommand(doc, { type: 'CreatePage', page: newPage('p2', 'a1') }, LOCAL_ORIGIN);
+    applyCommand(doc, { type: 'DeletePage', id: 'p2' }, LOCAL_ORIGIN);
+    const before = getRoots(doc).pages.get('p2')?.toJSON();
+    applyCommand(doc, { type: 'RenamePage', id: 'p2', title: 'Back' }, LOCAL_ORIGIN);
+    applyCommand(doc, { type: 'MovePage', id: 'p2', order: 'a9' }, LOCAL_ORIGIN);
+    expect(getRoots(doc).pages.get('p2')?.toJSON()).toEqual(before);
+    expect(before).toMatchObject({ title: 'P2', order: 'a1', deleted: true });
+    expect(readPages(getRoots(doc).pages).map((p) => p.id)).toEqual(['main']);
+  });
+
+  it('deleting an unknown page leaves all content alone', () => {
+    const doc = new Y.Doc();
+    applyCommand(doc, { type: 'CreatePage', page: newPage('p2', 'a1') }, LOCAL_ORIGIN);
+    sticky(doc, 's-main');
+    sticky(doc, 's-p2', 'p2');
+    applyCommand(
+      doc,
+      {
+        type: 'Connect',
+        connector: {
+          id: 'k',
+          from: { shapeId: 's-main', anchor: 'auto' },
+          to: { shapeId: 's-p2', anchor: 'auto' },
+          routing: 'straight',
+          head: 'arrow',
+          createdBy: 'u1',
+        },
+      },
+      LOCAL_ORIGIN,
+    );
+    applyCommand(
+      doc,
+      {
+        type: 'AddComment',
+        id: 'c',
+        pageId: 'p2',
+        anchor: { x: 0, y: 0 },
+        createdBy: 'u1',
+        createdAt: 0,
+        entry: { id: 'e', authorId: 'u1', author: 'A', body: 'hi', ts: 0 },
+      },
+      SESSION_ORIGIN,
+    );
+    const snapshot = () => {
+      const { shapes, connectors, comments, pages } = getRoots(doc);
+      return {
+        shapes: shapes.toJSON(),
+        connectors: connectors.toJSON(),
+        comments: comments.toJSON(),
+        pages: pages.toJSON(),
+      };
+    };
+    const before = snapshot();
+    applyCommand(doc, { type: 'DeletePage', id: 'ghost' }, LOCAL_ORIGIN);
+    expect(snapshot()).toEqual(before);
+    expect(getRoots(doc).pages.has('ghost')).toBe(false);
+  });
+
+  it('CreatePage does not revive a deleted page', () => {
+    const doc = new Y.Doc();
+    applyCommand(doc, { type: 'CreatePage', page: newPage('p2', 'a1') }, LOCAL_ORIGIN);
+    applyCommand(doc, { type: 'DeletePage', id: 'p2' }, LOCAL_ORIGIN);
+    applyCommand(
+      doc,
+      { type: 'CreatePage', page: { ...newPage('p2', 'a5'), title: 'Again' } },
+      LOCAL_ORIGIN,
+    );
+    expect(getRoots(doc).pages.get('p2')?.get('deleted')).toBe(true);
+    expect(readPages(getRoots(doc).pages).map((p) => p.id)).toEqual(['main']);
+  });
+
   it('reads pageId on shapes, connectors and comments; pageOf defaults to main', () => {
     const doc = new Y.Doc();
     sticky(doc, 'a', 'p2');

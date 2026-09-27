@@ -3,7 +3,7 @@ export type Role = 'edit' | 'view';
 
 /** Custom messages the room sends over y-partyserver's `__YPS:` channel. */
 export type ServerMessage =
-  | { type: 'hello'; role: Role; now: number }
+  | { type: 'hello'; role: Role; now: number; viewKey?: string }
   | { type: 'time'; now: number };
 
 /** What the client sends to refresh its clock offset. */
@@ -23,7 +23,12 @@ export function parseServerMessage(raw: string): ServerMessage | null {
   if (!o || typeof o.now !== 'number' || !Number.isFinite(o.now)) return null;
   if (o.type === 'time') return { type: 'time', now: o.now };
   if (o.type === 'hello' && (o.role === 'edit' || o.role === 'view')) {
-    return { type: 'hello', role: o.role, now: o.now };
+    return {
+      type: 'hello',
+      role: o.role,
+      now: o.now,
+      ...(typeof o.viewKey === 'string' && o.viewKey.length <= 64 ? { viewKey: o.viewKey } : {}),
+    };
   }
   return null;
 }

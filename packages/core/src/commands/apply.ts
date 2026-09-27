@@ -198,6 +198,10 @@ function apply(doc: Y.Doc, cmd: Command): void {
       comments.get(cmd.id)?.set('resolved', cmd.resolved);
       return;
     case 'CreatePage': {
+      // Seed main's entry now: deleting main needs a second page, so its tombstone
+      // then always lands on this map instead of racing a concurrent lazy creation
+      // (where last-writer-wins could drop the tombstone and resurrect main).
+      pageEntry(pages, MAIN_PAGE);
       if (pages.has(cmd.page.id)) return;
       const m = new Y.Map<unknown>();
       for (const [k, v] of Object.entries(cmd.page)) if (k !== 'id') m.set(k, v);
@@ -222,8 +226,18 @@ function apply(doc: Y.Doc, cmd: Command): void {
         const p = item.get('pageId');
         return (typeof p === 'string' ? p : MAIN_PAGE) === cmd.id;
       };
-      for (const [id, s] of [...shapes.entries()]) if (onPage(s)) shapes.delete(id);
-      for (const [id, c] of [...connectors.entries()]) if (onPage(c)) connectors.delete(id);
+      const removed = new Set<string>();
+      for (const [id, s] of [...shapes.entries()]) {
+        if (!onPage(s)) continue;
+        shapes.delete(id);
+        removed.add(id);
+      }
+      // Connectors on other pages that point at a removed shape go too.
+      for (const [id, c] of [...connectors.entries()]) {
+        if (onPage(c) || refersTo(c.get('from'), removed) || refersTo(c.get('to'), removed)) {
+          connectors.delete(id);
+        }
+      }
       for (const [id, c] of [...comments.entries()]) if (onPage(c)) comments.delete(id);
       return;
     }

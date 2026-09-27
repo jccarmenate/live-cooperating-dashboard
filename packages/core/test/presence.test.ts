@@ -68,6 +68,7 @@ describe('presence parsing', () => {
       selection: [],
       editing: null,
       viewport: null,
+      page: null,
     });
     expect(
       parsePresence({ user: alice, cursor: { x: 1, y: 2 }, selection: ['s1', 7], editing: 's1' }),
@@ -77,6 +78,7 @@ describe('presence parsing', () => {
       selection: ['s1'],
       editing: 's1',
       viewport: null,
+      page: null,
     });
   });
 
@@ -94,6 +96,7 @@ describe('presence parsing', () => {
       selection: [],
       editing: null,
       viewport: null,
+      page: null,
     });
   });
 
@@ -105,6 +108,7 @@ describe('presence parsing', () => {
       selection: [],
       editing: null,
       viewport: null,
+      page: null,
     });
   });
 
@@ -125,6 +129,12 @@ describe('presence parsing', () => {
     }
   });
 
+  it('parsePresence accepts a bounded page id', () => {
+    expect(parsePresence({ user: alice, page: 'p2' })?.page).toBe('p2');
+    expect(parsePresence({ user: alice, page: 'x'.repeat(65) })?.page).toBeNull();
+    expect(parsePresence({ user: alice, page: 7 })?.page).toBeNull();
+  });
+
   it('peersFrom excludes self and invalid states, sorted by clientId', () => {
     const states = new Map<number, unknown>([
       [3, { user: bob }],
@@ -137,9 +147,33 @@ describe('presence parsing', () => {
 
   it('onlineUsers dedupes by user id and lists self first', () => {
     const peers: Peer[] = [
-      { clientId: 2, user: bob, cursor: null, selection: [], editing: null, viewport: null },
-      { clientId: 3, user: bob, cursor: null, selection: [], editing: null, viewport: null },
-      { clientId: 4, user: alice, cursor: null, selection: [], editing: null, viewport: null },
+      {
+        clientId: 2,
+        user: bob,
+        cursor: null,
+        selection: [],
+        editing: null,
+        viewport: null,
+        page: null,
+      },
+      {
+        clientId: 3,
+        user: bob,
+        cursor: null,
+        selection: [],
+        editing: null,
+        viewport: null,
+        page: null,
+      },
+      {
+        clientId: 4,
+        user: alice,
+        cursor: null,
+        selection: [],
+        editing: null,
+        viewport: null,
+        page: null,
+      },
     ];
     expect(onlineUsers(peers, alice)).toEqual([alice, bob]);
   });

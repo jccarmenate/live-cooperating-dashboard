@@ -16,6 +16,7 @@ export function createPresencePublisher(awareness: Awareness, user: Identity): P
     selection: [],
     editing: null,
     viewport: null,
+    page: null,
   };
   awareness.setLocalState(initial);
   const setCursor = throttle((cursor: Point | null) => {
