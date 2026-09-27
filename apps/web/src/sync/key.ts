@@ -1,13 +1,23 @@
+/** The decoded value of `name` in a URL fragment; null when absent or malformed. */
+function fromHash(hash: string, name: 'k' | 'p'): string | null {
+  const match = new RegExp(`(?:^#|&)${name}=([^&]+)`).exec(hash);
+  if (!match?.[1]) return null;
+  try {
+    return decodeURIComponent(match[1]);
+  } catch {
+    // A malformed escape (e.g. `%E0`) in a shared link must never crash the board load.
+    return null;
+  }
+}
+
 /** Reads the capability key from a URL fragment like `#k=<key>`. */
 export function keyFromHash(hash: string): string | null {
-  const match = /(?:^#|&)k=([^&]+)/.exec(hash);
-  return match?.[1] ? decodeURIComponent(match[1]) : null;
+  return fromHash(hash, 'k');
 }
 
 /** Reads the active page from a URL fragment like `#k=<key>&p=<page>`. */
 export function pageFromHash(hash: string): string | null {
-  const match = /(?:^#|&)p=([^&]+)/.exec(hash);
-  return match?.[1] ? decodeURIComponent(match[1]) : null;
+  return fromHash(hash, 'p');
 }
 
 /** The fragment for a key and a page. */

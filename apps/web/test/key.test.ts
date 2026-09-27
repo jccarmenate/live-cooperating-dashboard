@@ -20,4 +20,11 @@ describe('page in the hash', () => {
     expect(hashFor(null, 'main')).toBe('#p=main');
     expect(pageFromHash(hashFor('a b', 'x y'))).toBe('x y');
   });
+
+  it('reads a malformed escape as absent instead of throwing', () => {
+    expect(pageFromHash('#p=%E0')).toBeNull();
+    expect(keyFromHash('#k=%E0')).toBeNull();
+    expect(pageFromHash('#k=%E0&p=p2')).toBe('p2');
+    expect(keyFromHash('#k=abc&p=%E0')).toBe('abc');
+  });
 });

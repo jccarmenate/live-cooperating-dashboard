@@ -3,6 +3,7 @@ import {
   createUndo,
   DEFAULT_STYLE,
   getRoots,
+  LOCAL_ORIGIN,
   type PointerInfo,
   SESSION_ORIGIN,
   worldToScreen,
@@ -35,6 +36,7 @@ function setup(opts: { cameraStorage?: CameraStorage; serverNow?: () => number }
   const controller = createBoardController({
     doc,
     docStore: docs.store,
+    setPage: docs.setPage,
     activity: activity.store,
     user,
     newId: () => `s${++n}`,
@@ -450,7 +452,7 @@ describe('camera', () => {
     });
     expect(controller.ui.getState().camera).toEqual({ x: 10, y: 20, zoom: 2 });
     controller.setCamera({ x: 1, y: 2, zoom: 1 });
-    expect(save).toHaveBeenLastCalledWith({ x: 1, y: 2, zoom: 1 });
+    expect(save).toHaveBeenLastCalledWith('main', { x: 1, y: 2, zoom: 1 });
   });
 
   it('fits the content once, after the first sync, without saving the fit', () => {
@@ -627,5 +629,121 @@ describe('comments', () => {
     expect(controller.ui.getState().commentsPanel).toBe(true);
     controller.toggleCommentsPanel();
     expect(controller.ui.getState().commentsPanel).toBe(false);
+  });
+});
+
+describe('pages', () => {
+  it('stamps the active page on created shapes, connectors and comments', () => {
+    const { doc, controller } = setup();
+    const p2 = controller.createPage('board');
+    controller.setPage(p2);
+    controller.dispatch({ type: 'setTool', tool: 'sticky' });
+    controller.dispatch({ type: 'pointerDown', p: at(100, 100) });
+    const sid = controller.ui.getState().tool.selection[0] as string;
+    expect(getRoots(doc).shapes.get(sid)?.get('pageId')).toBe(p2);
+    controller.dispatch({ type: 'setTool', tool: 'comment' });
+    controller.dispatch({ type: 'pointerDown', p: at(500, 500) });
+    controller.addComment('here');
+    const [cid] = [...getRoots(doc).comments.keys()];
+    expect(
+      getRoots(doc)
+        .comments.get(cid as string)
+        ?.get('pageId'),
+    ).toBe(p2);
+  });
+
+  it('switching pages resets tool state, clears undo, and loads that page camera', () => {
+    const cams: Record<string, { x: number; y: number; zoom: number }> = {
+      p9: { x: 3, y: 4, zoom: 2 },
+    };
+    const { doc, controller } = setup({
+      cameraStorage: {
+        load: (page) => cams[page] ?? null,
+        save: (page, c) => {
+          cams[page] = c;
+        },
+      },
+    });
+    applyCommand(
+      doc,
+      {
+        type: 'CreatePage',
+        page: { id: 'p9', type: 'board', title: 'Nine', order: 'a5', createdBy: 'u', createdAt: 0 },
+      },
+      LOCAL_ORIGIN,
+    );
+    addRect(doc, 'r1', 0, 0);
+    controller.dispatch({ type: 'pointerDown', p: at(10, 10, 'r1') });
+    controller.dispatch({ type: 'pointerMove', p: at(60, 10) });
+    controller.dispatch({ type: 'pointerUp', p: at(60, 10) });
+    controller.setCamera({ x: 7, y: 7, zoom: 1 });
+    controller.setPage('p9');
+    expect(controller.ui.getState().camera).toEqual({ x: 3, y: 4, zoom: 2 });
+    expect(controller.ui.getState().tool.selection).toEqual([]);
+    controller.undo();
+    expect(getRoots(doc).shapes.get('r1')?.get('x')).toBe(50); // the drag on main was not undone
+    controller.setPage('main');
+    expect(controller.ui.getState().camera).toEqual({ x: 7, y: 7, zoom: 1 });
+  });
+
+  it('page actions: create after the last, rename, move between neighbours, delete', () => {
+    const { docs, controller } = setup();
+    const a = controller.createPage('board');
+    const b = controller.createPage('board');
+    expect(docs.store.getState().pages.map((p) => p.id)).toEqual(['main', a, b]);
+    expect(docs.store.getState().pages[1]?.title).toBe('Board 2');
+    controller.renamePage(a, '  Ideas  ');
+    controller.renamePage(b, '   ');
+    expect(docs.store.getState().pages.map((p) => p.title)).toEqual(['Board', 'Ideas', 'Board 3']);
+    controller.movePage(b, 0);
+    expect(docs.store.getState().pages.map((p) => p.id)).toEqual([b, 'main', a]);
+    controller.deletePage(a);
+    expect(docs.store.getState().pages.map((p) => p.id)).toEqual([b, 'main']);
+  });
+
+  it('never deletes the last visible page', () => {
+    const { docs, controller } = setup();
+    controller.deletePage('main');
+    expect(docs.store.getState().pages.map((p) => p.id)).toEqual(['main']);
+  });
+
+  it('vote cap counts stickies on every page', () => {
+    const { doc, controller, activity } = setup();
+    const p2 = controller.createPage('board');
+    addSticky(doc, 'm1');
+    addSticky(doc, 'm2');
+    applyCommand(doc, {
+      type: 'CreateShape',
+      shape: {
+        id: 'q1',
+        pageId: p2,
+        type: 'sticky',
+        x: 0,
+        y: 0,
+        w: 160,
+        h: 120,
+        style: DEFAULT_STYLE.sticky,
+        text: '',
+        createdBy: 'u1',
+        authorName: 'A',
+        createdAt: 0,
+      },
+    });
+    addSticky(doc, 'm3');
+    controller.startVote(3);
+    controller.toggleVote('m1');
+    controller.toggleVote('m2');
+    controller.setPage(p2);
+    controller.toggleVote('q1');
+    controller.setPage('main');
+    controller.toggleVote('m3');
+    expect(activity.store.getState().voteKeys).toEqual(['m1:u1', 'm2:u1', 'q1:u1']);
+  });
+
+  it('renameBoard trims and ignores empty titles', () => {
+    const { docs, controller } = setup();
+    controller.renameBoard('  Q3 Retro ');
+    controller.renameBoard('  ');
+    expect(docs.store.getState().meta.title).toBe('Q3 Retro');
   });
 });

@@ -12,6 +12,8 @@ import {
   initialToolState,
   isVoteOpen,
   LOCAL_ORIGIN,
+  orderBetween,
+  type PageType,
   type Point,
   type Preview,
   type Rect,
@@ -31,10 +33,10 @@ import { createStore, type StoreApi } from 'zustand/vanilla';
 import type { ActivityState } from '../store/activityStore';
 import type { DocState } from '../store/docStore';
 
-/** Where the camera is remembered between visits (per room); failures just mean no restore. */
+/** Where the camera is remembered between visits (per room and page); failures just mean no restore. */
 export interface CameraStorage {
-  load(): Camera | null;
-  save(camera: Camera): void;
+  load(pageId: string): Camera | null;
+  save(pageId: string, camera: Camera): void;
 }
 
 export interface BoardUiState {
@@ -90,6 +92,18 @@ export interface BoardController {
   resolveComment(threadId: string, resolved: boolean): void;
   openThread(id: string | null): void;
   toggleCommentsPanel(): void;
+  /** Switches the active page (an unknown or deleted one falls back to the first visible page). */
+  setPage(id: string): void;
+  /** Appends a page of `type` after the last one; returns the new id. */
+  createPage(type: PageType): string;
+  /** Renames a page (trimmed; empty is ignored). */
+  renamePage(id: string, title: string): void;
+  /** Moves a page to `toIndex` among the visible pages. */
+  movePage(id: string, toIndex: number): void;
+  /** Deletes a page and everything on it; never the last visible page. */
+  deletePage(id: string): void;
+  /** Renames the board (trimmed; empty is ignored). */
+  renameBoard(title: string): void;
   destroy(): void;
 }
 
@@ -99,6 +113,8 @@ const UNDO_CAPTURE_TIMEOUT = 60_000;
 export function createBoardController(opts: {
   doc: Y.Doc;
   docStore: StoreApi<DocState>;
+  /** Asks the doc store to project another page. */
+  setPage: (id: string) => void;
   activity: StoreApi<ActivityState>;
   user: Identity;
   newId?: () => string;
@@ -109,7 +125,8 @@ export function createBoardController(opts: {
   const newId = opts.newId ?? (() => crypto.randomUUID());
   const now = opts.now ?? Date.now;
   const serverNow = opts.serverNow ?? Date.now;
-  const stored = opts.cameraStorage?.load() ?? null;
+  const activePage = () => opts.docStore.getState().activePage;
+  const stored = opts.cameraStorage?.load(activePage()) ?? null;
   const ui = createStore<BoardUiState>(() => ({
     tool: initialToolState(),
     preview: null,
@@ -129,16 +146,28 @@ export function createBoardController(opts: {
   const commit = (command: Command) => applyCommand(opts.doc, command, LOCAL_ORIGIN);
   const throttledCommit = throttle(commit, 50);
   const commitSession = (command: Command) => applyCommand(opts.doc, command, SESSION_ORIGIN);
+  // Page commands touch untracked roots, except DeletePage, which also deletes the page's
+  // shapes: on SESSION_ORIGIN a page delete never becomes an undo step that resurrects
+  // shapes on a tombstoned page.
+  const commitPage = (command: Command) => applyCommand(opts.doc, command, SESSION_ORIGIN);
+
+  /** New shapes and connectors land on the active page. */
+  const withPage = (c: Command): Command => {
+    const pageId = activePage();
+    if (c.type === 'CreateShape') return { ...c, shape: { ...c.shape, pageId } };
+    if (c.type === 'Connect') return { ...c, connector: { ...c.connector, pageId } };
+    return c;
+  };
 
   const run = (effects: Effect[]) => {
     for (const effect of effects) {
       switch (effect.type) {
         case 'command':
           if (effect.throttle) {
-            throttledCommit(effect.command);
+            throttledCommit(withPage(effect.command));
           } else {
             throttledCommit.cancel();
-            commit(effect.command);
+            commit(withPage(effect.command));
           }
           break;
         case 'preview':
@@ -193,7 +222,7 @@ export function createBoardController(opts: {
   const setCamera = (camera: Camera) => {
     fitPending = false;
     ui.setState({ camera });
-    opts.cameraStorage?.save(camera);
+    opts.cameraStorage?.save(activePage(), camera);
   };
 
   const viewportCentre = (): Point => {
@@ -201,8 +230,28 @@ export function createBoardController(opts: {
     return v ? { x: v.w / 2, y: v.h / 2 } : { x: 0, y: 0 };
   };
 
-  // Close the editor if the edited shape is deleted (locally, remotely or by undo).
-  const unsubscribe = opts.docStore.subscribe((doc) => {
+  const unsubscribe = opts.docStore.subscribe((doc, prev) => {
+    // A page change (local, or a remote fallback when the active page is deleted) starts
+    // fresh: no gesture, editor or popover carries over, undo cannot reach the old page,
+    // and the camera is that page's stored one (or a fit once the canvas allows it).
+    if (doc.activePage !== prev.activePage) {
+      throttledCommit.cancel();
+      undoStack.clear();
+      const stored = opts.cameraStorage?.load(doc.activePage) ?? null;
+      fitPending = stored === null;
+      ui.setState({
+        tool: { mode: 'idle', tool: ui.getState().tool.tool, selection: [] },
+        preview: null,
+        overlay: null,
+        editingId: null,
+        editingColumn: null,
+        composer: null,
+        openThread: null,
+        camera: stored ?? { x: 0, y: 0, zoom: 1 },
+      });
+      tryFit();
+    }
+    // Close the editor if the edited shape is deleted (locally, remotely or by undo).
     const { editingId, editingColumn } = ui.getState();
     if (editingId && !doc.shapes[editingId]) stopEditing();
     if (editingColumn && doc.shapes[editingColumn.frameId]?.type !== 'frame') {
@@ -286,7 +335,8 @@ export function createBoardController(opts: {
     toggleVote(shapeId) {
       const { vote, voteKeys } = opts.activity.getState();
       if (!vote || !isVoteOpen(vote, serverNow())) return;
-      const shapes = opts.docStore.getState().shapes;
+      // The vote is room-wide: the sticky and the cap count across every visible page.
+      const shapes = opts.docStore.getState().allShapes;
       if (shapes[shapeId]?.type !== 'sticky') return;
       if (voteKeys.includes(voteKey(shapeId, opts.user.id))) {
         commitSession({ type: 'RetractVote', shapeId, userId: opts.user.id });
@@ -305,7 +355,7 @@ export function createBoardController(opts: {
       commitSession({
         type: 'AddComment',
         id,
-        pageId: 'main',
+        pageId: activePage(),
         anchor: composer.anchor,
         createdBy: opts.user.id,
         createdAt: now(),
@@ -345,6 +395,48 @@ export function createBoardController(opts: {
     },
     toggleCommentsPanel() {
       ui.setState({ commentsPanel: !ui.getState().commentsPanel });
+    },
+    setPage(id) {
+      opts.setPage(id);
+    },
+    createPage(type) {
+      const pages = opts.docStore.getState().pages;
+      const id = newId();
+      const sameType = pages.filter((p) => p.type === type).length;
+      const label = type === 'board' ? 'Board' : type === 'sheet' ? 'Sheet' : 'Calendar';
+      commitPage({
+        type: 'CreatePage',
+        page: {
+          id,
+          type,
+          title: `${label} ${sameType + 1}`,
+          order: orderBetween(pages.at(-1)?.order ?? null, null),
+          createdBy: opts.user.id,
+          createdAt: now(),
+        },
+      });
+      return id;
+    },
+    renamePage(id, title) {
+      const text = title.trim();
+      if (text) commitPage({ type: 'RenamePage', id, title: text });
+    },
+    movePage(id, toIndex) {
+      const others = opts.docStore.getState().pages.filter((p) => p.id !== id);
+      const i = Math.max(0, Math.min(toIndex, others.length));
+      commitPage({
+        type: 'MovePage',
+        id,
+        order: orderBetween(others[i - 1]?.order ?? null, others[i]?.order ?? null),
+      });
+    },
+    deletePage(id) {
+      if (opts.docStore.getState().pages.length <= 1) return;
+      commitPage({ type: 'DeletePage', id });
+    },
+    renameBoard(title) {
+      const text = title.trim();
+      if (text) commitPage({ type: 'RenameBoard', title: text });
     },
     destroy() {
       throttledCommit.cancel();

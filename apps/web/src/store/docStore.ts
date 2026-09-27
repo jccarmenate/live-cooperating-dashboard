@@ -63,6 +63,10 @@ export function createDocStore(
   } = getRoots(doc);
   const rawShapes: Record<string, Shape> = {};
   const rawConnectors: Record<string, Connector> = {};
+  // Cached so subscribers selecting `pages` or `allShapes` (page tabs, vote tallies)
+  // are not re-rendered by unrelated transactions such as every drag frame.
+  let pages = readPages(yPages, yTombstones);
+  let allShapes: Record<string, Shape> = {};
 
   const store = createStore<DocState>(() => ({
     shapes: {},
@@ -70,33 +74,39 @@ export function createDocStore(
     connectors: {},
     connectorOrder: [],
     meta: readMeta(meta),
-    pages: readPages(yPages, yTombstones),
+    pages,
     activePage: initialPage,
-    allShapes: {},
+    allShapes,
   }));
 
   let requested = initialPage;
-  const resolvePage = (pages: PageInfo[]) =>
+  const resolvePage = () =>
     pages.some((p) => p.id === requested) ? requested : (pages[0]?.id ?? requested);
 
   let lastNormalized: { page: string; value: Normalized } | null = null;
 
-  /** `shapesChanged` is false for a connector-only transaction, so the unchanged shapes/order are reused. */
-  const publish = (shapesChanged: boolean) => {
-    const pages = readPages(yPages, yTombstones);
-    const visible = new Set(pages.map((p) => p.id));
-    const activePage = resolvePage(pages);
-    const onActive: Record<string, Shape> = {};
-    const allShapes: Record<string, Shape> = {};
-    for (const s of Object.values(rawShapes)) {
-      const p = pageOf(s);
-      if (visible.has(p)) allShapes[s.id] = s;
-      if (p === activePage) onActive[s.id] = s;
+  /**
+   * Recomputes only what changed: `shapes` (the shapes root) and `pages` (the pages or
+   * tombstones root). A connector-only transaction or a page switch passes neither, so
+   * `pages` and `allShapes` keep their identity; the active page's shapes/order are
+   * reused unless the shapes changed or the active page did.
+   */
+  const publish = (changed: { shapes?: boolean; pages?: boolean }) => {
+    if (changed.pages) pages = readPages(yPages, yTombstones);
+    const activePage = resolvePage();
+    if (changed.shapes || changed.pages) {
+      const visible = new Set(pages.map((p) => p.id));
+      allShapes = {};
+      for (const s of Object.values(rawShapes)) if (visible.has(pageOf(s))) allShapes[s.id] = s;
     }
-    const normalized =
-      !shapesChanged && lastNormalized?.page === activePage
-        ? lastNormalized.value
-        : normalizeShapes(onActive);
+    let normalized: Normalized;
+    if (!changed.shapes && lastNormalized?.page === activePage) {
+      normalized = lastNormalized.value;
+    } else {
+      const onActive: Record<string, Shape> = {};
+      for (const s of Object.values(rawShapes)) if (pageOf(s) === activePage) onActive[s.id] = s;
+      normalized = normalizeShapes(onActive);
+    }
     lastNormalized = { page: activePage, value: normalized };
     const pageConnectors: Record<string, Connector> = {};
     for (const c of Object.values(rawConnectors))
@@ -129,15 +139,15 @@ export function createDocStore(
 
   const onShapes = (events: Y.YEvent<Y.AbstractType<unknown>>[]) => {
     rebuildShapes(touchedIds(events, yShapes));
-    publish(true);
+    publish({ shapes: true });
   };
   const onConnectors = (events: Y.YEvent<Y.AbstractType<unknown>>[]) => {
     rebuildConnectors(touchedIds(events, yConnectors));
-    publish(false);
+    publish({});
   };
   const onMeta = () => store.setState({ meta: readMeta(meta) });
   // A delete may write only a tombstone (e.g. an empty main), so both roots republish.
-  const onPages = () => publish(true);
+  const onPages = () => publish({ pages: true });
 
   yShapes.observeDeep(onShapes);
   yConnectors.observeDeep(onConnectors);
@@ -146,13 +156,13 @@ export function createDocStore(
   yTombstones.observe(onPages);
   rebuildShapes(yShapes.keys());
   rebuildConnectors(yConnectors.keys());
-  publish(true);
+  publish({ shapes: true });
 
   return {
     store,
     setPage(id: string) {
       requested = id;
-      publish(true);
+      publish({});
     },
     destroy() {
       yShapes.unobserveDeep(onShapes);

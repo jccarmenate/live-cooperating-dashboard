@@ -6,6 +6,7 @@ export interface PresencePublisher {
   setSelection(ids: string[]): void;
   setEditing(id: string | null): void;
   setViewport(r: Rect | null): void;
+  setPage(page: string): void;
   destroy(): void;
 }
 
@@ -30,6 +31,7 @@ export function createPresencePublisher(awareness: Awareness, user: Identity): P
     setSelection: (ids) => awareness.setLocalStateField('selection', ids),
     setEditing: (id) => awareness.setLocalStateField('editing', id),
     setViewport,
+    setPage: (page) => awareness.setLocalStateField('page', page),
     destroy() {
       setCursor.cancel();
       setViewport.cancel();

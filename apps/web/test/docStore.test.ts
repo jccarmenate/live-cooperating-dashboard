@@ -177,6 +177,36 @@ describe('pages', () => {
     expect(docs.store.getState().activePage).toBe('p2');
   });
 
+  it('keeps pages across shape changes and allShapes across connector-only changes', () => {
+    const doc = new Y.Doc();
+    sticky(doc, 'a');
+    sticky(doc, 'b');
+    const docs = createDocStore(doc);
+    const pages = docs.store.getState().pages;
+    applyCommand(doc, { type: 'MoveShapes', moves: [{ id: 'a', x: 40, y: 0 }] }, LOCAL_ORIGIN);
+    expect(docs.store.getState().shapes.a?.x).toBe(40);
+    expect(docs.store.getState().pages).toBe(pages);
+    const allShapes = docs.store.getState().allShapes;
+    applyCommand(
+      doc,
+      {
+        type: 'Connect',
+        connector: {
+          id: 'k',
+          from: { shapeId: 'a', anchor: 'auto' },
+          to: { shapeId: 'b', anchor: 'auto' },
+          routing: 'straight',
+          head: 'arrow',
+          createdBy: 'u',
+        },
+      },
+      LOCAL_ORIGIN,
+    );
+    expect(docs.store.getState().connectorOrder).toEqual(['k']);
+    expect(docs.store.getState().allShapes).toBe(allShapes);
+    expect(docs.store.getState().pages).toBe(pages);
+  });
+
   it('drops connectors whose endpoints live on another page', () => {
     const doc = new Y.Doc();
     sticky(doc, 'a');

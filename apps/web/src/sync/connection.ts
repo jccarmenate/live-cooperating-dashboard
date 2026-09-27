@@ -43,7 +43,7 @@ export function connectRoom(opts: {
     }
   });
 
-  const clock = createStore<ClockState>(() => ({ role: null, offset: 0 }));
+  const clock = createStore<ClockState>(() => ({ role: null, offset: 0, viewKey: null }));
   provider.on('custom-message', (raw: string) => {
     const msg = parseServerMessage(raw);
     if (msg) clock.setState(nextClock(clock.getState(), msg, Date.now()));

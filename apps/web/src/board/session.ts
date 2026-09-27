@@ -1,15 +1,25 @@
-import { type Identity, loadIdentity, type Peer, parseCamera, viewportRect } from '@relay/core';
+import {
+  type Identity,
+  loadIdentity,
+  MAIN_PAGE,
+  type Peer,
+  parseCamera,
+  viewportRect,
+} from '@relay/core';
 import type { StoreApi } from 'zustand/vanilla';
 import { SYNC_HOST } from '../config';
 import { type ActivityState, createActivityStore } from '../store/activityStore';
 import { createDocStore, type DocState } from '../store/docStore';
 import { createPresenceStore } from '../store/presenceStore';
 import { connectRoom, type RoomConnection } from '../sync/connection';
+import { hashFor } from '../sync/key';
 import { createPresencePublisher, type PresencePublisher } from '../sync/presence';
 import { type BoardController, type CameraStorage, createBoardController } from './controller';
 
 export interface BoardSession {
   roomId: string;
+  /** Capability key from the URL fragment (null when the room is open). */
+  key: string | null;
   user: Identity;
   conn: RoomConnection;
   doc: StoreApi<DocState>;
@@ -17,6 +27,8 @@ export interface BoardSession {
   presence: StoreApi<{ peers: Peer[] }>;
   publisher: PresencePublisher;
   controller: BoardController;
+  /** Switches the active page (the same as `controller.setPage`). */
+  setPage(id: string): void;
   destroy(): void;
 }
 
@@ -29,19 +41,19 @@ function safeLocalStorage(): Storage | null {
 }
 
 function cameraStorage(roomId: string): CameraStorage {
-  const key = `relay:camera:${roomId}`;
+  const keyFor = (page: string) => `relay:camera:${roomId}:${page}`;
   return {
-    load() {
+    load(page) {
       try {
-        const raw = safeLocalStorage()?.getItem(key);
+        const raw = safeLocalStorage()?.getItem(keyFor(page));
         return raw ? parseCamera(JSON.parse(raw)) : null;
       } catch {
         return null;
       }
     },
-    save(camera) {
+    save(page, camera) {
       try {
-        safeLocalStorage()?.setItem(key, JSON.stringify(camera));
+        safeLocalStorage()?.setItem(keyFor(page), JSON.stringify(camera));
       } catch {
         // Storage full or blocked: the camera just is not restored next time.
       }
@@ -49,16 +61,21 @@ function cameraStorage(roomId: string): CameraStorage {
   };
 }
 
-export function createBoardSession(roomId: string, key: string | null): BoardSession {
+export function createBoardSession(
+  roomId: string,
+  key: string | null,
+  initialPage: string | null,
+): BoardSession {
   const user = loadIdentity(safeLocalStorage());
   const conn = connectRoom({ roomId, key, host: SYNC_HOST });
-  const docStore = createDocStore(conn.doc);
+  const docStore = createDocStore(conn.doc, initialPage ?? MAIN_PAGE);
   const presence = createPresenceStore(conn.provider.awareness);
   const publisher = createPresencePublisher(conn.provider.awareness, user);
   const activity = createActivityStore(conn.doc);
   const controller = createBoardController({
     doc: conn.doc,
     docStore: docStore.store,
+    setPage: docStore.setPage,
     activity: activity.store,
     user,
     serverNow: conn.serverNow,
@@ -75,6 +92,18 @@ export function createBoardSession(roomId: string, key: string | null): BoardSes
     }
   });
 
+  // Peers see which page we are on; the URL keeps it for reloads and shared links.
+  publisher.setPage(docStore.store.getState().activePage);
+  const unsubscribePage = docStore.store.subscribe((state, prev) => {
+    if (state.activePage === prev.activePage) return;
+    publisher.setPage(state.activePage);
+    try {
+      window.history.replaceState(null, '', hashFor(key, state.activePage));
+    } catch {
+      // Non-browser environments: nothing to mirror.
+    }
+  });
+
   const onSync = (isSynced: boolean) => {
     if (isSynced) controller.markSynced();
   };
@@ -83,6 +112,7 @@ export function createBoardSession(roomId: string, key: string | null): BoardSes
 
   return {
     roomId,
+    key,
     user,
     conn,
     doc: docStore.store,
@@ -90,8 +120,10 @@ export function createBoardSession(roomId: string, key: string | null): BoardSes
     presence: presence.store,
     publisher,
     controller,
+    setPage: controller.setPage,
     destroy() {
       unsubscribe();
+      unsubscribePage();
       conn.provider.off('sync', onSync);
       controller.destroy();
       publisher.destroy();

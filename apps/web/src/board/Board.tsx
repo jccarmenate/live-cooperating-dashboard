@@ -8,7 +8,7 @@ import { CommentLayer } from '../render/CommentLayer';
 import { Minimap } from '../render/Minimap';
 import { RemoteCursors } from '../render/RemoteCursors';
 import { TextEditor } from '../render/TextEditor';
-import { keyFromHash } from '../sync/key';
+import { keyFromHash, pageFromHash } from '../sync/key';
 import { CommentsPanel } from '../ui/CommentsPanel';
 import { Header } from '../ui/Header';
 import { StatusBanner } from '../ui/StatusBanner';
@@ -43,7 +43,11 @@ export function Board({ roomId }: { roomId: string }) {
   const [session, setSession] = useState<BoardSession | null>(null);
 
   useEffect(() => {
-    const s = createBoardSession(roomId, keyFromHash(window.location.hash));
+    const s = createBoardSession(
+      roomId,
+      keyFromHash(window.location.hash),
+      pageFromHash(window.location.hash),
+    );
     setSession(s);
     return () => s.destroy();
   }, [roomId]);
