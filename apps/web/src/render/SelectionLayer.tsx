@@ -69,6 +69,43 @@ export function SelectionLayer({ session }: { session: BoardSession }) {
           );
         }),
       )}
+      {peers.map((peer) => {
+        const s = peer.editing ? shapes[peer.editing] : undefined;
+        if (!s) return null;
+        const b = shapeBounds(s);
+        const label = `${peer.user.name} · typing…`;
+        return (
+          <g key={`typing:${peer.clientId}`} data-testid="typing-indicator">
+            <rect
+              {...outline(b)}
+              fill="none"
+              stroke={peer.user.color}
+              strokeWidth={stroke * 1.5}
+              strokeDasharray={`${3 / zoom} ${3 / zoom}`}
+            />
+            {/* Screen-sized tag above the shape, like the W × H label. */}
+            <g transform={`translate(${b.x - PAD} ${b.y - PAD - 22 / zoom}) scale(${1 / zoom})`}>
+              <rect
+                width={label.length * 6.2 + 12}
+                height={18}
+                fill={peer.user.color}
+                stroke={PALETTE.ink}
+                strokeWidth={1.5}
+              />
+              <text
+                x={6}
+                y={13}
+                fill={PALETTE.white}
+                className="font-mono"
+                fontSize={10}
+                fontWeight={700}
+              >
+                {label}
+              </text>
+            </g>
+          </g>
+        );
+      })}
       {selection.map((id) => {
         const s = current(id);
         if (!s) return null;
