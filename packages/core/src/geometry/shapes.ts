@@ -12,6 +12,16 @@ export const HANDLES: readonly Handle[] = [...BOX_HANDLES, ...LINE_HANDLES];
 /** Boxes never shrink below this many world units on either axis. */
 export const MIN_SIZE = 8;
 
+/**
+ * A frame is never shorter than its title band plus a column header (FRAME_TITLE_H +
+ * COLUMN_HEADER_H in geometry/frames.ts; not imported here to keep the module graph acyclic).
+ */
+export const FRAME_MIN_H = 64;
+
+export function minSize(type: ShapeType): { w: number; h: number } {
+  return { w: MIN_SIZE, h: type === 'frame' ? FRAME_MIN_H : MIN_SIZE };
+}
+
 type Geometry = Pick<Shape, 'type' | 'x' | 'y' | 'w' | 'h'>;
 
 export const isHandle = (v: unknown): v is Handle =>
@@ -53,17 +63,17 @@ export function shapesInRect(shapes: Readonly<Record<string, Shape>>, rect: Rect
     .sort();
 }
 
-/** Keeps `moving` at least MIN_SIZE away from `fixed`, on the side it was dragged to. */
-function clampFrom(fixed: number, moving: number, movingIsMin: boolean): number {
+/** Keeps `moving` at least `min` away from `fixed`, on the side it was dragged to. */
+function clampFrom(fixed: number, moving: number, movingIsMin: boolean, min: number): number {
   const d = moving - fixed;
-  if (Math.abs(d) >= MIN_SIZE) return moving;
+  if (Math.abs(d) >= min) return moving;
   const side = d === 0 ? (movingIsMin ? -1 : 1) : Math.sign(d);
-  return fixed + side * MIN_SIZE;
+  return fixed + side * min;
 }
 
 /**
  * New geometry when `handle` of a shape whose geometry was `start` is dragged by `delta`.
- * Boxes flip instead of going negative and never shrink below MIN_SIZE; `keepAspect`
+ * Boxes flip instead of going negative and never shrink below `minSize(type)`; `keepAspect`
  * applies to corner handles. Lines move one endpoint of their signed vector.
  */
 export function resizeGeometry(
@@ -110,10 +120,11 @@ export function resizeGeometry(
     else bottom = top + nh;
   }
 
-  if (handle.includes('w')) left = clampFrom(right, left, true);
-  if (handle.includes('e')) right = clampFrom(left, right, false);
-  if (handle.includes('n')) top = clampFrom(bottom, top, true);
-  if (handle.includes('s')) bottom = clampFrom(top, bottom, false);
+  const min = minSize(type);
+  if (handle.includes('w')) left = clampFrom(right, left, true, min.w);
+  if (handle.includes('e')) right = clampFrom(left, right, false, min.w);
+  if (handle.includes('n')) top = clampFrom(bottom, top, true, min.h);
+  if (handle.includes('s')) bottom = clampFrom(top, bottom, false, min.h);
 
   return rectFromPoints({ x: left, y: top }, { x: right, y: bottom });
 }

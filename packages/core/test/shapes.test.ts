@@ -1,11 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import {
   BOX_HANDLES,
+  COLUMN_HEADER_H,
   DEFAULT_STYLE,
+  FRAME_MIN_H,
+  FRAME_TITLE_H,
   handlePoint,
   handlesFor,
   isHandle,
   MIN_SIZE,
+  minSize,
   rectsIntersect,
   resizeGeometry,
   type Shape,
@@ -206,5 +210,37 @@ describe('marquee hit-testing', () => {
       l: shape('l', { type: 'line', x: 90, y: 90, w: -10, h: -10 }),
     };
     expect(shapesInRect(shapes, { x: 10, y: 10, w: 75, h: 75 })).toEqual(['a', 'b', 'l']);
+  });
+});
+
+describe('frame minimum size', () => {
+  it('FRAME_MIN_H is the title band plus a column header', () => {
+    expect(FRAME_MIN_H).toBe(FRAME_TITLE_H + COLUMN_HEADER_H);
+    expect(minSize('frame')).toEqual({ w: MIN_SIZE, h: FRAME_MIN_H });
+    expect(minSize('sticky')).toEqual({ w: MIN_SIZE, h: MIN_SIZE });
+  });
+
+  it('a frame never resizes shorter than FRAME_MIN_H; other shapes keep MIN_SIZE', () => {
+    const f = { x: 0, y: 0, w: 400, h: 300 };
+    expect(resizeGeometry('frame', f, 's', { x: 0, y: -290 })).toEqual({
+      x: 0,
+      y: 0,
+      w: 400,
+      h: 64,
+    });
+    expect(resizeGeometry('frame', f, 'n', { x: 0, y: 280 })).toEqual({
+      x: 0,
+      y: 236,
+      w: 400,
+      h: 64,
+    });
+    // Same delta as the frame case above, but MIN_SIZE (8) is far smaller than FRAME_MIN_H:
+    // 300 - 290 = 10 is already >= MIN_SIZE, so a plain rect isn't clamped at all here.
+    expect(resizeGeometry('rect', f, 's', { x: 0, y: -290 })).toEqual({
+      x: 0,
+      y: 0,
+      w: 400,
+      h: 10,
+    });
   });
 });

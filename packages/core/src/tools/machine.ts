@@ -1,10 +1,10 @@
 import type { Command, NewConnector, NewShape } from '../commands/types';
 import { clipToOutline } from '../geometry/connectors';
 import { childrenOf, dropTarget, frameColumns, rectContains } from '../geometry/frames';
-import { centerOf, rectFromPoints } from '../geometry/rect';
+import { centerOf, containsPoint, rectFromPoints } from '../geometry/rect';
 import {
   type Handle,
-  MIN_SIZE,
+  minSize,
   resizeGeometry,
   shapeBounds,
   shapesInRect,
@@ -217,22 +217,68 @@ const resizeCommand = (id: string, r: Rect): Command => ({
   rects: [{ id, ...r }],
 });
 
-/** Parent/column changes for shapes dropped at `rects` (shapes travelling with their frame keep it). */
-function reparentMoves(rects: Record<string, Rect>, ctx: ToolContext) {
+type ReparentMove = { id: string; parentId: string | null; columnId: string | null };
+
+/**
+ * Parent/column changes after a gesture gave `rects` new geometry (moved, resized or — with
+ * `created` — a newly drawn frame).
+ * - Moving non-frame shapes are dropped with the usual rule: moving frames are excluded as
+ *   targets, and shapes travelling with their moving frame keep it.
+ * - When frames changed, the stationary shapes those frames parent, covered before, or cover
+ *   now are re-evaluated against the new geometry. This makes frames adopt and release shapes,
+ *   and re-columns the children of a resized frame.
+ */
+function membershipMoves(
+  rects: Record<string, Rect>,
+  ctx: ToolContext,
+  created?: Shape,
+): ReparentMove[] {
   const moving = new Set(Object.keys(rects));
-  const moves: { id: string; parentId: string | null; columnId: string | null }[] = [];
+  const after: Record<string, Shape> = { ...ctx.shapes };
+  if (created) after[created.id] = created;
   for (const [id, r] of Object.entries(rects)) {
-    const s = ctx.shapes[id];
-    if (!s || s.type === 'frame') continue;
-    if (s.parentId && moving.has(s.parentId)) continue;
-    const target = dropTarget(ctx.shapes, centerOf(shapeBounds({ type: s.type, ...r })), moving);
+    const s = after[id];
+    if (s) after[id] = { ...s, ...r };
+  }
+  const centre = (s: Shape) => centerOf(shapeBounds(s));
+  const moves: ReparentMove[] = [];
+  const consider = (s: Shape, exclude: ReadonlySet<string>) => {
+    const target = dropTarget(after, centre(s), exclude);
     const parentId = target?.parentId ?? null;
     const columnId = target?.columnId ?? null;
-    if (parentId === (s.parentId ?? null) && columnId === (s.columnId ?? null)) continue;
-    moves.push({ id, parentId, columnId });
+    if (parentId === (s.parentId ?? null) && columnId === (s.columnId ?? null)) return;
+    moves.push({ id: s.id, parentId, columnId });
+  };
+
+  for (const id of Object.keys(rects)) {
+    const s = after[id];
+    if (!s || s.type === 'frame') continue;
+    if (s.parentId && moving.has(s.parentId)) continue;
+    consider(s, moving);
+  }
+
+  const frames = [...moving].filter((id) => after[id]?.type === 'frame');
+  if (frames.length === 0) return moves;
+  const noExclusions = new Set<string>();
+  for (const s of Object.values(after)) {
+    if (s.type === 'frame' || moving.has(s.id)) continue;
+    const c = centre(s);
+    const affected = frames.some((f) => {
+      const before = ctx.shapes[f];
+      const now = after[f];
+      return (
+        s.parentId === f ||
+        (before !== undefined && containsPoint(before, c)) ||
+        (now !== undefined && containsPoint(now, c))
+      );
+    });
+    if (affected) consider(s, noExclusions);
   }
   return moves;
 }
+
+const reparent = (moves: ReparentMove[]): Effect[] =>
+  moves.length > 0 ? [command({ type: 'Reparent', moves })] : [];
 
 function resized(state: ResizingState, p: PointerInfo): Rect {
   const delta = { x: p.world.x - state.origin.x, y: p.world.y - state.origin.y };
@@ -378,14 +424,9 @@ function stepIdle(state: IdleState, event: ToolEvent, ctx: ToolContext): StepRes
         if (s) rects[id] = { x: s.x + event.dx, y: s.y + event.dy, w: s.w, h: s.h };
       }
       if (Object.keys(rects).length === 0) return none(state);
-      const reparent = reparentMoves(rects, ctx);
       return {
         state,
-        effects: [
-          command(moveCommand(rects)),
-          ...(reparent.length > 0 ? [command({ type: 'Reparent', moves: reparent })] : []),
-          END,
-        ],
+        effects: [command(moveCommand(rects)), ...reparent(membershipMoves(rects, ctx)), END],
       };
     }
     case 'toggleRouting': {
@@ -444,12 +485,11 @@ function stepDragging(state: DraggingState, event: ToolEvent, ctx: ToolContext):
       const next = idle('select', state.selection);
       if (!moved) return none(next);
       const rects = movedRects(state, event.p.world);
-      const reparent = reparentMoves(rects, ctx);
       return {
         state: next,
         effects: [
           command(moveCommand(rects)),
-          ...(reparent.length > 0 ? [command({ type: 'Reparent', moves: reparent })] : []),
+          ...reparent(membershipMoves(rects, ctx)),
           overlay(null),
           END,
         ],
@@ -468,7 +508,7 @@ function stepDragging(state: DraggingState, event: ToolEvent, ctx: ToolContext):
   }
 }
 
-function stepResizing(state: ResizingState, event: ToolEvent): StepResult {
+function stepResizing(state: ResizingState, event: ToolEvent, ctx: ToolContext): StepResult {
   switch (event.type) {
     case 'pointerMove': {
       const moved = state.moved || pastThreshold(state.origin, event.p.world);
@@ -483,9 +523,15 @@ function stepResizing(state: ResizingState, event: ToolEvent): StepResult {
       const moved = state.moved || pastThreshold(state.origin, event.p.world);
       const next = idle('select', state.selection);
       if (!moved) return none(next);
+      const r = resized(state, event.p);
       return {
         state: next,
-        effects: [command(resizeCommand(state.id, resized(state, event.p))), overlay(null), END],
+        effects: [
+          command(resizeCommand(state.id, r)),
+          ...reparent(membershipMoves({ [state.id]: r }, ctx)),
+          overlay(null),
+          END,
+        ],
       };
     }
     case 'cancel': {
@@ -522,12 +568,23 @@ function stepDrawing(state: DrawingState, event: ToolEvent, ctx: ToolContext): S
       } else if (rect.w < MIN_DRAW && rect.h < MIN_DRAW) {
         rect = { x: state.origin.x, y: state.origin.y, ...DEFAULT_SIZE[state.tool] };
       } else {
-        rect = { ...rect, w: Math.max(rect.w, MIN_SIZE), h: Math.max(rect.h, MIN_SIZE) };
+        const min = minSize(state.tool);
+        rect = { ...rect, w: Math.max(rect.w, min.w), h: Math.max(rect.h, min.h) };
       }
       const shape = newShape(ctx, state.tool, rect);
+      // A new frame adopts what it covers; it has the top z, so it wins over any frame below.
+      const adopted =
+        state.tool === 'frame'
+          ? membershipMoves({ [shape.id]: rect }, ctx, { ...shape, z: '￿' })
+          : [];
       return {
         state: idle('select', [shape.id]),
-        effects: [preview(null), command({ type: 'CreateShape', shape }), END],
+        effects: [
+          preview(null),
+          command({ type: 'CreateShape', shape }),
+          ...reparent(adopted),
+          END,
+        ],
       };
     }
     case 'cancel':
@@ -611,7 +668,7 @@ export function step(state: ToolState, event: ToolEvent, ctx: ToolContext): Step
     case 'dragging':
       return stepDragging(state, event, ctx);
     case 'resizing':
-      return stepResizing(state, event);
+      return stepResizing(state, event, ctx);
     case 'drawing':
       return stepDrawing(state, event, ctx);
     case 'marquee':

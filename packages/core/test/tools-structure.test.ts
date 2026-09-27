@@ -343,7 +343,25 @@ describe('frames', () => {
     let r = step(idle('select', []), { type: 'pointerDown', p: at(10, 10, { hitId: 'f1' }) }, c);
     r = step(r.state, { type: 'pointerMove', p: at(910, 10) }, c);
     r = step(r.state, { type: 'pointerUp', p: at(910, 10) }, c);
-    expect(commands(r.effects).some((cmd) => cmd.type === 'Reparent')).toBe(false);
+    // f1 itself is never adopted (frames never nest), but moving it onto f2's territory
+    // exposes loose shapes a (centre 1050,25) and b (centre 1350,225) to f2, the topmost
+    // frame now covering them: a's centre is in f2's title band, b's is in column d1.
+    expect(commands(r.effects)).toEqual([
+      {
+        type: 'MoveShapes',
+        moves: [
+          { id: 'f1', x: 900, y: 0 },
+          { id: 's1', x: 920, y: 60 },
+        ],
+      },
+      {
+        type: 'Reparent',
+        moves: [
+          { id: 'a', parentId: 'f2', columnId: null },
+          { id: 'b', parentId: 'f2', columnId: 'd1' },
+        ],
+      },
+    ]);
   });
 
   it('ignores a column whose frameId is not a live frame', () => {
@@ -438,5 +456,142 @@ describe('frames', () => {
       { type: 'Reparent', moves: [{ id: 's1', parentId: 'f1', columnId: 'c2' }] },
     ]);
     expect(r.effects.at(-1)).toEqual({ type: 'endGesture' });
+  });
+});
+
+describe('frame membership (adoption)', () => {
+  // Centre (780, 120): outside f1 (x 0..600).
+  const loose = shape('loose', { type: 'sticky', x: 700, y: 60, w: 160, h: 120 });
+
+  function ctxWith(extra: Record<string, Shape>): ToolContext {
+    let n = 0;
+    return {
+      shapes: { f1, s1, a, b, ...extra },
+      connectors: { k1 },
+      userId: 'u1',
+      userName: 'Brisk Otter',
+      newId: () => `new${++n}`,
+      now: () => 1000,
+    };
+  }
+
+  it('drawing a frame adopts the shapes whose centre it covers', () => {
+    const c = ctxWith({ loose });
+    let r = step(idle('frame', []), { type: 'pointerDown', p: at(650, 0) }, c);
+    r = step(r.state, { type: 'pointerMove', p: at(1250, 400) }, c);
+    r = step(r.state, { type: 'pointerUp', p: at(1250, 400) }, c);
+    // new1 is the frame; new2..new4 are its columns (650..850, 850..1050, 1050..1250).
+    const cmds = commands(r.effects);
+    expect(cmds.map((x) => x.type)).toEqual(['CreateShape', 'Reparent']);
+    expect(cmds[1]).toEqual({
+      type: 'Reparent',
+      moves: [
+        { id: 'a', parentId: 'new1', columnId: null }, // centre (1050, 25) is in the title band
+        { id: 'loose', parentId: 'new1', columnId: 'new2' },
+      ],
+    });
+    expect(r.effects.at(-1)).toEqual({ type: 'endGesture' });
+  });
+
+  it('dragging a frame over a loose shape adopts it into the column under its centre', () => {
+    const c = ctxWith({ loose });
+    let r = step(idle('select', []), { type: 'pointerDown', p: at(300, 10, { hitId: 'f1' }) }, c);
+    r = step(r.state, { type: 'pointerMove', p: at(600, 10) }, c);
+    r = step(r.state, { type: 'pointerUp', p: at(600, 10, { hitId: 'f1' }) }, c);
+    // f1 now spans x 300..900: c1 300..500, c2 500..700, c3 700..900.
+    expect(commands(r.effects)).toEqual([
+      {
+        type: 'MoveShapes',
+        moves: [
+          { id: 'f1', x: 300, y: 0 },
+          { id: 's1', x: 320, y: 60 },
+        ],
+      },
+      { type: 'Reparent', moves: [{ id: 'loose', parentId: 'f1', columnId: 'c3' }] },
+    ]);
+  });
+
+  it('nudging a frame adopts the shapes it now covers', () => {
+    const c = ctxWith({ loose });
+    const r = step(idle('select', ['f1']), { type: 'nudge', dx: 200, dy: 0 }, c);
+    expect(commands(r.effects)[1]).toEqual({
+      type: 'Reparent',
+      moves: [{ id: 'loose', parentId: 'f1', columnId: 'c3' }],
+    });
+    expect(r.effects.at(-1)).toEqual({ type: 'endGesture' });
+  });
+
+  it('resizing a frame releases uncovered children and re-columns the rest in one gesture', () => {
+    const held = shape('held', {
+      type: 'sticky',
+      x: 420,
+      y: 60,
+      w: 160,
+      h: 120,
+      parentId: 'f1',
+      columnId: 'c3',
+    }); // centre (500, 120)
+    const mid = shape('mid', {
+      type: 'sticky',
+      x: 270,
+      y: 60,
+      w: 160,
+      h: 120,
+      parentId: 'f1',
+      columnId: 'c2',
+    }); // centre (350, 120)
+    const c = ctxWith({ held, mid });
+    let r = step(
+      idle('select', ['f1']),
+      { type: 'pointerDown', p: at(600, 200, { handle: 'e' }) },
+      c,
+    );
+    r = step(r.state, { type: 'pointerMove', p: at(450, 200) }, c);
+    r = step(r.state, { type: 'pointerUp', p: at(450, 200) }, c);
+    // f1 is now 450 wide: c1 0..150 (s1 stays), c2 150..300, c3 300..450.
+    expect(r.effects).toEqual([
+      {
+        type: 'command',
+        command: { type: 'ResizeShapes', rects: [{ id: 'f1', x: 0, y: 0, w: 450, h: 400 }] },
+        throttle: false,
+      },
+      {
+        type: 'command',
+        command: {
+          type: 'Reparent',
+          moves: [
+            { id: 'held', parentId: null, columnId: null },
+            { id: 'mid', parentId: 'f1', columnId: 'c3' },
+          ],
+        },
+        throttle: false,
+      },
+      { type: 'overlay', rects: null },
+      { type: 'endGesture' },
+    ]);
+  });
+
+  it('resizing a shape across a column boundary moves it to that column', () => {
+    const c = ctxWith({});
+    let r = step(
+      idle('select', ['s1']),
+      { type: 'pointerDown', p: at(180, 120, { handle: 'e' }) },
+      c,
+    );
+    r = step(r.state, { type: 'pointerMove', p: at(400, 120) }, c);
+    r = step(r.state, { type: 'pointerUp', p: at(400, 120) }, c);
+    // s1 becomes x 20..400, centre 210, which is in c2 (200..400).
+    expect(commands(r.effects)[1]).toEqual({
+      type: 'Reparent',
+      moves: [{ id: 's1', parentId: 'f1', columnId: 'c2' }],
+    });
+  });
+
+  it('a frame drawn flat gets the minimum frame height', () => {
+    const c = ctxWith({});
+    let r = step(idle('frame', []), { type: 'pointerDown', p: at(0, 500) }, c);
+    r = step(r.state, { type: 'pointerUp', p: at(300, 510) }, c);
+    const create = commands(r.effects)[0];
+    expect(create?.type === 'CreateShape' && create.shape.h).toBe(64);
   });
 });
