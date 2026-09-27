@@ -17,6 +17,17 @@ export function cachedTallies(keys: string[], shapes: Record<string, Shape>, max
   return result;
 }
 
+/** Longest timer `useVoteOpen` arms; the tick re-arms it, so a far deadline is reached in steps. */
+export const MAX_TIMER_MS = 60_000;
+
+/**
+ * Delay until just after `endsAt`, capped at `MAX_TIMER_MS`. Browsers wrap a delay above
+ * 2^31 − 1 ms and fire at once, so an uncapped hostile `endsAt` would spin the timer.
+ */
+export function voteTimerDelay(endsAt: number, serverNow: number): number {
+  return Math.min(Math.max(0, endsAt - serverNow) + 50, MAX_TIMER_MS);
+}
+
 /**
  * True while the vote is open; re-renders when the deadline passes (server time). Each fire
  * and each clock-offset change reschedules the timer while the vote is still open, so an early
@@ -29,7 +40,7 @@ export function useVoteOpen(session: BoardSession): boolean {
   const open = isVoteOpen(vote, session.conn.serverNow());
   useEffect(() => {
     if (!open || !vote) return;
-    const delay = vote.endsAt - (Date.now() + offset) + 50;
+    const delay = voteTimerDelay(vote.endsAt, Date.now() + offset);
     const t = setTimeout(() => expire(tick + 1), delay);
     return () => clearTimeout(t);
   }, [open, vote, offset, tick]);

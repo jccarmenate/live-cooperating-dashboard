@@ -4,6 +4,7 @@ import {
   DEFAULT_STYLE,
   getRoots,
   type PointerInfo,
+  SESSION_ORIGIN,
   worldToScreen,
 } from '@relay/core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -602,6 +603,22 @@ describe('comments', () => {
     controller.dispatch({ type: 'pointerDown', p: at(900, 900) });
     controller.dispatch({ type: 'pointerUp', p: at(900, 900) });
     expect(controller.ui.getState().openThread).toBeNull();
+  });
+
+  it('commits votes and comments under SESSION_ORIGIN, which undo never tracks', () => {
+    const { doc, controller, activity } = setup();
+    addSticky(doc, 'a');
+    const origins: unknown[] = [];
+    doc.on('afterTransaction', (tr: Y.Transaction) => origins.push(tr.origin));
+    controller.startVote(1);
+    controller.toggleVote('a');
+    controller.dispatch({ type: 'setTool', tool: 'comment' });
+    controller.dispatch({ type: 'pointerDown', p: at(0, 0) });
+    controller.addComment('first');
+    const [id] = activity.store.getState().commentOrder as [string];
+    controller.replyComment(id, 'second');
+    expect(origins).toHaveLength(4);
+    expect(origins.every((o) => o === SESSION_ORIGIN)).toBe(true);
   });
 
   it('toggles the comments panel', () => {

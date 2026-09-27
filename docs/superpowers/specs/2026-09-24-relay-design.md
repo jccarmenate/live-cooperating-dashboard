@@ -271,8 +271,8 @@ bounded size (≤ 1e6 world units per side).
   JSON: `{ type: 'hello', role, now }` on every connect and
   `{ type: 'time', now }` in reply to the client's `{ type: 'time?' }`, sent
   every 5 minutes. The client keeps `offset = now − Date.now()` at receipt
-  (error ≤ one-way latency) and its `role` (`edit` | `view`) in a `session`
-  store; unknown or malformed messages are ignored.
+  (error ≤ one-way latency) and its `role` (`edit` | `view`) in the
+  connection's `clock` store; unknown or malformed messages are ignored.
 
 ### Commands and Undo
 
@@ -414,7 +414,7 @@ Ctrl/⌘+wheel or pinch. Keyboard shortcuts are ignored while typing in an
 input, textarea or contenteditable element. Enter commits a frame title
 (frame titles are single-line); in other text shapes Enter inserts a line
 break and Escape or a click outside ends editing. `M` selects the comment
-tool.
+tool for editors only.
 
 ### Voting
 
@@ -438,7 +438,11 @@ tool.
   until the next `StartVote`.
 - **Header:** while open, `VOTE OPEN · m:ss · N left` (server-time countdown,
   `N` = the local user's remaining votes) and an End button; afterwards
-  `VOTE ENDED` until the next vote. Only stickies are votable.
+  `VOTE ENDED` until the next vote. Only stickies are votable. Viewers see
+  `VOTE OPEN · m:ss` without the `N left` part.
+- **Identity:** identity is self-asserted (no accounts), so vote user ids are
+  only as trustworthy as the holders of the edit link, just like presence
+  names and sticky author names.
 
 ### Comments
 
@@ -449,7 +453,8 @@ tool.
   to the world point. Enter posts (`AddComment` with the first thread
   entry), Shift+Enter inserts a line break, Escape or an empty body cancels.
 - **Pins:** open threads render as speech-bubble pins in an HTML overlay in
-  screen space (they do not scale with zoom) showing the reply count.
+  screen space (they do not scale with zoom) showing the entry count (the
+  number of messages in the thread).
   Clicking a pin opens the thread popover: entries (author, relative time,
   body), a reply box (`ReplyComment`) and Resolve / Reopen
   (`ResolveComment { resolved }`). Resolved threads are hidden from the
@@ -461,10 +466,17 @@ tool.
 - **Limits, enforced on read:** bodies are truncated to 2000 characters,
   author names to 40, threads to their first 200 entries; malformed entries
   are skipped. Comment ids and entry ids are random UUIDs.
+- **Identity:** identity is self-asserted (no accounts), so comment authors
+  are only as trustworthy as the holders of the edit link, just like
+  presence names and sticky author names.
 - **Read-only links:** viewers (role `view` from the server's `hello`) see
   votes and comments but get no VOTE button, vote badges are not clickable,
   the comment tool is hidden and the composer / reply box are not rendered.
-  The server already drops their document updates.
+  The server already drops their document updates. The role is `null` until
+  the server's `hello` arrives, and session actions (voting, commenting) stay
+  hidden until then, so an editor who opens a board offline can't vote or
+  comment until connected. `serverNow` falls back to local time until
+  `hello`.
 
 ### Navigation
 

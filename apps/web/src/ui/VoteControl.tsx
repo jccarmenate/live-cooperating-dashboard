@@ -20,13 +20,16 @@ export function VoteControl({ session }: { session: BoardSession }) {
 
   if (vote && isVoteOpen(vote, now)) {
     const mine = cachedTallies(keys, shapes, vote.maxPerUser).byUser[session.user.id]?.length ?? 0;
-    const left = Math.max(0, vote.endsAt - now);
+    // Clamped so a hostile far-future `endsAt` can't print a huge minute count.
+    const left = Math.min(Math.max(0, vote.endsAt - now), 99 * 60_000);
     const mm = Math.floor(left / 60_000);
     const ss = String(Math.floor(left / 1000) % 60).padStart(2, '0');
+    // Viewers can't vote, so they get no "N left".
+    const remaining = canEdit ? ` · ${Math.max(0, vote.maxPerUser - mine)} left` : '';
     return (
       <div className="flex items-center gap-1.5">
         <span data-testid="vote-status" className={`${pill} bg-sun`}>
-          {`VOTE OPEN · ${mm}:${ss} · ${Math.max(0, vote.maxPerUser - mine)} left`}
+          {`VOTE OPEN · ${mm}:${ss}${remaining}`}
         </span>
         {canEdit && (
           <button

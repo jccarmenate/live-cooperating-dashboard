@@ -7,14 +7,21 @@ import { cachedTallies, useVoteOpen } from './voting';
 export function VoteBadge({ s, session }: { s: Shape; session: BoardSession }) {
   const vote = useStore(session.activity, (a) => a.vote);
   const keys = useStore(session.activity, (a) => a.voteKeys);
-  const shapes = useStore(session.doc, (d) => d.shapes);
+  // Primitive selectors over the doc store: a shape edit re-renders the badge only when it
+  // changes this sticky's count or mine flag, not on every edit.
+  const count = useStore(session.doc, (d) =>
+    vote ? (cachedTallies(keys, d.shapes, vote.maxPerUser).counts[s.id] ?? 0) : 0,
+  );
+  const mine = useStore(session.doc, (d) =>
+    vote
+      ? (cachedTallies(keys, d.shapes, vote.maxPerUser).byUser[session.user.id]?.includes(s.id) ??
+        false)
+      : false,
+  );
   const role = useStore(session.conn.clock, (c) => c.role);
   const open = useVoteOpen(session);
   if (!vote) return null;
-  const t = cachedTallies(keys, shapes, vote.maxPerUser);
-  const count = t.counts[s.id] ?? 0;
   if (!open && count === 0) return null;
-  const mine = t.byUser[session.user.id]?.includes(s.id) ?? false;
   const clickable = open && role === 'edit';
   return (
     // biome-ignore lint/a11y/noStaticElementInteractions: onDoubleClick only shields the canvas; it adds no interaction
