@@ -479,9 +479,10 @@ pages.
   title }`, `MovePage { id, order }` (fractional key between neighbours),
   `DeletePage { id }` (tombstone plus deletion of the page's shapes,
   connectors and comments in the same transaction), and `RenameBoard {
-  title }` for `meta.title`. Page commands use the `LOCAL` origin but touch
-  roots the undo manager does not track, so they are not undoable; deleting
-  asks for confirmation. The last visible page cannot be deleted from the
+  title }` for `meta.title`. Page commands and `RenameBoard` are applied
+  with the `SESSION` origin, so they are never undoable (a page delete must
+  never be undone into shapes on a tombstoned page); deleting asks for
+  confirmation. The last visible page cannot be deleted from the
   UI; if concurrent deletes remove every page, the UI shows an empty state
   with "New page".
 - **Active page:** local state, mirrored in the URL hash (`#k=<key>&p=<page
