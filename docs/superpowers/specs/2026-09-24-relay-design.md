@@ -198,13 +198,16 @@ connectors  Y.Map<id, Y.Map>
               head        'arrow' | 'none'
               z           fractional-index string
               createdBy   user id
-session     Y.Map   { vote: { open: boolean, endsAt: number, maxPerUser: number } }
+session     Y.Map   { vote: { open: boolean, endsAt: number, maxPerUser: number,
+                              startedBy: user id } }   (atomic JSON value)
 votes       Y.Map<"<shapeId>:<userId>", true>
 comments    Y.Map<id, Y.Map>
-              anchor      { shapeId } | { x, y }
+              anchor      { shapeId, dx, dy } | { x, y }   (atomic JSON; dx/dy from
+                          the shape's top-left)
               resolved    boolean
               createdBy   user id
-              thread      Y.Array<{ author, body, ts }>
+              createdAt   epoch ms
+              thread      Y.Array<{ id, authorId, author, body, ts }>
 ```
 
 Lines are shapes (`type: 'line'`) with endpoints encoded in `x, y, w, h`
@@ -264,19 +267,26 @@ bounded size (≤ 1e6 world units per side).
 - `y-indexeddb` persists the doc locally for instant load and offline edits.
 - Connection status (`connecting` / `online` / `offline · N pending`) is
   surfaced in the header.
-- A custom `time` message from the server sets the clock offset.
+- Custom messages from the server (y-partyserver's `__YPS:` channel) carry
+  JSON: `{ type: 'hello', role, now }` on every connect and
+  `{ type: 'time', now }` in reply to the client's `{ type: 'time?' }`, sent
+  every 5 minutes. The client keeps `offset = now − Date.now()` at receipt
+  (error ≤ one-way latency) and its `role` (`edit` | `view`) in a `session`
+  store; unknown or malformed messages are ignored.
 
 ### Commands and Undo
 
 All mutations are values of a typed union — `CreateShape`, `MoveShapes`,
 `ResizeShapes`, `DeleteShapes`, `Reparent`, `Connect`, `SetRouting`,
-`RenameColumn`, `SetZ`, `SetText`, `SetStyle`, `Vote`, `StartVote`,
-`AddComment`, `ResolveComment`, `ApplyAiProposal`, … — applied by
-`applyCommand(doc, cmd)` inside `doc.transact(fn, origin)`. UI code never
-touches Yjs types directly.
+`RenameColumn`, `SetZ`, `SetText`, `SetStyle`, `StartVote`, `EndVote`,
+`CastVote`, `RetractVote`, `AddComment`, `ReplyComment`, `ResolveComment`,
+`ApplyAiProposal`, … — applied by `applyCommand(doc, cmd)` inside
+`doc.transact(fn, origin)`. UI code never touches Yjs types directly.
 
 `Y.UndoManager` tracks the `LOCAL` and `AI` origins only, so each user undoes
-only their own changes. Gestures call `stopCapturing()` on completion so a
+only their own changes. Votes and comments are applied with a third origin,
+`SESSION`, that the undo manager does not track: `Ctrl+Z` undoes board
+edits, never a vote or a message. Gestures call `stopCapturing()` on completion so a
 whole drag or resize is one undo step.
 
 The undo manager uses a 60 s capture timeout, so undo steps are delimited
@@ -403,7 +413,58 @@ routing, `Delete`, `Ctrl+Z` / `Ctrl+Shift+Z`, arrow keys to nudge
 Ctrl/⌘+wheel or pinch. Keyboard shortcuts are ignored while typing in an
 input, textarea or contenteditable element. Enter commits a frame title
 (frame titles are single-line); in other text shapes Enter inserts a line
-break and Escape or a click outside ends editing.
+break and Escape or a click outside ends editing. `M` selects the comment
+tool.
+
+### Voting
+
+- **Start:** any editor clicks VOTE in the header and picks 1, 3 or 5
+  minutes. `StartVote { endsAt: serverNow + duration, maxPerUser: 3,
+  startedBy }` sets `session.vote` and deletes every key of `votes` in the
+  same transaction, so a new vote starts from zero.
+- **Open state is derived:** a vote is open while `vote.open &&
+  serverNow < vote.endsAt`. Nobody writes when the timer runs out. `EndVote`
+  (the header's "End" button, any editor) sets `open: false` early.
+- **Casting:** while the vote is open every sticky shows a `● n` badge
+  (its own hit target with `data-vote-id`, handled outside the tool FSM, so
+  it never selects or drags the sticky). Clicking it toggles the local
+  user's vote: `CastVote` sets `votes["<shapeId>:<userId>"] = true`,
+  `RetractVote` deletes it. The client refuses a cast beyond `maxPerUser`.
+- **Tallies are derived on read:** only keys whose sticky still exists
+  count, and each user's votes are capped at `maxPerUser` by taking their
+  keys in sorted order, so two tabs of one user racing past the cap still
+  converge to the same tallies everywhere. Tallies stay visible (badges show
+  `● n`, the local user's voted stickies highlighted) after the vote ends,
+  until the next `StartVote`.
+- **Header:** while open, `VOTE OPEN · m:ss · N left` (server-time countdown,
+  `N` = the local user's remaining votes) and an End button; afterwards
+  `VOTE ENDED` until the next vote. Only stickies are votable.
+
+### Comments
+
+- **Creating:** the comment tool (`M`) turns a click into a composer at the
+  pointer. Clicking a shape anchors the thread to it (`{ shapeId, dx, dy }`,
+  the offset from the shape's top-left, so the pin follows the shape — also
+  during local drags, through the overlay); clicking empty canvas anchors it
+  to the world point. Enter posts (`AddComment` with the first thread
+  entry), Shift+Enter inserts a line break, Escape or an empty body cancels.
+- **Pins:** open threads render as speech-bubble pins in an HTML overlay in
+  screen space (they do not scale with zoom) showing the reply count.
+  Clicking a pin opens the thread popover: entries (author, relative time,
+  body), a reply box (`ReplyComment`) and Resolve / Reopen
+  (`ResolveComment { resolved }`). Resolved threads are hidden from the
+  canvas. A thread whose shape was deleted is hidden from the canvas and
+  listed in the panel as "(shape deleted)".
+- **Panel:** the header's COMMENTS button shows the open-thread count and
+  toggles a right-side panel with Open and Resolved tabs, newest first.
+  Clicking a thread centres the camera on its pin and opens it.
+- **Limits, enforced on read:** bodies are truncated to 2000 characters,
+  author names to 40, threads to their first 200 entries; malformed entries
+  are skipped. Comment ids and entry ids are random UUIDs.
+- **Read-only links:** viewers (role `view` from the server's `hello`) see
+  votes and comments but get no VOTE button, vote badges are not clickable,
+  the comment tool is hidden and the composer / reply box are not rendered.
+  The server already drops their document updates.
 
 ### Navigation
 
@@ -497,8 +558,12 @@ snapshot row per room; update-log compaction is unnecessary at this scale.
 
 ### Server Time
 
-On connect the DO sends a custom `{ type: 'time', now }` message; the client
-computes and periodically refreshes its offset.
+On connect the DO sends `{ type: 'hello', role, now }` through
+`sendCustomMessage`; it answers a client's `{ type: 'time?' }` with
+`{ type: 'time', now }`. Custom messages go through the same per-connection
+rate limit and size checks as every other message; anything else is
+ignored. The client refreshes its offset every 5 minutes and on every
+reconnect (each reconnect gets a new `hello`).
 
 ### Environments
 
