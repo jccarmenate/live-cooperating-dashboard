@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { Canvas } from '../render/Canvas';
 import { ColumnTitleEditor } from '../render/ColumnTitleEditor';
+import { Minimap } from '../render/Minimap';
 import { RemoteCursors } from '../render/RemoteCursors';
 import { TextEditor } from '../render/TextEditor';
 import { keyFromHash } from '../sync/key';
@@ -25,6 +26,7 @@ function BoardView({ session }: { session: BoardSession }) {
         <ColumnTitleEditor session={session} />
         <Toolbar session={session} />
         <ZoomControls session={session} />
+        <Minimap session={session} />
         <StatusBanner session={session} />
       </div>
     </div>
