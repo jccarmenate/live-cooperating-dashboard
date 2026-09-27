@@ -1,4 +1,4 @@
-import { initMeta } from '@relay/core';
+import { initMeta, isTimeRequest, type ServerMessage } from '@relay/core';
 import type { Connection, ConnectionContext, WSMessage } from 'partyserver';
 import { YServer } from 'y-partyserver';
 import * as Y from 'yjs';
@@ -40,6 +40,8 @@ function syncSubType(message: WSMessage): number | null {
   if (typeof message === 'string' || messageTypeByte(message) !== MESSAGE_SYNC) return null;
   return toBytes(message)[1] ?? null;
 }
+
+const encode = (message: ServerMessage): string => JSON.stringify(message);
 
 /** Number of awareness client ids this connection currently controls (y-partyserver tracked). */
 function awarenessIdCount(connection: Connection): number {
@@ -124,6 +126,8 @@ export class Room extends YServer {
     }
     connection.setState((prev: unknown) => ({ ...((prev as object | null) ?? {}), role }));
     super.onConnect(connection, ctx);
+    // Tell the client its capability and the server clock (vote timers use server time).
+    this.sendCustomMessage(connection, encode({ type: 'hello', role, now: Date.now() }));
   }
 
   onMessage(connection: Connection, message: WSMessage): void {
@@ -170,6 +174,13 @@ export class Room extends YServer {
     }
     if (isAwarenessMessage(message) && awarenessIdCount(connection) > LIMITS.maxAwarenessIds) {
       connection.close(4429, 'too many awareness identities');
+    }
+  }
+
+  onCustomMessage(connection: Connection, message: string): void {
+    if (!roleOf(connection)) return;
+    if (isTimeRequest(message)) {
+      this.sendCustomMessage(connection, encode({ type: 'time', now: Date.now() }));
     }
   }
 

@@ -80,6 +80,25 @@ function waitForOpen(ws: WebSocket, timeoutMs = 5000): Promise<void> {
   });
 }
 
+/** Resolves with the next custom (`__YPS:`) JSON message on a raw socket. */
+function nextCustom(ws: WebSocket, timeoutMs = 5000): Promise<Record<string, unknown>> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error('timed out waiting for a custom message')),
+      timeoutMs,
+    );
+    const onMessage = (data: WebSocket.RawData, isBinary: boolean) => {
+      if (isBinary) return;
+      const text = data.toString();
+      if (!text.startsWith('__YPS:')) return;
+      clearTimeout(timer);
+      ws.off('message', onMessage);
+      resolve(JSON.parse(text.slice(6)) as Record<string, unknown>);
+    };
+    ws.on('message', onMessage);
+  });
+}
+
 /** Encodes a raw `messageAwareness` (type byte 1) frame carrying the given state. */
 function encodeAwarenessMessage(state: Record<string, unknown>): Uint8Array {
   const awareness = new Awareness(new Y.Doc());
@@ -323,5 +342,27 @@ describe('sync server', () => {
     const b = connect(roomId, editKey);
     await synced(b.provider);
     await waitFor(() => getRoots(b.doc).shapes.has('durable'));
+  });
+
+  it('says hello with the role and server time, and answers time requests', async () => {
+    const { roomId, editKey, viewKey } = await createRoom();
+    const editor = rawConnect(roomId, { key: editKey });
+    const hello = nextCustom(editor);
+    await waitForOpen(editor);
+    const h = await hello;
+    expect(h.type).toBe('hello');
+    expect(h.role).toBe('edit');
+    expect(Math.abs((h.now as number) - Date.now())).toBeLessThan(5000);
+
+    const time = nextCustom(editor);
+    editor.send('__YPS:{"type":"time?"}');
+    const t = await time;
+    expect(t.type).toBe('time');
+    expect(typeof t.now).toBe('number');
+
+    const viewer = rawConnect(roomId, { key: viewKey });
+    const viewerHello = nextCustom(viewer);
+    await waitForOpen(viewer);
+    expect((await viewerHello).role).toBe('view');
   });
 });
