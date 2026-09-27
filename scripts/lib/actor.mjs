@@ -3,7 +3,7 @@
 // README capture script.
 
 export const SYNC = process.env.RELAY_SYNC ?? 'http://localhost:8787';
-export const WEB = process.env.RELAY_WEB ?? 'http://localhost:3000';
+export const WEB = process.env.RELAY_WEB ?? 'http://localhost:4000';
 
 export const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 

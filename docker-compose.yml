@@ -11,7 +11,7 @@ services:
              'npm run dev -w @relay/sync-server -- --ip 0.0.0.0'
              'npm run dev -w @relay/web -- --hostname 0.0.0.0'"
     ports:
-      - "3000:3000"
+      - "4000:4000"
       - "8787:8787"
 volumes:
   node_modules: {}

@@ -29,7 +29,7 @@
   - `npm run typecheck`
   - `npm run lint` (Biome; `npm run format` fixes formatting)
   - `npm run build -w @relay/web` for web tasks
-  - `npm run e2e`, which reuses the dev servers already running on 8787 and 3000. Never start or kill servers.
+  - `npm run e2e`, which reuses the dev servers already running on 8787 and 4000. Never start or kill servers.
 - Commits end with `Co-Authored-By: Claude <model> <noreply@anthropic.com>`. Never amend a commit.
 
 **Undo and access**

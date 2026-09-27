@@ -6,7 +6,7 @@ export default defineConfig({
   fullyParallel: false,
   retries: process.env.CI ? 1 : 0,
   reporter: process.env.CI ? [['github'], ['html', { open: 'never' }]] : 'list',
-  use: { baseURL: 'http://localhost:3000', trace: 'retain-on-failure' },
+  use: { baseURL: 'http://localhost:4000', trace: 'retain-on-failure' },
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
   webServer: [
     {
@@ -17,7 +17,7 @@ export default defineConfig({
     },
     {
       command: 'npm run dev -w @relay/web',
-      url: 'http://localhost:3000',
+      url: 'http://localhost:4000',
       reuseExistingServer: !process.env.CI,
       timeout: 180_000,
     },
