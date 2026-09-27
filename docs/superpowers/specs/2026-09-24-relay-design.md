@@ -244,8 +244,9 @@ geometry is derived from the shapes they attach to.
    id. The `DeleteShapes` command also deletes attached connectors in the
    same transaction; the read filter covers the concurrent connect-while-delete
    case. Frames cannot be nested, so parent cycles cannot occur. Pages:
-   the visible pages are the non-deleted entries of `pages` plus the
-   implicit `main` board page when `pages` has no `main` entry, sorted by
+   the visible pages are the entries of `pages` whose id is not in
+   `pageTombstones`, plus the implicit `main` board page when `pages` has no
+   `main` entry and `main` is not tombstoned, sorted by
    `order` then id; a shape, connector or comment whose page is deleted is
    hidden; a connector is dropped when either attached endpoint lives on
    another page; a `parentId` pointing to a frame on another page is treated
