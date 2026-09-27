@@ -1,7 +1,9 @@
+import { parseServerMessage, TIME_REQUEST } from '@relay/core';
 import { IndexeddbPersistence } from 'y-indexeddb';
 import YProvider from 'y-partyserver/provider';
 import * as Y from 'yjs';
 import { createStore, type StoreApi } from 'zustand/vanilla';
+import { type ClockState, nextClock, TIME_REFRESH_MS } from './clock';
 
 export type ConnStatus = 'connecting' | 'online' | 'offline' | 'unauthorized';
 
@@ -9,6 +11,9 @@ export interface RoomConnection {
   doc: Y.Doc;
   provider: YProvider;
   status: StoreApi<{ status: ConnStatus }>;
+  clock: StoreApi<ClockState>;
+  /** Current server time in epoch ms (local time until the first hello). */
+  serverNow(): number;
   destroy(): void;
 }
 
@@ -38,11 +43,23 @@ export function connectRoom(opts: {
     }
   });
 
+  const clock = createStore<ClockState>(() => ({ role: null, offset: 0 }));
+  provider.on('custom-message', (raw: string) => {
+    const msg = parseServerMessage(raw);
+    if (msg) clock.setState(nextClock(clock.getState(), msg, Date.now()));
+  });
+  const refresh = setInterval(() => {
+    if (status.getState().status === 'online') provider.sendMessage(TIME_REQUEST);
+  }, TIME_REFRESH_MS);
+
   return {
     doc,
     provider,
     status,
+    clock,
+    serverNow: () => Date.now() + clock.getState().offset,
     destroy() {
+      clearInterval(refresh);
       provider.destroy();
       void local.destroy();
       doc.destroy();

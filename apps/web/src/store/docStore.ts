@@ -21,7 +21,7 @@ export interface DocState {
   meta: BoardMeta;
 }
 
-function touchedIds(events: Y.YEvent<Y.AbstractType<unknown>>[], root: unknown) {
+export function touchedIds(events: Y.YEvent<Y.AbstractType<unknown>>[], root: unknown) {
   const touched = new Set<string>();
   for (const event of events) {
     if (event.target === root) {
