@@ -6,6 +6,7 @@ import {
   LOCAL_ORIGIN,
   type PointerInfo,
   SESSION_ORIGIN,
+  type Undo,
   worldToScreen,
 } from '@relay/core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -386,11 +387,17 @@ describe('board controller', () => {
   });
 });
 
-function addRect(doc: Y.Doc, id: string, x: number, y: number) {
+/** The Undo instance the most recently created controller wraps (see the createUndo mock). */
+function lastUndo(): Undo {
+  return vi.mocked(createUndo).mock.results.at(-1)?.value as Undo;
+}
+
+function addRect(doc: Y.Doc, id: string, x: number, y: number, pageId?: string) {
   applyCommand(doc, {
     type: 'CreateShape',
     shape: {
       id,
+      ...(pageId ? { pageId } : {}),
       type: 'rect',
       x,
       y,
@@ -672,18 +679,90 @@ describe('pages', () => {
       },
       LOCAL_ORIGIN,
     );
+    const undoStack = lastUndo();
     addRect(doc, 'r1', 0, 0);
     controller.dispatch({ type: 'pointerDown', p: at(10, 10, 'r1') });
     controller.dispatch({ type: 'pointerMove', p: at(60, 10) });
     controller.dispatch({ type: 'pointerUp', p: at(60, 10) });
+    // A second drag, undone, leaves something on the redo stack too.
+    controller.dispatch({ type: 'pointerDown', p: at(60, 10, 'r1') });
+    controller.dispatch({ type: 'pointerMove', p: at(110, 10) });
+    controller.dispatch({ type: 'pointerUp', p: at(110, 10) });
+    controller.undo();
+    expect(getRoots(doc).shapes.get('r1')?.get('x')).toBe(50);
+    expect(undoStack.canRedo()).toBe(true);
     controller.setCamera({ x: 7, y: 7, zoom: 1 });
     controller.setPage('p9');
     expect(controller.ui.getState().camera).toEqual({ x: 3, y: 4, zoom: 2 });
     expect(controller.ui.getState().tool.selection).toEqual([]);
+    expect(undoStack.canUndo()).toBe(false);
+    expect(undoStack.canRedo()).toBe(false);
     controller.undo();
     expect(getRoots(doc).shapes.get('r1')?.get('x')).toBe(50); // the drag on main was not undone
+    controller.redo();
+    expect(getRoots(doc).shapes.get('r1')?.get('x')).toBe(50); // nor redone
     controller.setPage('main');
     expect(controller.ui.getState().camera).toEqual({ x: 7, y: 7, zoom: 1 });
+  });
+
+  it('a remote delete of the active page falls back and resets editor, popovers, undo and camera', () => {
+    const cams: Record<string, { x: number; y: number; zoom: number }> = {};
+    const { doc, controller } = setup({
+      cameraStorage: {
+        load: (page) => cams[page] ?? null,
+        save: (page, c) => {
+          cams[page] = c;
+        },
+      },
+    });
+    const undoStack = lastUndo();
+    controller.setCamera({ x: 7, y: 7, zoom: 1 });
+    applyCommand(
+      doc,
+      {
+        type: 'CreatePage',
+        page: { id: 'p9', type: 'board', title: 'Nine', order: 'a5', createdBy: 'u', createdAt: 0 },
+      },
+      LOCAL_ORIGIN,
+    );
+    controller.setPage('p9');
+    controller.setCamera({ x: 1, y: 1, zoom: 3 });
+    controller.dispatch({ type: 'setTool', tool: 'sticky' });
+    controller.dispatch({ type: 'pointerDown', p: at(0, 0) }); // an undo step, and the editor opens
+    controller.dispatch({ type: 'setTool', tool: 'comment' });
+    controller.dispatch({ type: 'pointerDown', p: at(500, 500) }); // the composer opens
+    controller.openThread('t1');
+    const before = controller.ui.getState();
+    expect(before.editingId).not.toBeNull();
+    expect(before.composer).not.toBeNull();
+    expect(before.openThread).toBe('t1');
+    expect(undoStack.canUndo()).toBe(true);
+
+    applyCommand(doc, { type: 'DeletePage', id: 'p9' }, 'remote');
+
+    const after = controller.ui.getState();
+    expect(after.editingId).toBeNull();
+    expect(after.composer).toBeNull();
+    expect(after.openThread).toBeNull();
+    expect(after.camera).toEqual({ x: 7, y: 7, zoom: 1 });
+    expect(undoStack.canUndo()).toBe(false);
+    expect(undoStack.canRedo()).toBe(false);
+  });
+
+  it('stamps the active page on a connector drawn with the connector tool', () => {
+    const { doc, controller } = setup();
+    const p2 = controller.createPage('board');
+    addRect(doc, 'r1', 0, 0, p2);
+    addRect(doc, 'r2', 400, 0, p2);
+    controller.setPage(p2);
+    controller.dispatch({ type: 'setTool', tool: 'connector' });
+    controller.dispatch({ type: 'pointerDown', p: at(50, 50, 'r1') });
+    controller.dispatch({ type: 'pointerMove', p: at(300, 50) });
+    controller.dispatch({ type: 'pointerUp', p: at(450, 50, 'r2') });
+    const { connectors } = getRoots(doc);
+    expect(connectors.size).toBe(1);
+    const [kid] = [...connectors.keys()];
+    expect(connectors.get(kid as string)?.get('pageId')).toBe(p2);
   });
 
   it('page actions: create after the last, rename, move between neighbours, delete', () => {

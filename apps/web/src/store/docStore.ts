@@ -48,12 +48,23 @@ export function touchedIds(events: Y.YEvent<Y.AbstractType<unknown>>[], root: un
  * the shapes and connectors a transaction touched. Normalization (orphan
  * connectors, invalid parents) runs on every publish; unchanged entries keep
  * object identity. An unknown or deleted active page falls back to the first
- * visible page.
+ * visible page; the fallback for a deleted page is pinned at once, the one for an
+ * unknown page when `pinActive` is called (after the first sync).
  */
 export function createDocStore(
   doc: Y.Doc,
   initialPage: string = MAIN_PAGE,
-): { store: StoreApi<DocState>; setPage(id: string): void; destroy(): void } {
+): {
+  store: StoreApi<DocState>;
+  setPage(id: string): void;
+  /**
+   * Makes the page now showing the requested one. Call it once the document has synced:
+   * an unknown page (a stale link) then stops waiting, and a later reorder or delete of
+   * the first page no longer moves the user.
+   */
+  pinActive(): void;
+  destroy(): void;
+} {
   const {
     shapes: yShapes,
     connectors: yConnectors,
@@ -63,8 +74,10 @@ export function createDocStore(
   } = getRoots(doc);
   const rawShapes: Record<string, Shape> = {};
   const rawConnectors: Record<string, Connector> = {};
-  // Cached so subscribers selecting `pages` or `allShapes` (page tabs, vote tallies)
-  // are not re-rendered by unrelated transactions such as every drag frame.
+  // Cached so selectors keep identity across unrelated transactions: `pages` only changes
+  // with the pages or tombstones root (page tabs do not re-render on every drag frame);
+  // `allShapes` changes with every shapes transaction but survives connector-only
+  // transactions and page switches.
   let pages = readPages(yPages, yTombstones);
   let allShapes: Record<string, Shape> = {};
 
@@ -94,6 +107,12 @@ export function createDocStore(
   const publish = (changed: { shapes?: boolean; pages?: boolean }) => {
     if (changed.pages) pages = readPages(yPages, yTombstones);
     const activePage = resolvePage();
+    // The requested page was showing and has just been deleted: pin the fallback, or a
+    // later reorder or delete of the first page would move the user again. (A requested
+    // page that never showed, e.g. one not synced yet, keeps waiting until pinActive.)
+    if (changed.pages && store.getState().activePage === requested && activePage !== requested) {
+      requested = activePage;
+    }
     if (changed.shapes || changed.pages) {
       const visible = new Set(pages.map((p) => p.id));
       allShapes = {};
@@ -163,6 +182,9 @@ export function createDocStore(
     setPage(id: string) {
       requested = id;
       publish({});
+    },
+    pinActive() {
+      requested = store.getState().activePage;
     },
     destroy() {
       yShapes.unobserveDeep(onShapes);

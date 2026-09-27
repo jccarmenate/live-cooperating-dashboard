@@ -177,6 +177,47 @@ describe('pages', () => {
     expect(docs.store.getState().activePage).toBe('p2');
   });
 
+  const createPage = (doc: Y.Doc, id: string, order: string) =>
+    applyCommand(
+      doc,
+      {
+        type: 'CreatePage',
+        page: { id, type: 'board', title: id, order, createdBy: 'u', createdAt: 0 },
+      },
+      LOCAL_ORIGIN,
+    );
+  const movePage = (doc: Y.Doc, id: string, order: string) =>
+    applyCommand(doc, { type: 'MovePage', id, order }, LOCAL_ORIGIN);
+
+  it('pins the fallback when the active page is deleted, so a later reorder does not move it', () => {
+    const doc = new Y.Doc();
+    createPage(doc, 'b', 'a1');
+    createPage(doc, 'c', 'a2');
+    const docs = createDocStore(doc);
+    docs.setPage('b');
+    applyCommand(doc, { type: 'DeletePage', id: 'b' }, 'remote');
+    expect(docs.store.getState().activePage).toBe('main');
+    movePage(doc, 'c', 'Z0'); // before main's 'a0'
+    expect(docs.store.getState().pages.map((p) => p.id)).toEqual(['c', 'main']);
+    expect(docs.store.getState().activePage).toBe('main');
+  });
+
+  it('waits for an unknown page until pinned, then stays put', () => {
+    const doc = new Y.Doc();
+    const docs = createDocStore(doc, 'p2');
+    expect(docs.store.getState().activePage).toBe('main'); // not synced yet
+    createPage(doc, 'p2', 'a1'); // the sync brings it
+    expect(docs.store.getState().activePage).toBe('p2');
+
+    const stale = new Y.Doc();
+    createPage(stale, 'p3', 'a1');
+    const other = createDocStore(stale, 'nope');
+    expect(other.store.getState().activePage).toBe('main');
+    other.pinActive();
+    movePage(stale, 'p3', 'Z0');
+    expect(other.store.getState().activePage).toBe('main');
+  });
+
   it('keeps pages across shape changes and allShapes across connector-only changes', () => {
     const doc = new Y.Doc();
     sticky(doc, 'a');

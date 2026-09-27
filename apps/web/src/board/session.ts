@@ -12,7 +12,7 @@ import { type ActivityState, createActivityStore } from '../store/activityStore'
 import { createDocStore, type DocState } from '../store/docStore';
 import { createPresenceStore } from '../store/presenceStore';
 import { connectRoom, type RoomConnection } from '../sync/connection';
-import { hashFor } from '../sync/key';
+import { hashFor, pageFromHash } from '../sync/key';
 import { createPresencePublisher, type PresencePublisher } from '../sync/presence';
 import { type BoardController, type CameraStorage, createBoardController } from './controller';
 
@@ -104,11 +104,44 @@ export function createBoardSession(
     }
   });
 
+  /**
+   * A stale `#p=` (deleted or unknown page, or none at all) must not stay in the URL.
+   * `keepNamed` leaves a hash that names a page alone: before the first sync, that page
+   * may still arrive.
+   */
+  const correctHash = (keepNamed = false) => {
+    try {
+      const named = pageFromHash(window.location.hash);
+      const active = docStore.store.getState().activePage;
+      if (named !== active && !(keepNamed && named !== null)) {
+        window.history.replaceState(null, '', hashFor(key, active));
+      }
+    } catch {
+      // Non-browser environments: nothing to mirror.
+    }
+  };
+  // After the first sync every page the link could name has arrived: pin what is showing
+  // (a stale link stops waiting) and fix the URL to match.
+  let pinned = false;
+  const pinAfterFirstSync = () => {
+    if (pinned) return;
+    pinned = true;
+    docStore.pinActive();
+    correctHash();
+  };
+
   const onSync = (isSynced: boolean) => {
-    if (isSynced) controller.markSynced();
+    if (!isSynced) return;
+    controller.markSynced();
+    pinAfterFirstSync();
   };
   conn.provider.on('sync', onSync);
-  if (conn.provider.synced) controller.markSynced();
+  if (conn.provider.synced) {
+    controller.markSynced();
+    pinAfterFirstSync();
+  } else {
+    correctHash(true);
+  }
 
   return {
     roomId,
