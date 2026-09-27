@@ -1,4 +1,11 @@
-import { applyCommand, DEFAULT_STYLE, getRoots, initMeta, type NewShape } from '@relay/core';
+import {
+  applyCommand,
+  DEFAULT_STYLE,
+  getRoots,
+  initMeta,
+  LOCAL_ORIGIN,
+  type NewShape,
+} from '@relay/core';
 import { describe, expect, it } from 'vitest';
 import * as Y from 'yjs';
 import { createDocStore } from '../src/store/docStore';
@@ -86,5 +93,110 @@ describe('createDocStore', () => {
     applyCommand(doc, { type: 'DeleteShapes', ids: ['b'] });
     expect(store.getState().connectors.k1).toBeUndefined();
     expect(store.getState().connectorOrder).toEqual([]);
+  });
+});
+
+describe('pages', () => {
+  const sticky = (doc: Y.Doc, id: string, pageId?: string) =>
+    applyCommand(
+      doc,
+      {
+        type: 'CreateShape',
+        shape: {
+          id,
+          type: 'sticky',
+          x: 0,
+          y: 0,
+          w: 160,
+          h: 120,
+          style: DEFAULT_STYLE.sticky,
+          text: '',
+          createdBy: 'u1',
+          authorName: 'A',
+          createdAt: 0,
+          ...(pageId ? { pageId } : {}),
+        },
+      },
+      LOCAL_ORIGIN,
+    );
+
+  it('projects only the active page and keeps all visible shapes for tallies', () => {
+    const doc = new Y.Doc();
+    applyCommand(
+      doc,
+      {
+        type: 'CreatePage',
+        page: { id: 'p2', type: 'board', title: 'Two', order: 'a1', createdBy: 'u', createdAt: 0 },
+      },
+      LOCAL_ORIGIN,
+    );
+    sticky(doc, 'm1');
+    sticky(doc, 'q1', 'p2');
+    const docs = createDocStore(doc);
+    expect(docs.store.getState().activePage).toBe('main');
+    expect(Object.keys(docs.store.getState().shapes)).toEqual(['m1']);
+    expect(Object.keys(docs.store.getState().allShapes).sort()).toEqual(['m1', 'q1']);
+    expect(docs.store.getState().pages.map((p) => p.id)).toEqual(['main', 'p2']);
+    docs.setPage('p2');
+    expect(docs.store.getState().activePage).toBe('p2');
+    expect(Object.keys(docs.store.getState().shapes)).toEqual(['q1']);
+  });
+
+  it('falls back to the first visible page when the active one is unknown or deleted', () => {
+    const doc = new Y.Doc();
+    applyCommand(
+      doc,
+      {
+        type: 'CreatePage',
+        page: { id: 'p2', type: 'board', title: 'Two', order: 'a1', createdBy: 'u', createdAt: 0 },
+      },
+      LOCAL_ORIGIN,
+    );
+    const docs = createDocStore(doc, 'nope');
+    expect(docs.store.getState().activePage).toBe('main');
+    docs.setPage('p2');
+    applyCommand(doc, { type: 'DeletePage', id: 'p2' }, LOCAL_ORIGIN);
+    expect(docs.store.getState().activePage).toBe('main');
+    expect(docs.store.getState().pages.map((p) => p.id)).toEqual(['main']);
+  });
+
+  it('falls back when a delete only writes a tombstone (main with no shapes)', () => {
+    const doc = new Y.Doc();
+    applyCommand(
+      doc,
+      {
+        type: 'CreatePage',
+        page: { id: 'p2', type: 'board', title: 'Two', order: 'a1', createdBy: 'u', createdAt: 0 },
+      },
+      LOCAL_ORIGIN,
+    );
+    const docs = createDocStore(doc);
+    expect(docs.store.getState().activePage).toBe('main');
+    applyCommand(doc, { type: 'DeletePage', id: 'main' }, LOCAL_ORIGIN);
+    expect(docs.store.getState().pages.map((p) => p.id)).toEqual(['p2']);
+    expect(docs.store.getState().activePage).toBe('p2');
+  });
+
+  it('drops connectors whose endpoints live on another page', () => {
+    const doc = new Y.Doc();
+    sticky(doc, 'a');
+    sticky(doc, 'b', 'p2');
+    applyCommand(
+      doc,
+      {
+        type: 'Connect',
+        connector: {
+          id: 'k',
+          from: { shapeId: 'a', anchor: 'auto' },
+          to: { shapeId: 'b', anchor: 'auto' },
+          routing: 'straight',
+          head: 'arrow',
+          createdBy: 'u',
+        },
+      },
+      LOCAL_ORIGIN,
+    );
+    const docs = createDocStore(doc);
+    expect(docs.store.getState().connectors).toEqual({});
   });
 });

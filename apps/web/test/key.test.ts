@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { keyFromHash } from '../src/sync/key';
+import { hashFor, keyFromHash, pageFromHash } from '../src/sync/key';
 
 describe('keyFromHash', () => {
   it('extracts k from the fragment', () => {
@@ -9,5 +9,15 @@ describe('keyFromHash', () => {
   it('returns null when absent', () => {
     expect(keyFromHash('')).toBeNull();
     expect(keyFromHash('#kk=1')).toBeNull();
+  });
+});
+
+describe('page in the hash', () => {
+  it('reads and writes the page next to the key', () => {
+    expect(pageFromHash('#k=abc&p=p2')).toBe('p2');
+    expect(pageFromHash('#k=abc')).toBeNull();
+    expect(hashFor('abc', 'p2')).toBe('#k=abc&p=p2');
+    expect(hashFor(null, 'main')).toBe('#p=main');
+    expect(pageFromHash(hashFor('a b', 'x y'))).toBe('x y');
   });
 });
