@@ -71,7 +71,13 @@ describe('presence parsing', () => {
     });
     expect(
       parsePresence({ user: alice, cursor: { x: 1, y: 2 }, selection: ['s1', 7], editing: 's1' }),
-    ).toEqual({ user: alice, cursor: { x: 1, y: 2 }, selection: ['s1'], editing: 's1', viewport: null });
+    ).toEqual({
+      user: alice,
+      cursor: { x: 1, y: 2 },
+      selection: ['s1'],
+      editing: 's1',
+      viewport: null,
+    });
   });
 
   it('rejects a user.color that is not a plain #rrggbb hex value', () => {
