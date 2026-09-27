@@ -1,7 +1,14 @@
-import { applyCommand, createUndo, DEFAULT_STYLE, getRoots, type PointerInfo } from '@relay/core';
+import {
+  applyCommand,
+  createUndo,
+  DEFAULT_STYLE,
+  getRoots,
+  type PointerInfo,
+  worldToScreen,
+} from '@relay/core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as Y from 'yjs';
-import { createBoardController } from '../src/board/controller';
+import { type CameraStorage, createBoardController } from '../src/board/controller';
 import { createDocStore } from '../src/store/docStore';
 
 // Wraps the real createUndo so tests can spy on the Undo instance a controller
@@ -18,7 +25,7 @@ const at = (x: number, y: number, hitId: string | null = null): PointerInfo => (
   hitId,
 });
 
-function setup() {
+function setup(opts: { cameraStorage?: CameraStorage } = {}) {
   const doc = new Y.Doc();
   const docs = createDocStore(doc);
   let n = 0;
@@ -28,6 +35,7 @@ function setup() {
     user,
     newId: () => `s${++n}`,
     now: () => 1000,
+    ...opts,
   });
   return { doc, docs, controller };
 }
@@ -368,5 +376,115 @@ describe('board controller', () => {
       p: { world: { x: 200, y: 50 }, shift: false, hitId: null, connectorId: 'k1' },
     });
     expect(controller.ui.getState().tool.selection).toEqual(['k1']);
+  });
+});
+
+function addRect(doc: Y.Doc, id: string, x: number, y: number) {
+  applyCommand(doc, {
+    type: 'CreateShape',
+    shape: {
+      id,
+      type: 'rect',
+      x,
+      y,
+      w: 200,
+      h: 100,
+      style: DEFAULT_STYLE.rect,
+      text: '',
+      createdBy: 'u1',
+      authorName: 'Brisk Otter',
+      createdAt: 0,
+    },
+  });
+}
+
+describe('camera', () => {
+  it('zooms around the viewport centre or an anchor, and resets to 100%', () => {
+    const { controller } = setup();
+    controller.setViewportSize(800, 600);
+    controller.zoomBy(2);
+    const cam = controller.ui.getState().camera;
+    expect(cam.zoom).toBe(2);
+    expect(worldToScreen(cam, { x: 400, y: 300 })).toEqual({ x: 400, y: 300 });
+    controller.resetZoom();
+    expect(controller.ui.getState().camera).toEqual({ x: 0, y: 0, zoom: 1 });
+    controller.zoomBy(2, { x: 0, y: 0 });
+    expect(controller.ui.getState().camera).toEqual({ x: 0, y: 0, zoom: 2 });
+  });
+
+  it('centres on a world point', () => {
+    const { controller } = setup();
+    controller.setViewportSize(800, 600);
+    controller.centerOn({ x: 1000, y: 500 });
+    expect(controller.ui.getState().camera).toEqual({ x: -600, y: -200, zoom: 1 });
+  });
+
+  it('restores a stored camera and saves every camera change', () => {
+    const save = vi.fn();
+    const { controller } = setup({
+      cameraStorage: { load: () => ({ x: 10, y: 20, zoom: 2 }), save },
+    });
+    expect(controller.ui.getState().camera).toEqual({ x: 10, y: 20, zoom: 2 });
+    controller.setCamera({ x: 1, y: 2, zoom: 1 });
+    expect(save).toHaveBeenLastCalledWith({ x: 1, y: 2, zoom: 1 });
+  });
+
+  it('fits the content once, after the first sync, without saving the fit', () => {
+    const save = vi.fn();
+    const { doc, controller } = setup({ cameraStorage: { load: () => null, save } });
+    addRect(doc, 'r1', 1000, 1000);
+    controller.setViewportSize(800, 600);
+    expect(controller.ui.getState().camera).toEqual({ x: 0, y: 0, zoom: 1 });
+    controller.markSynced();
+    const cam = controller.ui.getState().camera;
+    expect(cam.zoom).toBe(1);
+    expect(worldToScreen(cam, { x: 1100, y: 1050 })).toEqual({ x: 400, y: 300 });
+    expect(save).not.toHaveBeenCalled();
+    addRect(doc, 'r2', 5000, 5000);
+    controller.markSynced();
+    expect(controller.ui.getState().camera).toEqual(cam);
+  });
+
+  it('fits when the canvas is measured after the sync', () => {
+    const { doc, controller } = setup();
+    addRect(doc, 'r1', 1000, 1000);
+    controller.markSynced();
+    controller.setViewportSize(800, 600);
+    expect(worldToScreen(controller.ui.getState().camera, { x: 1100, y: 1050 })).toEqual({
+      x: 400,
+      y: 300,
+    });
+  });
+
+  it('does not fit an empty board, a restored camera, or one the user already moved', () => {
+    const empty = setup();
+    empty.controller.setViewportSize(800, 600);
+    empty.controller.markSynced();
+    expect(empty.controller.ui.getState().camera).toEqual({ x: 0, y: 0, zoom: 1 });
+
+    const restored = setup({
+      cameraStorage: { load: () => ({ x: 5, y: 5, zoom: 1 }), save: vi.fn() },
+    });
+    addRect(restored.doc, 'r1', 1000, 1000);
+    restored.controller.setViewportSize(800, 600);
+    restored.controller.markSynced();
+    expect(restored.controller.ui.getState().camera).toEqual({ x: 5, y: 5, zoom: 1 });
+
+    const moved = setup();
+    addRect(moved.doc, 'r1', 1000, 1000);
+    moved.controller.setViewportSize(800, 600);
+    moved.controller.setCamera({ x: 7, y: 7, zoom: 1 });
+    moved.controller.markSynced();
+    expect(moved.controller.ui.getState().camera).toEqual({ x: 7, y: 7, zoom: 1 });
+  });
+
+  it('tracks the pointer and whether Space is held', () => {
+    const { controller } = setup();
+    controller.setPointer({ x: 1, y: 2 });
+    controller.setSpaceHeld(true);
+    expect(controller.ui.getState().pointer).toEqual({ x: 1, y: 2 });
+    expect(controller.ui.getState().spaceHeld).toBe(true);
+    controller.setPointer(null);
+    expect(controller.ui.getState().pointer).toBeNull();
   });
 });
