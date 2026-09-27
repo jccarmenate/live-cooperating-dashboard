@@ -24,6 +24,11 @@ export function Header({ session }: { session: BoardSession }) {
   useStore(session.presence, (s) => onlineUsersSignature(onlineUsers(s.peers, session.user)));
   const users = onlineUsers(session.presence.getState().peers, session.user);
   const status = useStore(session.conn.status, (s) => s.status);
+  const openThreads = useStore(
+    session.activity,
+    (a) => Object.values(a.comments).filter((c) => !c.resolved).length,
+  );
+  const panelOpen = useStore(session.controller.ui, (s) => s.commentsPanel);
   // Position-encoded key (not the bare array index) so duplicate breadcrumb segments
   // (e.g. two boards both named "Untitled") don't collide — satisfies lint/suspicious/noArrayIndexKey.
   const breadcrumb = meta.breadcrumb.reduce<{ text: string; key: string }[]>((acc, text) => {
@@ -55,6 +60,15 @@ export function Header({ session }: { session: BoardSession }) {
       </div>
       <div className="flex items-center gap-2">
         <VoteControl session={session} />
+        <button
+          type="button"
+          data-testid="comments-toggle"
+          aria-pressed={panelOpen}
+          className={`border-2 border-ink px-2 py-0.5 font-mono text-[11px] font-bold uppercase ${panelOpen ? 'bg-sun' : 'bg-white hover:bg-paper'}`}
+          onClick={() => session.controller.toggleCommentsPanel()}
+        >
+          {`Comments · ${openThreads}`}
+        </button>
         <div className="flex -space-x-1">
           {users.slice(0, 5).map((u) => (
             <span

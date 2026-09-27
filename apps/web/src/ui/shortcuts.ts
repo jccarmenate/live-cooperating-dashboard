@@ -1,4 +1,4 @@
-import type { ToolEvent, ToolId } from '@relay/core';
+import type { Role, ToolEvent, ToolId } from '@relay/core';
 
 /** The parts of a KeyboardEvent the shortcut table reads (plain objects in tests). */
 export interface KeyInput {
@@ -63,6 +63,21 @@ export function keyDownAction(e: KeyInput, typing: boolean): ShortcutAction | nu
     return dispatch({ type: 'deleteSelection' }, true);
   if (e.key === 'Escape') return dispatch({ type: 'cancel' });
   return null;
+}
+
+/** Drops shortcuts the role may not use: only editors can pick the comment tool (its button is hidden too). */
+export function gateByRole(
+  action: ShortcutAction | null,
+  role: Role | null,
+): ShortcutAction | null {
+  if (
+    action?.type === 'dispatch' &&
+    action.event.type === 'setTool' &&
+    action.event.tool === 'comment' &&
+    role !== 'edit'
+  )
+    return null;
+  return action;
 }
 
 /** Releasing Space always leaves pan mode, even if focus moved into an editor meanwhile. */

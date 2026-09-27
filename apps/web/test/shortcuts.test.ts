@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { type KeyInput, keyDownAction, keyUpAction } from '../src/ui/shortcuts';
+import { gateByRole, type KeyInput, keyDownAction, keyUpAction } from '../src/ui/shortcuts';
 
 const k = (key: string, mods: Partial<KeyInput> = {}): KeyInput => ({
   key,
@@ -30,6 +30,17 @@ describe('keyboard shortcuts', () => {
       event: { type: 'setTool', tool: 'comment' },
       preventDefault: false,
     });
+  });
+
+  it('M reaches the comment tool only for editors; other shortcuts pass through', () => {
+    const m = keyDownAction(k('m'), false);
+    expect(gateByRole(m, 'edit')).toEqual(m);
+    expect(gateByRole(m, 'view')).toBeNull();
+    expect(gateByRole(m, null)).toBeNull();
+    const rect = keyDownAction(k('r'), false);
+    expect(gateByRole(rect, 'view')).toEqual(rect);
+    expect(gateByRole({ type: 'undo' }, null)).toEqual({ type: 'undo' });
+    expect(gateByRole(null, 'edit')).toBeNull();
   });
 
   it('E toggles connector routing', () => {

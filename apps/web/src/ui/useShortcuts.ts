@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
-import type { BoardController } from '../board/controller';
-import { keyDownAction, keyUpAction, type ShortcutAction } from './shortcuts';
+import type { BoardSession } from '../board/session';
+import { gateByRole, keyDownAction, keyUpAction, type ShortcutAction } from './shortcuts';
 
 function isTyping(target: EventTarget | null): boolean {
   return (
@@ -9,8 +9,9 @@ function isTyping(target: EventTarget | null): boolean {
   );
 }
 
-export function useShortcuts(controller: BoardController) {
+export function useShortcuts(session: BoardSession) {
   useEffect(() => {
+    const { controller, conn } = session;
     const run = (action: ShortcutAction | null, e: KeyboardEvent) => {
       if (!action) return;
       switch (action.type) {
@@ -33,7 +34,9 @@ export function useShortcuts(controller: BoardController) {
           break;
       }
     };
-    const onKeyDown = (e: KeyboardEvent) => run(keyDownAction(e, isTyping(e.target)), e);
+    // The role is read at keydown time, so a late `hello` (or a role change) applies immediately.
+    const onKeyDown = (e: KeyboardEvent) =>
+      run(gateByRole(keyDownAction(e, isTyping(e.target)), conn.clock.getState().role), e);
     const onKeyUp = (e: KeyboardEvent) => run(keyUpAction(e), e);
     const onBlur = () => controller.setSpaceHeld(false);
     window.addEventListener('keydown', onKeyDown);
@@ -44,5 +47,5 @@ export function useShortcuts(controller: BoardController) {
       window.removeEventListener('keyup', onKeyUp);
       window.removeEventListener('blur', onBlur);
     };
-  }, [controller]);
+  }, [session]);
 }
