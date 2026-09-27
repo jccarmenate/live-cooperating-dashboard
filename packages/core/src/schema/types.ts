@@ -54,6 +54,8 @@ export interface FrameColumn {
 
 export interface Connector {
   id: string;
+  /** Page the item lives on; absent = the implicit 'main' page. */
+  pageId?: string;
   from: Endpoint;
   to: Endpoint;
   routing: Routing;
@@ -65,6 +67,8 @@ export interface Connector {
 
 export interface Shape extends Rect {
   id: string;
+  /** Page the item lives on; absent = the implicit 'main' page. */
+  pageId?: string;
   type: ShapeType;
   /** Fractional-index key; ties are broken by id. */
   z: string;
@@ -109,9 +113,23 @@ export interface CommentEntry {
 
 export interface CommentThread {
   id: string;
+  pageId: string;
   anchor: CommentAnchor;
   resolved: boolean;
   createdBy: string;
   createdAt: number;
   entries: CommentEntry[];
+}
+
+export type PageType = 'board' | 'sheet' | 'calendar';
+
+export interface PageInfo {
+  id: string;
+  /** 'unknown' for a type this client does not know (rendered as a notice). */
+  type: PageType | 'unknown';
+  title: string;
+  /** Fractional-index key; ties broken by id. */
+  order: string;
+  createdBy: string;
+  createdAt: number;
 }

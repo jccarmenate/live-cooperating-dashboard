@@ -10,6 +10,8 @@ export interface Undo {
   canUndo(): boolean;
   canRedo(): boolean;
   onChange(cb: () => void): () => void;
+  /** Empties the undo and redo stacks. */
+  clear(): void;
   destroy(): void;
 }
 
@@ -38,6 +40,7 @@ export function createUndo(doc: Y.Doc, opts: { captureTimeout?: number } = {}): 
         for (const event of STACK_EVENTS) manager.off(event, cb);
       };
     },
+    clear: () => manager.clear(),
     destroy: () => manager.destroy(),
   };
 }

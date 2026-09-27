@@ -305,6 +305,7 @@ export function createBoardController(opts: {
       commitSession({
         type: 'AddComment',
         id,
+        pageId: 'main',
         anchor: composer.anchor,
         createdBy: opts.user.id,
         createdAt: now(),

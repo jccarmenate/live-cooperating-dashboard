@@ -13,6 +13,7 @@ export * from './presence/state';
 export * from './schema/defaults';
 export * from './schema/doc';
 export * from './schema/normalize';
+export * from './schema/pages';
 export * from './schema/session';
 export * from './schema/snapshot';
 export * from './schema/types';

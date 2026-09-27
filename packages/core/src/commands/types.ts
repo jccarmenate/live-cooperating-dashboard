@@ -1,4 +1,11 @@
-import type { CommentAnchor, CommentEntry, Connector, Routing, Shape } from '../schema/types';
+import type {
+  CommentAnchor,
+  CommentEntry,
+  Connector,
+  PageType,
+  Routing,
+  Shape,
+} from '../schema/types';
 
 export type NewShape = Omit<Shape, 'z'> & { z?: string };
 export type NewConnector = Omit<Connector, 'z'> & { z?: string };
@@ -23,10 +30,26 @@ export type Command =
   | {
       type: 'AddComment';
       id: string;
+      pageId: string;
       anchor: CommentAnchor;
       createdBy: string;
       createdAt: number;
       entry: CommentEntry;
     }
   | { type: 'ReplyComment'; commentId: string; entry: CommentEntry }
-  | { type: 'ResolveComment'; id: string; resolved: boolean };
+  | { type: 'ResolveComment'; id: string; resolved: boolean }
+  | {
+      type: 'CreatePage';
+      page: {
+        id: string;
+        type: PageType;
+        title: string;
+        order: string;
+        createdBy: string;
+        createdAt: number;
+      };
+    }
+  | { type: 'RenamePage'; id: string; title: string }
+  | { type: 'MovePage'; id: string; order: string }
+  | { type: 'DeletePage'; id: string }
+  | { type: 'RenameBoard'; title: string };

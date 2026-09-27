@@ -1,5 +1,6 @@
 import * as Y from 'yjs';
 import { MAX_AUTHOR_NAME, MAX_COMMENT_BODY, MAX_THREAD_ENTRIES } from './defaults';
+import { MAIN_PAGE } from './pages';
 import type { CommentAnchor, CommentEntry, CommentThread, Point, Shape, VoteState } from './types';
 
 const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
@@ -96,6 +97,7 @@ export function readComment(id: string, m: Y.Map<unknown>): CommentThread | null
   const createdAt = m.get('createdAt');
   return {
     id,
+    pageId: typeof m.get('pageId') === 'string' ? (m.get('pageId') as string) : MAIN_PAGE,
     anchor,
     resolved: m.get('resolved') === true,
     createdBy: typeof createdBy === 'string' ? createdBy : '',

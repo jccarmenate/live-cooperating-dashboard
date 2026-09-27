@@ -34,6 +34,7 @@ describe('activity store', () => {
         {
           type: 'AddComment',
           id,
+          pageId: 'main',
           anchor: { x: 0, y: 0 },
           createdBy: 'u1',
           createdAt,

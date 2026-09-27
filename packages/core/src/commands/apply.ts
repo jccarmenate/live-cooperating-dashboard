@@ -1,6 +1,7 @@
 import { generateKeyBetween } from 'fractional-indexing';
 import * as Y from 'yjs';
 import { getRoots } from '../schema/doc';
+import { MAIN_DEFAULTS, MAIN_PAGE } from '../schema/pages';
 import { readVote, voteKey } from '../schema/session';
 import type { CommentEntry, FrameColumn } from '../schema/types';
 import { TEXT_TYPES } from '../schema/types';
@@ -37,8 +38,18 @@ function refersTo(end: unknown, ids: ReadonlySet<string>): boolean {
   return typeof shapeId === 'string' && ids.has(shapeId);
 }
 
+/** The page's map; for the implicit main page, created with its defaults on first write. */
+function pageEntry(pages: Y.Map<Y.Map<unknown>>, id: string): Y.Map<unknown> | undefined {
+  const existing = pages.get(id);
+  if (existing || id !== MAIN_PAGE) return existing;
+  const m = new Y.Map<unknown>();
+  for (const [k, v] of Object.entries(MAIN_DEFAULTS)) m.set(k, v);
+  pages.set(id, m);
+  return m;
+}
+
 function apply(doc: Y.Doc, cmd: Command): void {
-  const { shapes, connectors, session, votes, comments } = getRoots(doc);
+  const { shapes, connectors, session, votes, comments, pages, meta } = getRoots(doc);
   switch (cmd.type) {
     case 'CreateShape': {
       const { text, z, columns, ...fields } = cmd.shape;
@@ -106,6 +117,7 @@ function apply(doc: Y.Doc, cmd: Command): void {
       m.set('routing', fields.routing);
       m.set('head', fields.head);
       m.set('createdBy', fields.createdBy);
+      if (fields.pageId) m.set('pageId', fields.pageId);
       m.set('z', z ?? keyAbove(topKey(connectors)));
       connectors.set(fields.id, m);
       return;
@@ -166,6 +178,7 @@ function apply(doc: Y.Doc, cmd: Command): void {
     case 'AddComment': {
       if (comments.has(cmd.id)) return;
       const m = new Y.Map<unknown>();
+      m.set('pageId', cmd.pageId);
       m.set('anchor', cmd.anchor);
       m.set('resolved', false);
       m.set('createdBy', cmd.createdBy);
@@ -183,6 +196,39 @@ function apply(doc: Y.Doc, cmd: Command): void {
     }
     case 'ResolveComment':
       comments.get(cmd.id)?.set('resolved', cmd.resolved);
+      return;
+    case 'CreatePage': {
+      if (pages.has(cmd.page.id)) return;
+      const m = new Y.Map<unknown>();
+      for (const [k, v] of Object.entries(cmd.page)) if (k !== 'id') m.set(k, v);
+      pages.set(cmd.page.id, m);
+      return;
+    }
+    case 'RenamePage': {
+      const m = pageEntry(pages, cmd.id);
+      if (m && m.get('deleted') !== true) m.set('title', cmd.title);
+      return;
+    }
+    case 'MovePage': {
+      const m = pageEntry(pages, cmd.id);
+      if (m && m.get('deleted') !== true) m.set('order', cmd.order);
+      return;
+    }
+    case 'DeletePage': {
+      const m = pageEntry(pages, cmd.id);
+      if (!m) return;
+      m.set('deleted', true);
+      const onPage = (item: Y.Map<unknown>) => {
+        const p = item.get('pageId');
+        return (typeof p === 'string' ? p : MAIN_PAGE) === cmd.id;
+      };
+      for (const [id, s] of [...shapes.entries()]) if (onPage(s)) shapes.delete(id);
+      for (const [id, c] of [...connectors.entries()]) if (onPage(c)) connectors.delete(id);
+      for (const [id, c] of [...comments.entries()]) if (onPage(c)) comments.delete(id);
+      return;
+    }
+    case 'RenameBoard':
+      meta.set('title', cmd.title);
       return;
   }
 }

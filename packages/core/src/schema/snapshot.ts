@@ -48,6 +48,8 @@ export function readShape(id: string, m: Y.Map<unknown>): Shape | null {
   if (parentId) shape.parentId = parentId;
   const columnId = str(m.get('columnId'));
   if (columnId) shape.columnId = columnId;
+  const pageId = str(m.get('pageId'));
+  if (pageId) shape.pageId = pageId;
   const tag = str(m.get('tag'));
   if (tag) shape.tag = tag;
   const lang = str(m.get('lang'));
@@ -105,6 +107,7 @@ export function readConnector(id: string, m: Y.Map<unknown>): Connector | null {
     head: m.get('head') === 'none' ? 'none' : 'arrow',
     z: str(m.get('z')) ?? 'a0',
     createdBy: str(m.get('createdBy')) ?? 'unknown',
+    ...(str(m.get('pageId')) ? { pageId: str(m.get('pageId')) as string } : {}),
   };
 }
 

@@ -139,6 +139,7 @@ describe('comments', () => {
       {
         type: 'AddComment',
         id: 'c1',
+        pageId: 'main',
         anchor: { shapeId: 's1', dx: 10, dy: 20 },
         createdBy: 'u1',
         createdAt: 7,
@@ -155,6 +156,7 @@ describe('comments', () => {
     const m = comments.get('c1') as Y.Map<unknown>;
     expect(readComment('c1', m)).toEqual({
       id: 'c1',
+      pageId: 'main',
       anchor: { shapeId: 's1', dx: 10, dy: 20 },
       resolved: true,
       createdBy: 'u1',
@@ -171,6 +173,7 @@ describe('comments', () => {
         {
           type: 'AddComment',
           id: 'c1',
+          pageId: 'main',
           anchor: { x: 1, y: 2 },
           createdBy: 'u1',
           createdAt: 0,

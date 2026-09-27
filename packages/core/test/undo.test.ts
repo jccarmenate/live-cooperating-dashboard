@@ -144,6 +144,7 @@ describe('createUndo', () => {
       {
         type: 'AddComment',
         id: 'c1',
+        pageId: 'main',
         anchor: { x: 0, y: 0 },
         createdBy: 'u1',
         createdAt: 0,
@@ -154,5 +155,35 @@ describe('createUndo', () => {
     expect(undo.canUndo()).toBe(false);
     expect(getRoots(doc).votes.size).toBe(1);
     expect(getRoots(doc).comments.size).toBe(1);
+  });
+
+  it('clear() empties the undo and redo stacks', () => {
+    const doc = new Y.Doc();
+    const undo = createUndo(doc, { captureTimeout: 0 });
+    applyCommand(doc, { type: 'MoveShapes', moves: [] }, LOCAL_ORIGIN);
+    applyCommand(
+      doc,
+      {
+        type: 'CreateShape',
+        shape: {
+          id: 'r',
+          type: 'rect',
+          x: 0,
+          y: 0,
+          w: 10,
+          h: 10,
+          style: DEFAULT_STYLE.rect,
+          text: '',
+          createdBy: 'u',
+          authorName: 'U',
+          createdAt: 0,
+        },
+      },
+      LOCAL_ORIGIN,
+    );
+    expect(undo.canUndo()).toBe(true);
+    undo.clear();
+    expect(undo.canUndo()).toBe(false);
+    expect(undo.canRedo()).toBe(false);
   });
 });

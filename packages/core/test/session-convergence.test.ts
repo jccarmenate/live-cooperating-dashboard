@@ -189,6 +189,7 @@ describe('session convergence', () => {
             cmd = {
               type: 'AddComment',
               id: `c${s.thread}`,
+              pageId: 'main',
               anchor: { shapeId: `s${s.thread}`, dx: 1, dy: 2 },
               createdBy: `u${s.r}`,
               createdAt: n,

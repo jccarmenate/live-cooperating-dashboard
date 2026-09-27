@@ -10,6 +10,7 @@ export interface Roots {
   session: Y.Map<unknown>;
   votes: Y.Map<boolean>;
   comments: Y.Map<Y.Map<unknown>>;
+  pages: Y.Map<Y.Map<unknown>>;
 }
 
 export function getRoots(doc: Y.Doc): Roots {
@@ -20,6 +21,7 @@ export function getRoots(doc: Y.Doc): Roots {
     session: doc.getMap<unknown>('session'),
     votes: doc.getMap<boolean>('votes'),
     comments: doc.getMap<Y.Map<unknown>>('comments'),
+    pages: doc.getMap<Y.Map<unknown>>('pages'),
   };
 }
 
