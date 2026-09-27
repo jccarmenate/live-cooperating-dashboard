@@ -184,7 +184,10 @@ pages       Y.Map<id, Y.Map>
               order       fractional-index string
               createdBy   user id
               createdAt   epoch ms
-              deleted?    true   (tombstone; a deleted page never comes back)
+pageTombstones Y.Map<pageId, true>   (flat, write-once: a deleted page never
+                                     comes back — concurrent writes of `true`
+                                     cannot lose a delete, unlike a flag on a
+                                     lazily created page map)
 shapes      Y.Map<id, Y.Map>
               pageId?     page id (absent = the implicit 'main' page)
               type        'rect'|'ellipse'|'line'|'text'|'sticky'|'code'|'frame'
@@ -477,7 +480,8 @@ pages.
   `main`); new ones are created on the active page.
 - **Commands:** `CreatePage { id, type, title, order }`, `RenamePage { id,
   title }`, `MovePage { id, order }` (fractional key between neighbours),
-  `DeletePage { id }` (tombstone plus deletion of the page's shapes,
+  `DeletePage { id }` (writes `pageTombstones[id] = true`; rename, move and
+  create ignore tombstoned ids; plus deletion of the page's shapes,
   connectors and comments in the same transaction), and `RenameBoard {
   title }` for `meta.title`. Page commands and `RenameBoard` are applied
   with the `SESSION` origin, so they are never undoable (a page delete must
