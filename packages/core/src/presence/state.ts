@@ -1,4 +1,4 @@
-import type { Point } from '../schema/types';
+import type { Point, Rect } from '../schema/types';
 import { type Identity, isIdentity } from './identity';
 
 export interface PresenceState {
@@ -8,6 +8,8 @@ export interface PresenceState {
   selection: string[];
   /** Id of the shape whose text this user is editing. */
   editing: string | null;
+  /** World rectangle this user is looking at (minimap), or null before the canvas is measured. */
+  viewport: Rect | null;
 }
 
 export interface Peer extends PresenceState {
@@ -19,6 +21,22 @@ const isPoint = (v: unknown): v is Point =>
   v !== null &&
   Number.isFinite((v as Point).x) &&
   Number.isFinite((v as Point).y);
+
+/** Peers' viewports are untrusted: finite, positive and at most this many world units per side. */
+export const MAX_VIEWPORT_SIDE = 1e6;
+
+const isViewport = (v: unknown): v is Rect => {
+  if (!isPoint(v)) return false;
+  const { w, h } = v as Rect;
+  return (
+    Number.isFinite(w) &&
+    Number.isFinite(h) &&
+    w > 0 &&
+    h > 0 &&
+    w <= MAX_VIEWPORT_SIDE &&
+    h <= MAX_VIEWPORT_SIDE
+  );
+};
 
 const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
 
@@ -39,6 +57,9 @@ export function parsePresence(raw: unknown): PresenceState | null {
       ? o.selection.filter((s): s is string => typeof s === 'string')
       : [],
     editing: typeof o.editing === 'string' ? o.editing : null,
+    viewport: isViewport(o.viewport)
+      ? { x: o.viewport.x, y: o.viewport.y, w: o.viewport.w, h: o.viewport.h }
+      : null,
   };
 }
 
