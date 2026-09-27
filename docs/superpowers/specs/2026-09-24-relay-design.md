@@ -376,7 +376,8 @@ same drop rule, so shapes the frame now covers join it (in the column under
 their centre), shapes it no longer covers are released, and children of a
 resized frame are re-assigned to the column now under them. These
 `Reparent` moves are emitted in the same gesture as the frame's own
-command, so one undo reverts both. A frame is never smaller than its title
+command, so one undo reverts both. Resizing any other shape re-evaluates
+its own membership the same way. A frame is never smaller than its title
 band plus the column header (64 units tall). Dragging or nudging a frame
 moves its children. Column counters are derived from `parentId`/`columnId`.
 Double-clicking a column header renames it (`RenameColumn`: delete + insert
@@ -411,7 +412,8 @@ separate pan gesture, so the FSM stays about document edits.
 
 - **Zoom:** Ctrl/⌘+wheel and trackpad pinch (delivered by browsers as
   ctrl+wheel) zoom anchored at the cursor with `zoomAt`, factor
-  `exp(-deltaY · 0.01)` per event, clamped to 10%–400%. A plain wheel pans.
+  `exp(-deltaY · 0.01)` per event with `deltaY` capped at ±50 (a mouse
+  wheel notch reports ~100), zoom clamped to 10%–400%. A plain wheel pans.
 - **Pan:** holding Space (outside text inputs) turns a left-drag into a pan
   with a grab cursor; a middle-button drag always pans. A pan never
   dispatches tool events.
@@ -422,7 +424,8 @@ separate pan gesture, so the FSM stays about document edits.
   world position of the local pointer (rounded), hidden when the pointer is
   off the canvas.
 - **Camera persistence:** the camera is saved per room in `localStorage`
-  (reads and writes wrapped in try/catch; a failure just means no restore).
+  on every camera change (reads and writes wrapped in try/catch; a failure
+  just means no restore); the initial content fit is not saved.
   With no saved camera the board opens fitted to its content (`fitBounds`,
   48 px padding, zoom clamped to ≤ 100%); an empty board opens at the origin.
 - **Minimap:** bottom-right, 200 × 140 px. It projects the union of all
@@ -432,7 +435,7 @@ separate pan gesture, so the FSM stays about document edits.
   as an outline in the peer's colour. Clicking the minimap centres the
   camera on that point; dragging pans continuously. The local viewport is
   published to awareness (world rectangle) whenever the camera or window
-  size changes, through the shared 50 ms awareness throttle.
+  size changes, through a 50 ms throttle like the cursor.
 - **Remote presence:** peers' selections render as outlines in their colour
   (above shapes, below the local selection); a peer's `editing` shape gets
   a dashed outline and a `Name · typing…` tag.
