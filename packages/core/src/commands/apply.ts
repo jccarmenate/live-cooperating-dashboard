@@ -38,8 +38,17 @@ function refersTo(end: unknown, ids: ReadonlySet<string>): boolean {
   return typeof shapeId === 'string' && ids.has(shapeId);
 }
 
-/** The page's map; for the implicit main page, created with its defaults on first write. */
-function pageEntry(pages: Y.Map<Y.Map<unknown>>, id: string): Y.Map<unknown> | undefined {
+/**
+ * The map of a page that is not deleted; for the implicit main page, created with its
+ * defaults on first write. Two peers may create main's map concurrently and one write
+ * is lost, but deletes live in `pageTombstones`, so that can only lose a rename or move.
+ */
+function pageEntry(
+  pages: Y.Map<Y.Map<unknown>>,
+  tombstones: Y.Map<boolean>,
+  id: string,
+): Y.Map<unknown> | undefined {
+  if (tombstones.has(id)) return undefined;
   const existing = pages.get(id);
   if (existing || id !== MAIN_PAGE) return existing;
   const m = new Y.Map<unknown>();
@@ -49,7 +58,8 @@ function pageEntry(pages: Y.Map<Y.Map<unknown>>, id: string): Y.Map<unknown> | u
 }
 
 function apply(doc: Y.Doc, cmd: Command): void {
-  const { shapes, connectors, session, votes, comments, pages, meta } = getRoots(doc);
+  const { shapes, connectors, session, votes, comments, pages, pageTombstones, meta } =
+    getRoots(doc);
   switch (cmd.type) {
     case 'CreateShape': {
       const { text, z, columns, ...fields } = cmd.shape;
@@ -198,30 +208,24 @@ function apply(doc: Y.Doc, cmd: Command): void {
       comments.get(cmd.id)?.set('resolved', cmd.resolved);
       return;
     case 'CreatePage': {
-      // Seed main's entry now: deleting main needs a second page, so its tombstone
-      // then always lands on this map instead of racing a concurrent lazy creation
-      // (where last-writer-wins could drop the tombstone and resurrect main).
-      pageEntry(pages, MAIN_PAGE);
-      if (pages.has(cmd.page.id)) return;
+      if (pages.has(cmd.page.id) || pageTombstones.has(cmd.page.id)) return;
       const m = new Y.Map<unknown>();
       for (const [k, v] of Object.entries(cmd.page)) if (k !== 'id') m.set(k, v);
       pages.set(cmd.page.id, m);
       return;
     }
     case 'RenamePage': {
-      const m = pageEntry(pages, cmd.id);
-      if (m && m.get('deleted') !== true) m.set('title', cmd.title);
+      pageEntry(pages, pageTombstones, cmd.id)?.set('title', cmd.title);
       return;
     }
     case 'MovePage': {
-      const m = pageEntry(pages, cmd.id);
-      if (m && m.get('deleted') !== true) m.set('order', cmd.order);
+      pageEntry(pages, pageTombstones, cmd.id)?.set('order', cmd.order);
       return;
     }
     case 'DeletePage': {
-      const m = pageEntry(pages, cmd.id);
-      if (!m) return;
-      m.set('deleted', true);
+      // Main always exists (implicitly or not); any other page must be known here.
+      if (cmd.id !== MAIN_PAGE && !pages.has(cmd.id)) return;
+      if (!pageTombstones.has(cmd.id)) pageTombstones.set(cmd.id, true);
       const onPage = (item: Y.Map<unknown>) => {
         const p = item.get('pageId');
         return (typeof p === 'string' ? p : MAIN_PAGE) === cmd.id;

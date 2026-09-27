@@ -135,6 +135,13 @@ describe('presence parsing', () => {
     expect(parsePresence({ user: alice, page: 7 })?.page).toBeNull();
   });
 
+  it('parsePresence keeps a page id of 1 to 64 characters', () => {
+    expect(parsePresence({ user: alice, page: 'x'.repeat(64) })?.page).toBe('x'.repeat(64));
+    expect(parsePresence({ user: alice, page: 'x' })?.page).toBe('x');
+    expect(parsePresence({ user: alice, page: 'x'.repeat(65) })?.page).toBeNull();
+    expect(parsePresence({ user: alice, page: '' })?.page).toBeNull();
+  });
+
   it('peersFrom excludes self and invalid states, sorted by clientId', () => {
     const states = new Map<number, unknown>([
       [3, { user: bob }],

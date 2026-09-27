@@ -27,6 +27,21 @@ describe('server messages', () => {
     });
   });
 
+  it('keeps a 64-character viewKey on hello', () => {
+    const viewKey = 'k'.repeat(64);
+    expect(
+      parseServerMessage(`{"type":"hello","role":"edit","now":1,"viewKey":"${viewKey}"}`),
+    ).toEqual({ type: 'hello', role: 'edit', now: 1, viewKey });
+  });
+
+  it('drops a non-string viewKey from hello', () => {
+    for (const viewKey of ['7', 'null', 'true', '{"a":1}', '["k"]']) {
+      expect(
+        parseServerMessage(`{"type":"hello","role":"edit","now":1,"viewKey":${viewKey}}`),
+      ).toEqual({ type: 'hello', role: 'edit', now: 1 });
+    }
+  });
+
   it('ignores malformed or unknown messages', () => {
     for (const raw of [
       'nope',

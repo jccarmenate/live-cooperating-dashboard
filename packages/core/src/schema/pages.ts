@@ -20,8 +20,7 @@ const str = (v: unknown): string | undefined => (typeof v === 'string' ? v : und
 /** The page an item lives on (absent pageId = main). */
 export const pageOf = (x: { pageId?: string }): string => x.pageId ?? MAIN_PAGE;
 
-function readPage(id: string, m: Y.Map<unknown>): PageInfo | null {
-  if (m.get('deleted') === true) return null;
+function readPage(id: string, m: Y.Map<unknown>): PageInfo {
   const base = id === MAIN_PAGE ? MAIN_DEFAULTS : null;
   const type = str(m.get('type')) ?? base?.type;
   const createdAt = m.get('createdAt');
@@ -35,15 +34,18 @@ function readPage(id: string, m: Y.Map<unknown>): PageInfo | null {
   };
 }
 
-/** Visible pages: live entries plus the implicit main page when it has no entry, by order then id. */
-export function readPages(pages: Y.Map<Y.Map<unknown>>): PageInfo[] {
+/**
+ * Visible pages, by order then id: the entries whose id is not tombstoned, plus the
+ * implicit main page when it has no entry and is not tombstoned.
+ */
+export function readPages(pages: Y.Map<Y.Map<unknown>>, tombstones: Y.Map<boolean>): PageInfo[] {
   const out: PageInfo[] = [];
   for (const [id, m] of pages.entries()) {
-    if (!(m instanceof Y.Map)) continue;
-    const page = readPage(id, m);
-    if (page) out.push(page);
+    if (m instanceof Y.Map && !tombstones.has(id)) out.push(readPage(id, m));
   }
-  if (!pages.has(MAIN_PAGE)) out.push({ id: MAIN_PAGE, ...MAIN_DEFAULTS });
+  if (!pages.has(MAIN_PAGE) && !tombstones.has(MAIN_PAGE)) {
+    out.push({ id: MAIN_PAGE, ...MAIN_DEFAULTS });
+  }
   return out.sort((a, b) =>
     a.order !== b.order ? (a.order < b.order ? -1 : 1) : a.id < b.id ? -1 : a.id > b.id ? 1 : 0,
   );

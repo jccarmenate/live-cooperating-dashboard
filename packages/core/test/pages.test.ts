@@ -49,10 +49,48 @@ function sticky(doc: Y.Doc, id: string, pageId?: string) {
   );
 }
 
+function visible(doc: Y.Doc) {
+  const { pages, pageTombstones } = getRoots(doc);
+  return readPages(pages, pageTombstones);
+}
+
+/**
+ * Runs `a` and `b` offline on two fresh docs under both client-id orderings (so the
+ * outcome does not hang on Yjs's tie-break), syncs both ways and returns each pair
+ * of visible page lists.
+ */
+function race(a: (doc: Y.Doc) => void, b: (doc: Y.Doc) => void, shared?: (doc: Y.Doc) => void) {
+  return (
+    [
+      [1, 2],
+      [2, 1],
+    ] as const
+  ).map(([idA, idB]) => {
+    const docA = new Y.Doc();
+    const docB = new Y.Doc();
+    docA.clientID = idA;
+    docB.clientID = idB;
+    if (shared) {
+      shared(docA);
+      Y.applyUpdate(docB, Y.encodeStateAsUpdate(docA));
+    }
+    a(docA);
+    b(docB);
+    Y.applyUpdate(docB, Y.encodeStateAsUpdate(docA, Y.encodeStateVector(docB)));
+    Y.applyUpdate(docA, Y.encodeStateAsUpdate(docB, Y.encodeStateVector(docA)));
+    return [visible(docA), visible(docB)] as const;
+  });
+}
+
+const create = (id: string, order: string) => (doc: Y.Doc) =>
+  applyCommand(doc, { type: 'CreatePage', page: newPage(id, order) }, LOCAL_ORIGIN);
+const deleteMain = (doc: Y.Doc) =>
+  applyCommand(doc, { type: 'DeletePage', id: 'main' }, LOCAL_ORIGIN);
+
 describe('pages', () => {
   it('a new room has only the implicit main board page', () => {
     const doc = new Y.Doc();
-    expect(readPages(getRoots(doc).pages)).toEqual([
+    expect(visible(doc)).toEqual([
       { id: 'main', type: 'board', title: 'Board', order: 'a0', createdBy: '', createdAt: 0 },
     ]);
     expect(MAIN_PAGE).toBe('main');
@@ -64,7 +102,7 @@ describe('pages', () => {
     applyCommand(doc, { type: 'CreatePage', page: newPage('c', 'a1', 'sheet') }, LOCAL_ORIGIN);
     applyCommand(doc, { type: 'CreatePage', page: newPage('d', 'a1') }, LOCAL_ORIGIN);
     applyCommand(doc, { type: 'DeletePage', id: 'b' }, LOCAL_ORIGIN);
-    expect(readPages(getRoots(doc).pages).map((p) => [p.id, p.type])).toEqual([
+    expect(visible(doc).map((p) => [p.id, p.type])).toEqual([
       ['main', 'board'],
       ['c', 'sheet'],
       ['d', 'board'],
@@ -79,14 +117,14 @@ describe('pages', () => {
       { type: 'CreatePage', page: { ...newPage('x', 'a9'), title: 'Other' } },
       LOCAL_ORIGIN,
     );
-    expect(readPages(getRoots(doc).pages).find((p) => p.id === 'x')?.title).toBe('X');
+    expect(visible(doc).find((p) => p.id === 'x')?.title).toBe('X');
   });
 
   it('renaming or moving the implicit main page writes its entry', () => {
     const doc = new Y.Doc();
     applyCommand(doc, { type: 'RenamePage', id: 'main', title: 'Retro' }, LOCAL_ORIGIN);
     applyCommand(doc, { type: 'MovePage', id: 'main', order: 'a5' }, LOCAL_ORIGIN);
-    expect(readPages(getRoots(doc).pages)).toEqual([
+    expect(visible(doc)).toEqual([
       { id: 'main', type: 'board', title: 'Retro', order: 'a5', createdBy: '', createdAt: 0 },
     ]);
   });
@@ -136,12 +174,13 @@ describe('pages', () => {
     let transactions = 0;
     doc.on('afterTransaction', () => transactions++);
     applyCommand(doc, { type: 'DeletePage', id: 'p2' }, LOCAL_ORIGIN);
-    const { shapes, connectors, comments, pages } = getRoots(doc);
+    const { shapes, connectors, comments, pages, pageTombstones } = getRoots(doc);
     expect(transactions).toBe(1);
     expect([...shapes.keys()]).toEqual(['s-main']);
     expect(connectors.size).toBe(0);
     expect(comments.size).toBe(0);
-    expect(pages.get('p2')?.get('deleted')).toBe(true);
+    expect(pageTombstones.get('p2')).toBe(true);
+    expect(pages.get('p2')?.has('deleted')).toBe(false);
   });
 
   it('deleting main removes shapes without a pageId', () => {
@@ -151,29 +190,63 @@ describe('pages', () => {
     sticky(doc, 'kept', 'p2');
     applyCommand(doc, { type: 'DeletePage', id: 'main' }, LOCAL_ORIGIN);
     expect([...getRoots(doc).shapes.keys()]).toEqual(['kept']);
-    expect(readPages(getRoots(doc).pages).map((p) => p.id)).toEqual(['p2']);
+    expect(visible(doc).map((p) => p.id)).toEqual(['p2']);
   });
 
   it('a concurrent rename never resurrects a deleted main page', () => {
-    // Both client-id orderings, so the test does not depend on which concurrent write Yjs keeps.
-    for (const [idA, idB] of [
-      [1, 2],
-      [2, 1],
-    ] as const) {
-      const a = new Y.Doc();
-      const b = new Y.Doc();
-      a.clientID = idA;
-      b.clientID = idB;
-      applyCommand(a, { type: 'CreatePage', page: newPage('p2', 'a1') }, LOCAL_ORIGIN);
-      Y.applyUpdate(b, Y.encodeStateAsUpdate(a));
-      applyCommand(a, { type: 'DeletePage', id: 'main' }, LOCAL_ORIGIN);
-      applyCommand(b, { type: 'RenamePage', id: 'main', title: 'Retro' }, LOCAL_ORIGIN);
-      Y.applyUpdate(b, Y.encodeStateAsUpdate(a, Y.encodeStateVector(b)));
-      Y.applyUpdate(a, Y.encodeStateAsUpdate(b, Y.encodeStateVector(a)));
-      const pagesA = readPages(getRoots(a).pages);
-      expect(readPages(getRoots(b).pages)).toEqual(pagesA);
+    const rename = (doc: Y.Doc) =>
+      applyCommand(doc, { type: 'RenamePage', id: 'main', title: 'Retro' }, LOCAL_ORIGIN);
+    for (const [pagesA, pagesB] of race(deleteMain, rename, create('p2', 'a1'))) {
+      expect(pagesB).toEqual(pagesA);
       expect(pagesA.map((p) => p.id)).toEqual(['p2']);
     }
+  });
+
+  it('S1: concurrent page creations never resurrect a deleted main page', () => {
+    // A creates p2 then deletes main while B, offline, creates p3.
+    const a = (doc: Y.Doc) => {
+      create('p2', 'a1')(doc);
+      deleteMain(doc);
+    };
+    for (const [pagesA, pagesB] of race(a, create('p3', 'a2'))) {
+      expect(pagesB).toEqual(pagesA);
+      expect(pagesA.map((p) => p.id)).toEqual(['p2', 'p3']);
+    }
+  });
+
+  it('S2: an offline rename of main never resurrects it after a delete', () => {
+    // B renames main on a fresh board while A creates p2 and deletes main.
+    const a = (doc: Y.Doc) => {
+      create('p2', 'a1')(doc);
+      deleteMain(doc);
+    };
+    const b = (doc: Y.Doc) =>
+      applyCommand(doc, { type: 'RenamePage', id: 'main', title: 'Retro' }, LOCAL_ORIGIN);
+    for (const [pagesA, pagesB] of race(a, b)) {
+      expect(pagesB).toEqual(pagesA);
+      expect(pagesA.map((p) => p.id)).toEqual(['p2']);
+    }
+  });
+
+  it('CreatePage of main keeps its own fields', () => {
+    const doc = new Y.Doc();
+    applyCommand(
+      doc,
+      { type: 'CreatePage', page: { ...newPage('main', 'a3'), title: 'Kickoff' } },
+      LOCAL_ORIGIN,
+    );
+    expect(visible(doc)).toEqual([{ ...newPage('main', 'a3'), title: 'Kickoff' }]);
+  });
+
+  it('rename, move and create ignore a deleted main page', () => {
+    const doc = new Y.Doc();
+    create('p2', 'a1')(doc);
+    deleteMain(doc);
+    applyCommand(doc, { type: 'RenamePage', id: 'main', title: 'Back' }, LOCAL_ORIGIN);
+    applyCommand(doc, { type: 'MovePage', id: 'main', order: 'a9' }, LOCAL_ORIGIN);
+    create('main', 'a5')(doc);
+    expect(getRoots(doc).pages.has('main')).toBe(false);
+    expect(visible(doc).map((p) => p.id)).toEqual(['p2']);
   });
 
   it('DeletePage also deletes connectors on other pages that point at its shapes', () => {
@@ -215,8 +288,9 @@ describe('pages', () => {
     applyCommand(doc, { type: 'RenamePage', id: 'p2', title: 'Back' }, LOCAL_ORIGIN);
     applyCommand(doc, { type: 'MovePage', id: 'p2', order: 'a9' }, LOCAL_ORIGIN);
     expect(getRoots(doc).pages.get('p2')?.toJSON()).toEqual(before);
-    expect(before).toMatchObject({ title: 'P2', order: 'a1', deleted: true });
-    expect(readPages(getRoots(doc).pages).map((p) => p.id)).toEqual(['main']);
+    expect(before).toMatchObject({ title: 'P2', order: 'a1' });
+    expect(getRoots(doc).pageTombstones.get('p2')).toBe(true);
+    expect(visible(doc).map((p) => p.id)).toEqual(['main']);
   });
 
   it('deleting an unknown page leaves all content alone', () => {
@@ -253,12 +327,13 @@ describe('pages', () => {
       SESSION_ORIGIN,
     );
     const snapshot = () => {
-      const { shapes, connectors, comments, pages } = getRoots(doc);
+      const { shapes, connectors, comments, pages, pageTombstones } = getRoots(doc);
       return {
         shapes: shapes.toJSON(),
         connectors: connectors.toJSON(),
         comments: comments.toJSON(),
         pages: pages.toJSON(),
+        pageTombstones: pageTombstones.toJSON(),
       };
     };
     const before = snapshot();
@@ -276,8 +351,19 @@ describe('pages', () => {
       { type: 'CreatePage', page: { ...newPage('p2', 'a5'), title: 'Again' } },
       LOCAL_ORIGIN,
     );
-    expect(getRoots(doc).pages.get('p2')?.get('deleted')).toBe(true);
-    expect(readPages(getRoots(doc).pages).map((p) => p.id)).toEqual(['main']);
+    expect(getRoots(doc).pageTombstones.get('p2')).toBe(true);
+    expect(getRoots(doc).pages.get('p2')?.get('title')).toBe('P2');
+    expect(visible(doc).map((p) => p.id)).toEqual(['main']);
+  });
+
+  it('CreatePage ignores a tombstoned id this replica never saw created', () => {
+    // A replica can receive a page's tombstone without its entry (e.g. main, or a
+    // page whose creation raced its deletion); creating it must not bring it back.
+    const doc = new Y.Doc();
+    getRoots(doc).pageTombstones.set('p9', true);
+    applyCommand(doc, { type: 'CreatePage', page: newPage('p9', 'a1') }, LOCAL_ORIGIN);
+    expect(getRoots(doc).pages.has('p9')).toBe(false);
+    expect(visible(doc).map((p) => p.id)).toEqual(['main']);
   });
 
   it('reads pageId on shapes, connectors and comments; pageOf defaults to main', () => {
@@ -331,7 +417,7 @@ describe('pages', () => {
     m.set('type', 'kanban');
     m.set('title', 'Z');
     m.set('order', 'a3');
-    expect(readPages(getRoots(doc).pages).find((p) => p.id === 'z')?.type).toBe('unknown');
+    expect(visible(doc).find((p) => p.id === 'z')?.type).toBe('unknown');
   });
 
   it('RenameBoard sets the board title', () => {

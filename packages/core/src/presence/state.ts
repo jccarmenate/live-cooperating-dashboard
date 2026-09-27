@@ -66,7 +66,7 @@ export function parsePresence(raw: unknown): PresenceState | null {
     viewport: isViewport(o.viewport)
       ? { x: o.viewport.x, y: o.viewport.y, w: o.viewport.w, h: o.viewport.h }
       : null,
-    page: typeof o.page === 'string' && o.page.length <= 64 ? o.page : null,
+    page: typeof o.page === 'string' && o.page.length > 0 && o.page.length <= 64 ? o.page : null,
   };
 }
 

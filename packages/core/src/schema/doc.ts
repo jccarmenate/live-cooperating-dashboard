@@ -11,6 +11,8 @@ export interface Roots {
   votes: Y.Map<boolean>;
   comments: Y.Map<Y.Map<unknown>>;
   pages: Y.Map<Y.Map<unknown>>;
+  /** Deleted page ids, write-once: concurrent writes of `true` can never lose a delete. */
+  pageTombstones: Y.Map<boolean>;
 }
 
 export function getRoots(doc: Y.Doc): Roots {
@@ -22,6 +24,7 @@ export function getRoots(doc: Y.Doc): Roots {
     votes: doc.getMap<boolean>('votes'),
     comments: doc.getMap<Y.Map<unknown>>('comments'),
     pages: doc.getMap<Y.Map<unknown>>('pages'),
+    pageTombstones: doc.getMap<boolean>('pageTombstones'),
   };
 }
 
