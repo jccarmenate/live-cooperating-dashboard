@@ -8,14 +8,16 @@ export function VoteBadge({ s, session }: { s: Shape; session: BoardSession }) {
   const vote = useStore(session.activity, (a) => a.vote);
   const keys = useStore(session.activity, (a) => a.voteKeys);
   // Primitive selectors over the doc store: a shape edit re-renders the badge only when it
-  // changes this sticky's count or mine flag, not on every edit.
+  // changes this sticky's count or mine flag, not on every edit. Tallies are room-wide
+  // (`allShapes`), so the per-user cap counts votes on every visible page.
   const count = useStore(session.doc, (d) =>
-    vote ? (cachedTallies(keys, d.shapes, vote.maxPerUser).counts[s.id] ?? 0) : 0,
+    vote ? (cachedTallies(keys, d.allShapes, vote.maxPerUser).counts[s.id] ?? 0) : 0,
   );
   const mine = useStore(session.doc, (d) =>
     vote
-      ? (cachedTallies(keys, d.shapes, vote.maxPerUser).byUser[session.user.id]?.includes(s.id) ??
-        false)
+      ? (cachedTallies(keys, d.allShapes, vote.maxPerUser).byUser[session.user.id]?.includes(
+          s.id,
+        ) ?? false)
       : false,
   );
   const role = useStore(session.conn.clock, (c) => c.role);

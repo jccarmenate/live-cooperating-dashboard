@@ -10,7 +10,8 @@ export function VoteControl({ session }: { session: BoardSession }) {
   const { controller } = session;
   const vote = useStore(session.activity, (a) => a.vote);
   const keys = useStore(session.activity, (a) => a.voteKeys);
-  const shapes = useStore(session.doc, (d) => d.shapes);
+  // Room-wide: the cap and "N left" count stickies on every visible page.
+  const shapes = useStore(session.doc, (d) => d.allShapes);
   const role = useStore(session.conn.clock, (c) => c.role);
   const [picking, setPicking] = useState(false);
   // Tick only while actually open: a vote that expires unended keeps `open: true` in the doc.

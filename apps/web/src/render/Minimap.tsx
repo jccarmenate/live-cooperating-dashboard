@@ -13,6 +13,7 @@ import {
 import { type PointerEvent, useRef } from 'react';
 import { useStore } from 'zustand';
 import type { BoardSession } from '../board/session';
+import { onPage } from './pageFilter';
 
 const W = 200;
 const H = 140;
@@ -24,6 +25,7 @@ export function Minimap({ session }: { session: BoardSession }) {
   const camera = useStore(controller.ui, (s) => s.camera);
   const viewport = useStore(controller.ui, (s) => s.viewport);
   const peers = useStore(session.presence, (s) => s.peers);
+  const page = useStore(session.doc, (d) => d.activePage);
   // Frozen while dragging: re-projecting as the viewport moves would slide the map under the pointer.
   const drag = useRef<MinimapProjection | null>(null);
   if (!viewport) return null;
@@ -80,18 +82,20 @@ export function Minimap({ session }: { session: BoardSession }) {
           />
         );
       })}
-      {peers.map((peer) =>
-        peer.viewport ? (
-          <rect
-            key={peer.clientId}
-            data-testid="minimap-peer"
-            {...box(peer.viewport)}
-            fill="none"
-            stroke={peer.user.color}
-            strokeWidth={1.5}
-          />
-        ) : null,
-      )}
+      {peers
+        .filter((p) => onPage(p, page))
+        .map((peer) =>
+          peer.viewport ? (
+            <rect
+              key={peer.clientId}
+              data-testid="minimap-peer"
+              {...box(peer.viewport)}
+              fill="none"
+              stroke={peer.user.color}
+              strokeWidth={1.5}
+            />
+          ) : null,
+        )}
       <rect
         data-testid="minimap-viewport"
         {...box(view)}

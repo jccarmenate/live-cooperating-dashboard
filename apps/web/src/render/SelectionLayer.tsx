@@ -9,6 +9,7 @@ import {
 } from '@relay/core';
 import { useStore } from 'zustand';
 import type { BoardSession } from '../board/session';
+import { onPage } from './pageFilter';
 
 const PAD = 4;
 const HANDLE_PX = 9;
@@ -39,7 +40,8 @@ export function SelectionLayer({ session }: { session: BoardSession }) {
   const zoom = useStore(ui, (s) => s.camera.zoom);
   const overlay = useStore(ui, (s) => s.overlay);
   const shapes = useStore(session.doc, (s) => s.shapes);
-  const peers = useStore(session.presence, (s) => s.peers);
+  const page = useStore(session.doc, (d) => d.activePage);
+  const peers = useStore(session.presence, (s) => s.peers).filter((p) => onPage(p, page));
   const stroke = 2 / zoom;
   const handleSize = HANDLE_PX / zoom;
 

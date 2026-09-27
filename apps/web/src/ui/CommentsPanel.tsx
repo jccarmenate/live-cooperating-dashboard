@@ -9,11 +9,15 @@ export function CommentsPanel({ session }: { session: BoardSession }) {
   const comments = useStore(session.activity, (a) => a.comments);
   const order = useStore(session.activity, (a) => a.commentOrder);
   const shapes = useStore(session.doc, (d) => d.shapes);
+  const page = useStore(session.doc, (d) => d.activePage);
   const [tab, setTab] = useState<'open' | 'resolved'>('open');
   if (!open) return null;
   const threads = order
     .map((id) => comments[id])
-    .filter((t): t is CommentThread => t !== undefined && t.resolved === (tab === 'resolved'));
+    .filter(
+      (t): t is CommentThread =>
+        t !== undefined && t.pageId === page && t.resolved === (tab === 'resolved'),
+    );
   const tabClass = (t: 'open' | 'resolved') =>
     `flex-1 py-1.5 font-mono text-[11px] font-bold uppercase ${tab === t ? 'bg-sun' : 'bg-white hover:bg-paper'}`;
 

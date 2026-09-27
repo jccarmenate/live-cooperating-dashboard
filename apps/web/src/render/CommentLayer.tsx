@@ -71,6 +71,7 @@ export function CommentLayer({ session }: { session: BoardSession }) {
   const comments = useStore(session.activity, (a) => a.comments);
   const order = useStore(session.activity, (a) => a.commentOrder);
   const shapes = useStore(session.doc, (d) => d.shapes);
+  const page = useStore(session.doc, (d) => d.activePage);
   const overlay = useStore(controller.ui, (s) => s.overlay);
   const camera = useStore(controller.ui, (s) => s.camera);
   const openId = useStore(controller.ui, (s) => s.openThread);
@@ -80,7 +81,7 @@ export function CommentLayer({ session }: { session: BoardSession }) {
     <div className="pointer-events-none absolute inset-0 overflow-hidden">
       {order.map((id) => {
         const thread = comments[id];
-        if (!thread) return null;
+        if (!thread || thread.pageId !== page) return null;
         const open = openId === id;
         if (thread.resolved && !open) return null;
         const point = commentPoint(thread.anchor, live);

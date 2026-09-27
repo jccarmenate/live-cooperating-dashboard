@@ -24,9 +24,10 @@ export function Header({ session }: { session: BoardSession }) {
   useStore(session.presence, (s) => onlineUsersSignature(onlineUsers(s.peers, session.user)));
   const users = onlineUsers(session.presence.getState().peers, session.user);
   const status = useStore(session.conn.status, (s) => s.status);
+  const page = useStore(session.doc, (d) => d.activePage);
   const openThreads = useStore(
     session.activity,
-    (a) => Object.values(a.comments).filter((c) => !c.resolved).length,
+    (a) => Object.values(a.comments).filter((c) => c.pageId === page && !c.resolved).length,
   );
   const panelOpen = useStore(session.controller.ui, (s) => s.commentsPanel);
   // Position-encoded key (not the bare array index) so duplicate breadcrumb segments
