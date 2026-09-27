@@ -5,6 +5,7 @@ import type { BoardSession } from '../board/session';
 import { FrameBody } from './FrameView';
 import { CODE_HEADER, TEXT_BOX, TEXT_STYLE } from './typography';
 import { useShape } from './useShape';
+import { VoteBadge } from './VoteBadge';
 
 const timeOf = (ts: number) =>
   new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
@@ -55,6 +56,7 @@ function Body({ s, editing, session }: { s: Shape; editing: boolean; session: Bo
               </p>
             </div>
           </foreignObject>
+          <VoteBadge s={s} session={session} />
         </>
       );
     case 'text':

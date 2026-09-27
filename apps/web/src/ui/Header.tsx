@@ -3,6 +3,7 @@ import { useStore } from 'zustand';
 import type { BoardSession } from '../board/session';
 import type { ConnStatus } from '../sync/connection';
 import { onlineUsersSignature } from './onlineUsersSignature';
+import { VoteControl } from './VoteControl';
 
 const STATUS_LABEL: Record<ConnStatus, string> = {
   connecting: 'Connecting…',
@@ -53,6 +54,7 @@ export function Header({ session }: { session: BoardSession }) {
         </nav>
       </div>
       <div className="flex items-center gap-2">
+        <VoteControl session={session} />
         <div className="flex -space-x-1">
           {users.slice(0, 5).map((u) => (
             <span
