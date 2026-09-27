@@ -10,6 +10,7 @@ import { Header } from '../ui/Header';
 import { StatusBanner } from '../ui/StatusBanner';
 import { Toolbar } from '../ui/Toolbar';
 import { useShortcuts } from '../ui/useShortcuts';
+import { ZoomControls } from '../ui/ZoomControls';
 import { type BoardSession, createBoardSession } from './session';
 
 function BoardView({ session }: { session: BoardSession }) {
@@ -23,6 +24,7 @@ function BoardView({ session }: { session: BoardSession }) {
         <TextEditor session={session} />
         <ColumnTitleEditor session={session} />
         <Toolbar session={session} />
+        <ZoomControls session={session} />
         <StatusBanner session={session} />
       </div>
     </div>

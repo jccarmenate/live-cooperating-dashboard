@@ -5,8 +5,9 @@ import {
   type Preview,
   panBy,
   screenToWorld,
+  wheelZoomFactor,
 } from '@relay/core';
-import { type MouseEvent, type PointerEvent, useRef, type WheelEvent } from 'react';
+import { type MouseEvent, type PointerEvent, useEffect, useRef, useState } from 'react';
 import { useStore } from 'zustand';
 import { useShallow } from 'zustand/react/shallow';
 import type { BoardSession } from '../board/session';
@@ -67,6 +68,57 @@ export function Canvas({ session }: { session: BoardSession }) {
   const camera = useStore(controller.ui, (s) => s.camera);
   const preview = useStore(controller.ui, (s) => s.preview);
   const svgRef = useRef<SVGSVGElement>(null);
+  const spaceHeld = useStore(controller.ui, (s) => s.spaceHeld);
+  // Pan gestures bypass the tool FSM: the camera is view state, not a document edit.
+  const pan = useRef<{ pointerId: number; x: number; y: number } | null>(null);
+  const [panning, setPanning] = useState(false);
+
+  // Measure the canvas so the controller can fit, centre and publish the viewport.
+  useEffect(() => {
+    const el = svgRef.current;
+    if (!el) return;
+    const measure = () => {
+      const b = el.getBoundingClientRect();
+      controller.setViewportSize(b.width, b.height);
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [controller]);
+
+  // A native non-passive listener: React's onWheel is passive, so it could not stop the
+  // browser's own ctrl+wheel page zoom. Ctrl/⌘+wheel (and pinch) zooms, a plain wheel pans.
+  useEffect(() => {
+    const el = svgRef.current;
+    if (!el) return;
+    const onWheel = (e: globalThis.WheelEvent) => {
+      e.preventDefault();
+      const unit = e.deltaMode === 1 ? 16 : 1;
+      if (e.ctrlKey || e.metaKey) {
+        const b = el.getBoundingClientRect();
+        controller.zoomBy(wheelZoomFactor(e.deltaY * unit), {
+          x: e.clientX - b.left,
+          y: e.clientY - b.top,
+        });
+      } else {
+        const cam = controller.ui.getState().camera;
+        controller.setCamera(panBy(cam, -e.deltaX * unit, -e.deltaY * unit));
+      }
+    };
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
+  }, [controller]);
+
+  const endPan = (e: PointerEvent<SVGSVGElement>): boolean => {
+    if (pan.current?.pointerId !== e.pointerId) return false;
+    pan.current = null;
+    setPanning(false);
+    if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    }
+    return true;
+  };
 
   const info = (e: PointerEvent | MouseEvent): PointerInfo => {
     const bounds = svgRef.current?.getBoundingClientRect();
@@ -98,7 +150,18 @@ export function Canvas({ session }: { session: BoardSession }) {
       data-testid="canvas"
       aria-label="Board canvas"
       className="absolute inset-0 size-full touch-none select-none"
+      style={{ cursor: panning ? 'grabbing' : spaceHeld ? 'grab' : undefined }}
+      onMouseDown={(e) => {
+        if (e.button === 1) e.preventDefault();
+      }}
       onPointerDown={(e) => {
+        if (e.button === 1 || (e.button === 0 && controller.ui.getState().spaceHeld)) {
+          e.preventDefault();
+          e.currentTarget.setPointerCapture(e.pointerId);
+          pan.current = { pointerId: e.pointerId, x: e.clientX, y: e.clientY };
+          setPanning(true);
+          return;
+        }
         if (e.button !== 0) return;
         // Needed so a freshly created shape's textarea keeps focus (below);
         // it also means the browser won't blur an already-open editor on
@@ -120,21 +183,36 @@ export function Canvas({ session }: { session: BoardSession }) {
       onPointerMove={(e) => {
         const p = info(e);
         publisher.setCursor(p.world);
+        controller.setPointer(p.world);
+        const g = pan.current;
+        if (g && g.pointerId === e.pointerId) {
+          const cam = controller.ui.getState().camera;
+          controller.setCamera(panBy(cam, e.clientX - g.x, e.clientY - g.y));
+          pan.current = { ...g, x: e.clientX, y: e.clientY };
+          return;
+        }
         controller.dispatch({ type: 'pointerMove', p });
       }}
       onPointerUp={(e) => {
+        if (endPan(e)) return;
         controller.dispatch({ type: 'pointerUp', p: info(e) });
         if (e.currentTarget.hasPointerCapture(e.pointerId)) {
           e.currentTarget.releasePointerCapture(e.pointerId);
         }
       }}
-      onPointerCancel={() => controller.dispatch({ type: 'cancel' })}
-      onLostPointerCapture={() => controller.dispatch({ type: 'cancel' })}
-      onPointerLeave={() => publisher.setCursor(null)}
+      onPointerCancel={(e) => {
+        if (endPan(e)) return;
+        controller.dispatch({ type: 'cancel' });
+      }}
+      onLostPointerCapture={(e) => {
+        if (endPan(e)) return;
+        controller.dispatch({ type: 'cancel' });
+      }}
+      onPointerLeave={() => {
+        publisher.setCursor(null);
+        controller.setPointer(null);
+      }}
       onDoubleClick={(e) => controller.dispatch({ type: 'doubleClick', p: info(e) })}
-      onWheel={(e: WheelEvent) =>
-        controller.setCamera(panBy(controller.ui.getState().camera, -e.deltaX, -e.deltaY))
-      }
     >
       <defs>
         <pattern
