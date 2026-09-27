@@ -11,6 +11,7 @@ import {
 } from '../geometry/shapes';
 import { DEFAULT_COLUMNS, DEFAULT_SIZE, DEFAULT_STYLE } from '../schema/defaults';
 import {
+  type CommentAnchor,
   type Connector,
   type Endpoint,
   type Point,
@@ -29,7 +30,8 @@ export type ToolId =
   | 'text'
   | 'sticky'
   | 'code'
-  | 'frame';
+  | 'frame'
+  | 'comment';
 type DrawTool = 'rect' | 'ellipse' | 'line' | 'frame';
 type ClickTool = 'text' | 'sticky' | 'code';
 
@@ -122,7 +124,9 @@ export type Effect =
   | { type: 'overlay'; rects: Record<string, Rect> | null }
   | { type: 'editText'; id: string }
   | { type: 'editColumn'; frameId: string; columnId: string }
-  | { type: 'endGesture' };
+  | { type: 'endGesture' }
+  /** The comment tool asks the UI to open a composer anchored here. */
+  | { type: 'compose'; anchor: CommentAnchor; at: Point };
 
 export interface ToolContext {
   shapes: Readonly<Record<string, Shape>>;
@@ -373,6 +377,13 @@ function pointerDownIdle(state: IdleState, p: PointerInfo, ctx: ToolContext): St
         ? { shapeId: hit, anchor: 'auto' }
         : { x: p.world.x, y: p.world.y };
       return none({ mode: 'connecting', tool: 'connector', selection: [], from, origin: p.world });
+    }
+    case 'comment': {
+      const s = p.hitId ? ctx.shapes[p.hitId] : undefined;
+      const anchor: CommentAnchor = s
+        ? { shapeId: s.id, dx: p.world.x - s.x, dy: p.world.y - s.y }
+        : { x: p.world.x, y: p.world.y };
+      return { state: idle('comment', []), effects: [{ type: 'compose', anchor, at: p.world }] };
     }
     case 'rect':
     case 'ellipse':

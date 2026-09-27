@@ -16,6 +16,7 @@ export * from './schema/normalize';
 export * from './schema/session';
 export * from './schema/snapshot';
 export * from './schema/types';
+export * from './sync/messages';
 export * from './text/diff';
 export * from './tools/machine';
 export * from './util/throttle';

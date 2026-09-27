@@ -652,3 +652,24 @@ describe('frame membership (adoption)', () => {
     expect(r.effects.at(-1)).toEqual({ type: 'endGesture' });
   });
 });
+
+describe('comment tool', () => {
+  it('anchors a comment to the shape under the pointer, relative to its top-left', () => {
+    const r = step(
+      idle('comment', []),
+      { type: 'pointerDown', p: at(1010, 20, { hitId: 'a' }) },
+      ctx(),
+    );
+    expect(r.state).toEqual(idle('comment', []));
+    expect(r.effects).toEqual([
+      { type: 'compose', anchor: { shapeId: 'a', dx: 10, dy: 20 }, at: { x: 1010, y: 20 } },
+    ]);
+  });
+
+  it('anchors to the world point on empty canvas', () => {
+    const r = step(idle('comment', []), { type: 'pointerDown', p: at(-40, 900) }, ctx());
+    expect(r.effects).toEqual([
+      { type: 'compose', anchor: { x: -40, y: 900 }, at: { x: -40, y: 900 } },
+    ]);
+  });
+});
