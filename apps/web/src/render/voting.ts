@@ -17,16 +17,22 @@ export function cachedTallies(keys: string[], shapes: Record<string, Shape>, max
   return result;
 }
 
-/** True while the vote is open; re-renders exactly when the deadline passes (server time). */
+/**
+ * True while the vote is open; re-renders when the deadline passes (server time). Each fire
+ * and each clock-offset change reschedules the timer while the vote is still open, so an early
+ * fire or a server clock that moves under us never leaves the badge stuck open.
+ */
 export function useVoteOpen(session: BoardSession): boolean {
   const vote = useStore(session.activity, (a) => a.vote);
-  const [, expire] = useState(0);
+  const offset = useStore(session.conn.clock, (c) => c.offset);
+  const [tick, expire] = useState(0);
   const open = isVoteOpen(vote, session.conn.serverNow());
   useEffect(() => {
     if (!open || !vote) return;
-    const t = setTimeout(() => expire((n) => n + 1), vote.endsAt - session.conn.serverNow() + 50);
+    const delay = vote.endsAt - (Date.now() + offset) + 50;
+    const t = setTimeout(() => expire(tick + 1), delay);
     return () => clearTimeout(t);
-  }, [open, vote, session]);
+  }, [open, vote, offset, tick]);
   return open;
 }
 

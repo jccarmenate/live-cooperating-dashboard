@@ -13,7 +13,9 @@ export function VoteControl({ session }: { session: BoardSession }) {
   const shapes = useStore(session.doc, (d) => d.shapes);
   const role = useStore(session.conn.clock, (c) => c.role);
   const [picking, setPicking] = useState(false);
-  const now = useServerNow(session, vote?.open ?? false);
+  // Tick only while actually open: a vote that expires unended keeps `open: true` in the doc.
+  // The tick that crosses the deadline renders VOTE ENDED and stops the interval.
+  const now = useServerNow(session, isVoteOpen(vote, session.conn.serverNow()));
   const canEdit = role === 'edit';
 
   if (vote && isVoteOpen(vote, now)) {

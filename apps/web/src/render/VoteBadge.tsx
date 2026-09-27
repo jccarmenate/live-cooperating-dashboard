@@ -17,6 +17,7 @@ export function VoteBadge({ s, session }: { s: Shape; session: BoardSession }) {
   const mine = t.byUser[session.user.id]?.includes(s.id) ?? false;
   const clickable = open && role === 'edit';
   return (
+    // biome-ignore lint/a11y/noStaticElementInteractions: onDoubleClick only shields the canvas; it adds no interaction
     <g
       data-testid="vote-badge"
       data-vote-id={s.id}
@@ -28,6 +29,11 @@ export function VoteBadge({ s, session }: { s: Shape; session: BoardSession }) {
         e.stopPropagation();
         e.preventDefault();
         session.controller.toggleVote(s.id);
+      }}
+      // Two quick votes fire a dblclick that would otherwise reach the canvas, whose hit-test
+      // finds the sticky underneath and opens its text editor.
+      onDoubleClick={(e) => {
+        if (clickable) e.stopPropagation();
       }}
     >
       <rect
