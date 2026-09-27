@@ -18,7 +18,7 @@ export function readVote(session: Y.Map<unknown>): VoteState | null {
 }
 
 export const isVoteOpen = (vote: VoteState | null, serverNow: number): boolean =>
-  vote !== null && vote.open && serverNow < vote.endsAt;
+  vote?.open === true && serverNow < vote.endsAt;
 
 export interface Tallies {
   counts: Record<string, number>;

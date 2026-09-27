@@ -8,6 +8,7 @@ import {
   LOCAL_ORIGIN,
   type NewShape,
   readShape,
+  SESSION_ORIGIN,
 } from '../src';
 
 const shape = (id: string, type: 'rect' | 'sticky' = 'rect'): NewShape => ({
@@ -132,5 +133,26 @@ describe('createUndo', () => {
     undo.undo();
     expect(calls).toBe(before);
     undo.destroy();
+  });
+
+  it('never undoes votes or comments (SESSION origin)', () => {
+    const doc = new Y.Doc();
+    const undo = createUndo(doc, { captureTimeout: 0 });
+    applyCommand(doc, { type: 'CastVote', shapeId: 's1', userId: 'u1' }, SESSION_ORIGIN);
+    applyCommand(
+      doc,
+      {
+        type: 'AddComment',
+        id: 'c1',
+        anchor: { x: 0, y: 0 },
+        createdBy: 'u1',
+        createdAt: 0,
+        entry: { id: 'e1', authorId: 'u1', author: 'A', body: 'hi', ts: 0 },
+      },
+      SESSION_ORIGIN,
+    );
+    expect(undo.canUndo()).toBe(false);
+    expect(getRoots(doc).votes.size).toBe(1);
+    expect(getRoots(doc).comments.size).toBe(1);
   });
 });
