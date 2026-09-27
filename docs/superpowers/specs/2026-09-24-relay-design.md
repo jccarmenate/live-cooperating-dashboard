@@ -178,7 +178,15 @@ convergence — lives there.
 
 ```
 meta        Y.Map   { schemaVersion: number, title: string, breadcrumb: string[] }
+pages       Y.Map<id, Y.Map>
+              type        'board' | 'sheet' | 'calendar'
+              title       string
+              order       fractional-index string
+              createdBy   user id
+              createdAt   epoch ms
+              deleted?    true   (tombstone; a deleted page never comes back)
 shapes      Y.Map<id, Y.Map>
+              pageId?     page id (absent = the implicit 'main' page)
               type        'rect'|'ellipse'|'line'|'text'|'sticky'|'code'|'frame'
               x, y, w, h  numbers, world coordinates
               z           fractional-index string
@@ -193,6 +201,7 @@ shapes      Y.Map<id, Y.Map>
               createdAt   epoch ms
               columns     Y.Array<{ id, title }>   (frame only)
 connectors  Y.Map<id, Y.Map>
+              pageId?     page id (absent = 'main')
               from, to    { shapeId, anchor: 'n'|'s'|'e'|'w'|'auto' } | { x, y }
               routing     'straight' | 'elbow'
               head        'arrow' | 'none'
@@ -202,6 +211,7 @@ session     Y.Map   { vote: { open: boolean, endsAt: number, maxPerUser: number,
                               startedBy: user id } }   (atomic JSON value)
 votes       Y.Map<"<shapeId>:<userId>", true>
 comments    Y.Map<id, Y.Map>
+              pageId?     page id (absent = 'main')
               anchor      { shapeId, dx, dy } | { x, y }   (atomic JSON; dx/dy from
                           the shape's top-left)
               resolved    boolean
@@ -230,7 +240,13 @@ geometry is derived from the shapes they attach to.
    present among its parent frame's columns, and breaks equal `z` values by
    id. The `DeleteShapes` command also deletes attached connectors in the
    same transaction; the read filter covers the concurrent connect-while-delete
-   case. Frames cannot be nested, so parent cycles cannot occur.
+   case. Frames cannot be nested, so parent cycles cannot occur. Pages:
+   the visible pages are the non-deleted entries of `pages` plus the
+   implicit `main` board page when `pages` has no `main` entry, sorted by
+   `order` then id; a shape, connector or comment whose page is deleted is
+   hidden; a connector is dropped when either attached endpoint lives on
+   another page; a `parentId` pointing to a frame on another page is treated
+   as root.
 4. **Derive, never store, aggregates.** Column counters and vote totals are
    computed from the document.
 5. **Timer uses server time.** `endsAt` is an absolute server epoch; clients
@@ -247,6 +263,7 @@ geometry is derived from the shapes they attach to.
   selection: string[];
   editing: string | null;                    // shape id being text-edited ("typing…")
   viewport: { x: number; y: number; w: number; h: number } | null;  // world rect in view
+  page: string | null;                       // page id this user is looking at
   ai?: { status: 'thinking'; target: string };
 }
 ```
@@ -268,7 +285,8 @@ bounded size (≤ 1e6 world units per side).
 - Connection status (`connecting` / `online` / `offline · N pending`) is
   surfaced in the header.
 - Custom messages from the server (y-partyserver's `__YPS:` channel) carry
-  JSON: `{ type: 'hello', role, now }` on every connect and
+  JSON: `{ type: 'hello', role, now, viewKey? }` on every connect (`viewKey`
+  only for the `edit` role, so editors can share a read-only link) and
   `{ type: 'time', now }` in reply to the client's `{ type: 'time?' }`, sent
   every 5 minutes. The client keeps `offset = now − Date.now()` at receipt
   (error ≤ one-way latency) and its `role` (`edit` | `view`) in the
@@ -444,6 +462,54 @@ tool for editors only.
   only as trustworthy as the holders of the edit link, just like presence
   names and sticky author names.
 
+### Pages
+
+A room holds several pages of three kinds — `board` (the canvas described
+above), `sheet` (spreadsheet, phase P3) and `calendar` (phase P4) — in one
+`Y.Doc`, so one link, one connection and one set of capabilities cover them
+all and switching pages is instant. The document size cap is shared by all
+pages.
+
+- **Model:** see `pages` in the Yjs Document. Boards created before pages
+  existed are the implicit `main` page (type `board`, title `Board`, order
+  `a0`) and keep working with no migration; renaming or moving `main` writes
+  its entry. Shapes, connectors and comments carry `pageId` (absent =
+  `main`); new ones are created on the active page.
+- **Commands:** `CreatePage { id, type, title, order }`, `RenamePage { id,
+  title }`, `MovePage { id, order }` (fractional key between neighbours),
+  `DeletePage { id }` (tombstone plus deletion of the page's shapes,
+  connectors and comments in the same transaction), and `RenameBoard {
+  title }` for `meta.title`. Page commands use the `LOCAL` origin but touch
+  roots the undo manager does not track, so they are not undoable; deleting
+  asks for confirmation. The last visible page cannot be deleted from the
+  UI; if concurrent deletes remove every page, the UI shows an empty state
+  with "New page".
+- **Active page:** local state, mirrored in the URL hash (`#k=<key>&p=<page
+  id>`) so a link can open a given page; an unknown or deleted page falls
+  back to the first visible page. The document projection publishes only the
+  active page's shapes and connectors, so the canvas, tool machine, minimap,
+  initial fit and comment pins need no page awareness. The camera is saved
+  per room and page (`relay:camera:<roomId>:<pageId>`). Switching pages
+  clears the undo and redo stacks, so `Ctrl+Z` never changes a page the user
+  is not looking at. The vote session stays room-wide; badges show only on
+  the active page's stickies.
+- **Presence:** each user publishes `page`. Remote cursors, selections,
+  typing tags and minimap viewports only show for peers on the same page;
+  each tab shows small dots in the colours of the peers looking at it.
+- **Tabs:** a strip under the header lists the visible pages. Click
+  switches, double-click renames (Enter commits, Escape cancels, empty keeps
+  the old title), dragging reorders, right-click opens a context menu
+  (Rename, Delete). "+" opens a menu of page types; `sheet` and `calendar`
+  are shown disabled ("soon") until P3/P4 enable them. A page of a type this
+  client does not know renders an "unsupported page" notice. Viewers can
+  switch pages but get no "+", no rename, no reorder and no delete.
+- **Share and title:** the header's SHARE button opens a dialog with the
+  edit link and the read-only link (the latter built from the `viewKey` the
+  server sends editors), each with a Copy button; viewers only see the
+  read-only link. Clicking the board title (editors) edits it in place.
+- **Toasts:** a small queue of transient notices at the bottom centre ("Link
+  copied", "Page deleted"), each dismissed after 3 s.
+
 ### Comments
 
 - **Creating:** the comment tool (`M`) turns a click into a composer at the
@@ -570,7 +636,8 @@ snapshot row per room; update-log compaction is unnecessary at this scale.
 
 ### Server Time
 
-On connect the DO sends `{ type: 'hello', role, now }` through
+On connect the DO sends `{ type: 'hello', role, now, viewKey? }` (the view
+key is included for editors only) through
 `sendCustomMessage`; it answers a client's `{ type: 'time?' }` with
 `{ type: 'time', now }`. Custom messages go through the same per-connection
 rate limit and size checks as every other message; anything else is
@@ -581,9 +648,9 @@ reconnect (each reconnect gets a new `hello`).
 
 Local development uses `wrangler dev` (Miniflare) and requires no Cloudflare
 account. Production is deployed to `*.workers.dev`; `SECRET` is set with
-`wrangler secret put`. A Cloudflare account is only needed at phase F4.
+`wrangler secret put`. A Cloudflare account is only needed at phase F5 (Ship).
 
-## AI: Cluster & Summarize (F5)
+## AI: Cluster & Summarize (F6)
 
 ### User Flow
 
@@ -652,8 +719,9 @@ workflow.
 | F1 — MVP | One room, grid, rect/sticky/text, move, cursors, presence, DO persistence | 30 |
 | F2 — Editing | Ellipse, lines, connectors, selection + marquee, resize, undo/redo, frames with columns, code block | 50 |
 | F3 — Navigation & session | F3a: pan/zoom, zoom controls, coordinates, camera persistence, interactive minimap with peer viewports, remote selections and "typing…", frame adoption and F2b polish. F3b: server time, voting + timer, comments | 40 |
-| F4 — Ship | Offline, capability links, demo room + cron, E2E, deploy, bilingual README, mermaid, GIF | 40 |
-| F5 — AI | Clustering pipeline, proposal UI, evaluation | 15 |
+| F4 — Workspace | P1: pages (tabs, per-page content and presence, share dialog, editable title, toasts). P2: canvas UX (context menus, clipboard, properties bar, lock, help, polish). P3: spreadsheet page with basic formulas. P4: calendar page (month and week) | — |
+| F5 — Ship | Offline, capability links, demo room + cron, E2E, deploy, bilingual README, mermaid, GIF | 40 |
+| F6 — AI | Clustering pipeline, proposal UI, evaluation | 15 |
 | **Total** | | **~185** |
 
 Each phase ends in a deployable state. Implementation plans are written
