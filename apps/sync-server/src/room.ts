@@ -2,7 +2,8 @@ import { initMeta, isTimeRequest, type ServerMessage } from '@relay/core';
 import type { Connection, ConnectionContext, WSMessage } from 'partyserver';
 import { YServer } from 'y-partyserver';
 import * as Y from 'yjs';
-import { DEMO_ROOM, ROLE_HEADER, type Role } from './auth';
+import { DEMO_ROOM, deriveKey, ROLE_HEADER, type Role } from './auth';
+import type { Env } from './env';
 import { LIMITS, messageBytes, TokenBucket } from './limits';
 
 const roleOf = (connection: Connection): Role | undefined =>
@@ -53,6 +54,9 @@ function awarenessIdCount(connection: Connection): number {
 export class Room extends YServer {
   static options = { hibernate: true };
   static callbackOptions = { debounceWait: 2000, debounceMaxWait: 10_000, timeout: 5000 };
+
+  /** YServer types `env` as the empty `Cloudflare.Env`; narrow it to this worker's bindings. */
+  declare protected env: Env;
 
   /** Set when the persisted document exceeds LIMITS.maxDocBytes; the room becomes read-only. */
   #frozen = false;
@@ -127,7 +131,23 @@ export class Room extends YServer {
     connection.setState((prev: unknown) => ({ ...((prev as object | null) ?? {}), role }));
     super.onConnect(connection, ctx);
     // Tell the client its capability and the server clock (vote timers use server time).
-    this.sendCustomMessage(connection, encode({ type: 'hello', role, now: Date.now() }));
+    void this.#sendHello(connection, role);
+  }
+
+  /** Capability, server clock and — for editors only — the view key for sharing a read-only link. */
+  async #sendHello(connection: Connection, role: Role): Promise<void> {
+    let viewKey: string | undefined;
+    if (role === 'edit') {
+      try {
+        viewKey = await deriveKey(this.env.ROOM_SECRET, this.name, 'view');
+      } catch {
+        viewKey = undefined; // no secret configured: editors simply cannot share a view link
+      }
+    }
+    this.sendCustomMessage(
+      connection,
+      encode({ type: 'hello', role, now: Date.now(), ...(viewKey ? { viewKey } : {}) }),
+    );
   }
 
   onMessage(connection: Connection, message: WSMessage): void {

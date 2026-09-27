@@ -365,4 +365,16 @@ describe('sync server', () => {
     await waitForOpen(viewer);
     expect((await viewerHello).role).toBe('view');
   });
+
+  it('sends the view key to editors only', async () => {
+    const { roomId, editKey, viewKey } = await createRoom();
+    const editor = rawConnect(roomId, { key: editKey });
+    const editorHello = nextCustom(editor);
+    await waitForOpen(editor);
+    expect((await editorHello).viewKey).toBe(viewKey);
+    const viewer = rawConnect(roomId, { key: viewKey });
+    const viewerHello = nextCustom(viewer);
+    await waitForOpen(viewer);
+    expect((await viewerHello).viewKey).toBeUndefined();
+  });
 });
