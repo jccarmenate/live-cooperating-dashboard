@@ -1,4 +1,4 @@
-import { commentPoint } from '@relay/core';
+import { type CommentThread, commentPoint } from '@relay/core';
 import { useState } from 'react';
 import { useStore } from 'zustand';
 import type { BoardSession } from '../board/session';
@@ -13,7 +13,7 @@ export function CommentsPanel({ session }: { session: BoardSession }) {
   if (!open) return null;
   const threads = order
     .map((id) => comments[id])
-    .filter((t) => t !== undefined && t.resolved === (tab === 'resolved'));
+    .filter((t): t is CommentThread => t !== undefined && t.resolved === (tab === 'resolved'));
   const tabClass = (t: 'open' | 'resolved') =>
     `flex-1 py-1.5 font-mono text-[11px] font-bold uppercase ${tab === t ? 'bg-sun' : 'bg-white hover:bg-paper'}`;
 
@@ -41,12 +41,11 @@ export function CommentsPanel({ session }: { session: BoardSession }) {
           Resolved
         </button>
       </div>
-      <ul className="flex-1 overflow-y-auto">
+      <ul data-scroll-region className="flex-1 overflow-y-auto">
         {threads.length === 0 && (
           <li className="p-3 font-mono text-xs text-ink/60">Nothing here yet.</li>
         )}
         {threads.map((t) => {
-          if (!t) return null;
           const point = commentPoint(t.anchor, shapes);
           const first = t.entries[0];
           return (
@@ -64,7 +63,7 @@ export function CommentsPanel({ session }: { session: BoardSession }) {
                   {`${first?.author ?? ''} · ${t.entries.length} ${t.entries.length === 1 ? 'message' : 'messages'}`}
                   {point ? '' : ' · (shape deleted)'}
                 </p>
-                <p className="line-clamp-2 text-sm">{first?.body}</p>
+                <p className="line-clamp-2 break-words text-sm">{first?.body}</p>
               </button>
             </li>
           );

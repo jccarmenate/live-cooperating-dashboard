@@ -20,7 +20,7 @@ function Thread({ session, thread }: { session: BoardSession; thread: CommentThr
       data-testid="comment-thread"
       className="absolute top-8 left-0 z-20 w-72 border-2 border-ink bg-white shadow-hard"
     >
-      <ul className="max-h-64 overflow-y-auto">
+      <ul data-scroll-region className="max-h-64 overflow-y-auto">
         {thread.entries.map((e) => (
           <li key={e.id} data-testid="comment-entry" className="border-b border-ink/15 px-3 py-2">
             <p className="font-mono text-[10px] uppercase text-ink/60">{`${e.author} · ${ago(e.ts)}`}</p>
@@ -32,6 +32,7 @@ function Thread({ session, thread }: { session: BoardSession; thread: CommentThr
         <div className="flex items-end gap-2 p-2">
           <textarea
             data-testid="comment-reply"
+            data-scroll-region
             aria-label="Reply"
             rows={2}
             placeholder="Reply… (Enter to send)"

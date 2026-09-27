@@ -18,6 +18,7 @@ export function CommentComposer({ session }: { session: BoardSession }) {
         // biome-ignore lint/a11y/noAutofocus: the composer exists to be typed into right away
         autoFocus
         data-testid="comment-composer"
+        data-scroll-region
         aria-label="New comment"
         rows={3}
         placeholder="Add a comment… (Enter to post)"

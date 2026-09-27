@@ -99,6 +99,13 @@ export function Canvas({ session }: { session: BoardSession }) {
     // addEventListener overload; take the generic Event and narrow it by hand.
     const onWheel = (evt: Event) => {
       const e = evt as globalThis.WheelEvent;
+      // A plain wheel over a scrollable overlay (comment thread, panel, textareas) scrolls it natively.
+      if (
+        !e.ctrlKey &&
+        !e.metaKey &&
+        (evt.target as Element | null)?.closest?.('[data-scroll-region]')
+      )
+        return;
       e.preventDefault();
       const unit = e.deltaMode === 1 ? 16 : 1;
       if (e.ctrlKey || e.metaKey) {
