@@ -594,4 +594,61 @@ describe('frame membership (adoption)', () => {
     const create = commands(r.effects)[0];
     expect(create?.type === 'CreateShape' && create.shape.h).toBe(64);
   });
+
+  it('a newly drawn frame takes a shape away from a lower frame it overlaps', () => {
+    const c = ctx();
+    // Drawn exactly over f1 (x 0..600, y 0..400): s1 (parented to f1, centre 100,120,
+    // in c1) now falls inside the new frame's territory too.
+    let r = step(idle('frame', []), { type: 'pointerDown', p: at(0, 0) }, c);
+    r = step(r.state, { type: 'pointerMove', p: at(600, 400) }, c);
+    r = step(r.state, { type: 'pointerUp', p: at(600, 400) }, c);
+    // new1 is the frame; new2..new4 are its columns (x 0..200, 200..400, 400..600).
+    // The new frame gets the top z (created with z '￿'), so dropTarget picks it
+    // over f1 (z 'a0') for s1's centre (100, 120), which lands in column new2 (x 0..200).
+    const cmds = commands(r.effects);
+    expect(cmds.map((x) => x.type)).toEqual(['CreateShape', 'Reparent']);
+    expect(cmds[1]).toEqual({
+      type: 'Reparent',
+      moves: [{ id: 's1', parentId: 'new1', columnId: 'new2' }],
+    });
+    expect(r.effects.at(-1)).toEqual({ type: 'endGesture' });
+  });
+
+  it('a moving frame does not take the children of a stationary higher-z frame', () => {
+    const f2 = shape('f2', {
+      type: 'frame',
+      x: 900,
+      y: 0,
+      w: 600,
+      h: 400,
+      z: 'a2', // higher than f1's 'a0': f2 stays topmost wherever f1 moves.
+      style: DEFAULT_STYLE.frame,
+      columns: [{ id: 'd1', title: 'Notes' }],
+    });
+    const s2 = shape('s2', {
+      type: 'sticky',
+      x: 920,
+      y: 60,
+      w: 160,
+      h: 120,
+      parentId: 'f2',
+      columnId: 'd1',
+    }); // centre (1000, 120)
+    const c: ToolContext = {
+      shapes: { f1, f2, s2 },
+      userId: 'u1',
+      userName: 'Brisk Otter',
+      newId: () => 'unused',
+      now: () => 1000,
+    };
+    // Nudge f1 (no children here) from x 0..600 to x 900..1500: it now spatially
+    // covers s2's centre (1000, 120), which used to be covered only by f2.
+    const r = step(idle('select', ['f1']), { type: 'nudge', dx: 900, dy: 0 }, c);
+    expect(commands(r.effects)).toEqual([
+      { type: 'MoveShapes', moves: [{ id: 'f1', x: 900, y: 0 }] },
+    ]);
+    // dropTarget sorts by z descending, so f2 (z 'a2') is checked before f1 (z 'a0') and
+    // still wins for (1000, 120) — target is unchanged (f2, d1), so no Reparent is emitted.
+    expect(r.effects.at(-1)).toEqual({ type: 'endGesture' });
+  });
 });

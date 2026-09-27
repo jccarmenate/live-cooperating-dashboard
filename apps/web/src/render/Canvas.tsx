@@ -92,7 +92,13 @@ export function Canvas({ session }: { session: BoardSession }) {
   useEffect(() => {
     const el = svgRef.current;
     if (!el) return;
-    const onWheel = (e: globalThis.WheelEvent) => {
+    // The listener sits on the container, not just the <svg>, so ctrl+wheel over an
+    // overlay (minimap, zoom controls, toolbar) still zooms the board instead of the page.
+    const target = el.parentElement ?? el;
+    // `target`'s type is a union of two Elements, so TS can't resolve the 'wheel'-specific
+    // addEventListener overload; take the generic Event and narrow it by hand.
+    const onWheel = (evt: Event) => {
+      const e = evt as globalThis.WheelEvent;
       e.preventDefault();
       const unit = e.deltaMode === 1 ? 16 : 1;
       if (e.ctrlKey || e.metaKey) {
@@ -106,8 +112,8 @@ export function Canvas({ session }: { session: BoardSession }) {
         controller.setCamera(panBy(cam, -e.deltaX * unit, -e.deltaY * unit));
       }
     };
-    el.addEventListener('wheel', onWheel, { passive: false });
-    return () => el.removeEventListener('wheel', onWheel);
+    target.addEventListener('wheel', onWheel, { passive: false });
+    return () => target.removeEventListener('wheel', onWheel);
   }, [controller]);
 
   const endPan = (e: PointerEvent<SVGSVGElement>): boolean => {
@@ -212,7 +218,12 @@ export function Canvas({ session }: { session: BoardSession }) {
         publisher.setCursor(null);
         controller.setPointer(null);
       }}
-      onDoubleClick={(e) => controller.dispatch({ type: 'doubleClick', p: info(e) })}
+      onDoubleClick={(e) => {
+        // A pan never dispatches tool events: with Space held, Space's auto-repeat
+        // would otherwise type spaces into the editor this just opened.
+        if (controller.ui.getState().spaceHeld) return;
+        controller.dispatch({ type: 'doubleClick', p: info(e) });
+      }}
     >
       <defs>
         <pattern

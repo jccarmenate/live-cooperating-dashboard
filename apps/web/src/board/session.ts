@@ -60,12 +60,6 @@ export function createBoardSession(roomId: string, key: string | null): BoardSes
     cameraStorage: cameraStorage(roomId),
   });
 
-  const onSync = (isSynced: boolean) => {
-    if (isSynced) controller.markSynced();
-  };
-  conn.provider.on('sync', onSync);
-  if (conn.provider.synced) controller.markSynced();
-
   const unsubscribe = controller.ui.subscribe((state, prev) => {
     if (state.tool.selection !== prev.tool.selection) publisher.setSelection(state.tool.selection);
     if (state.editingId !== prev.editingId) publisher.setEditing(state.editingId);
@@ -75,6 +69,12 @@ export function createBoardSession(roomId: string, key: string | null): BoardSes
       );
     }
   });
+
+  const onSync = (isSynced: boolean) => {
+    if (isSynced) controller.markSynced();
+  };
+  conn.provider.on('sync', onSync);
+  if (conn.provider.synced) controller.markSynced();
 
   return {
     roomId,

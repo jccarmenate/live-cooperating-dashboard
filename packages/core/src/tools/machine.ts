@@ -575,7 +575,7 @@ function stepDrawing(state: DrawingState, event: ToolEvent, ctx: ToolContext): S
       // A new frame adopts what it covers; it has the top z, so it wins over any frame below.
       const adopted =
         state.tool === 'frame'
-          ? membershipMoves({ [shape.id]: rect }, ctx, { ...shape, z: '￿' })
+          ? membershipMoves({ [shape.id]: rect }, ctx, { ...shape, z: '\uffff' })
           : [];
       return {
         state: idle('select', [shape.id]),

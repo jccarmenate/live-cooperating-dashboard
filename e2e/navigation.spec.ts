@@ -141,3 +141,23 @@ test('a frame drawn over a sticky adopts it; Enter commits the frame title', asy
   await expect(page.getByTestId('text-editor')).toHaveCount(0);
   await expect(page.getByText('Retro', { exact: true })).toBeVisible();
 });
+
+test('a space-held double-click pans and never opens the text editor', async ({
+  page,
+  request,
+}) => {
+  await newBoard(page, request);
+  await page.keyboard.press('s');
+  await page.mouse.click(400, 300);
+  await page.keyboard.type('Keep me');
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('text-editor')).toHaveCount(0);
+
+  await page.keyboard.down('Space');
+  await page.mouse.dblclick(400, 300);
+  await page.keyboard.up('Space');
+
+  // Space's auto-repeat would otherwise type spaces into an editor a stray doubleClick opened.
+  await expect(page.getByTestId('text-editor')).toHaveCount(0);
+  await expect(page.getByText('Keep me', { exact: true })).toBeVisible();
+});

@@ -117,6 +117,7 @@ describe('presence parsing', () => {
       { ...vp, h: -5 },
       { ...vp, w: 2e6 },
       { ...vp, x: Number.POSITIVE_INFINITY },
+      { ...vp, x: 2e9 },
       { x: 0, y: 0 },
       'big',
     ]) {

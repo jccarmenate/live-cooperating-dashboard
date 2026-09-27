@@ -24,17 +24,21 @@ const isPoint = (v: unknown): v is Point =>
 
 /** Peers' viewports are untrusted: finite, positive and at most this many world units per side. */
 export const MAX_VIEWPORT_SIDE = 1e6;
+/** Peers' viewports are untrusted: the origin is bounded to this many world units per axis. */
+export const MAX_VIEWPORT_COORD = 1e9;
 
 const isViewport = (v: unknown): v is Rect => {
   if (!isPoint(v)) return false;
-  const { w, h } = v as Rect;
+  const { x, y, w, h } = v as Rect;
   return (
     Number.isFinite(w) &&
     Number.isFinite(h) &&
     w > 0 &&
     h > 0 &&
     w <= MAX_VIEWPORT_SIDE &&
-    h <= MAX_VIEWPORT_SIDE
+    h <= MAX_VIEWPORT_SIDE &&
+    Math.abs(x) <= MAX_VIEWPORT_COORD &&
+    Math.abs(y) <= MAX_VIEWPORT_COORD
   );
 };
 

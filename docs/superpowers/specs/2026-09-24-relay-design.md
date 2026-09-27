@@ -391,7 +391,8 @@ Double-click (or typing on a new sticky) mounts a `<textarea>` overlay
 positioned over the shape. Local input is diffed against the current string
 and applied to `Y.Text` as insert/delete; remote changes are applied to the
 textarea while preserving the caret by mapping it through the single-span diff (equivalent to `Y.RelativePosition` for textarea edits). The editor
-publishes `editing` in awareness so peers see an "editing" outline.
+publishes `editing` in awareness so peers see a dashed outline and a
+`Name · typing…` tag (see Remote presence, under Navigation).
 
 ### Input
 
@@ -425,9 +426,12 @@ separate pan gesture, so the FSM stays about document edits.
   off the canvas.
 - **Camera persistence:** the camera is saved per room in `localStorage`
   on every camera change (reads and writes wrapped in try/catch; a failure
-  just means no restore); the initial content fit is not saved.
-  With no saved camera the board opens fitted to its content (`fitBounds`,
-  48 px padding, zoom clamped to ≤ 100%); an empty board opens at the origin.
+  just means no restore); the initial content fit is not saved. The fit
+  happens once, after the first sync, and only if no camera was restored
+  and the user has neither moved the camera nor started a gesture on the
+  canvas. With no saved camera the board opens fitted to its content
+  (`fitBounds`, 48 px padding, zoom clamped to ≤ 100%); an empty board
+  opens at the origin.
 - **Minimap:** bottom-right, 200 × 140 px. It projects the union of all
   shape bounds and the current viewport (padded) into the box, draws shapes
   as simplified rectangles (frames outlined, other shapes filled grey), the

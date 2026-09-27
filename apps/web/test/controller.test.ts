@@ -478,6 +478,16 @@ describe('camera', () => {
     expect(moved.controller.ui.getState().camera).toEqual({ x: 7, y: 7, zoom: 1 });
   });
 
+  it('a pointerDown before the first sync cancels the pending fit', () => {
+    const { doc, controller } = setup();
+    addRect(doc, 'r1', 1000, 1000);
+    controller.setViewportSize(800, 600);
+    controller.dispatch({ type: 'pointerDown', p: at(10, 10) });
+    controller.dispatch({ type: 'pointerUp', p: at(10, 10) });
+    controller.markSynced();
+    expect(controller.ui.getState().camera).toEqual({ x: 0, y: 0, zoom: 1 });
+  });
+
   it('tracks the pointer and whether Space is held', () => {
     const { controller } = setup();
     controller.setPointer({ x: 1, y: 2 });

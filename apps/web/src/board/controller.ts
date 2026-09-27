@@ -180,6 +180,9 @@ export function createBoardController(opts: {
   return {
     ui,
     dispatch(event) {
+      // A user who draws before the first sync arrives has already started a gesture on
+      // the canvas: the initial fit must not yank the camera out from under them later.
+      if (event.type === 'pointerDown') fitPending = false;
       const { state, effects } = step(ui.getState().tool, event, {
         shapes: opts.docStore.getState().shapes,
         connectors: opts.docStore.getState().connectors,
