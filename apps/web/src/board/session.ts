@@ -1,6 +1,7 @@
 import { type Identity, loadIdentity, type Peer, parseCamera, viewportRect } from '@relay/core';
 import type { StoreApi } from 'zustand/vanilla';
 import { SYNC_HOST } from '../config';
+import { type ActivityState, createActivityStore } from '../store/activityStore';
 import { createDocStore, type DocState } from '../store/docStore';
 import { createPresenceStore } from '../store/presenceStore';
 import { connectRoom, type RoomConnection } from '../sync/connection';
@@ -12,6 +13,7 @@ export interface BoardSession {
   user: Identity;
   conn: RoomConnection;
   doc: StoreApi<DocState>;
+  activity: StoreApi<ActivityState>;
   presence: StoreApi<{ peers: Peer[] }>;
   publisher: PresencePublisher;
   controller: BoardController;
@@ -53,10 +55,13 @@ export function createBoardSession(roomId: string, key: string | null): BoardSes
   const docStore = createDocStore(conn.doc);
   const presence = createPresenceStore(conn.provider.awareness);
   const publisher = createPresencePublisher(conn.provider.awareness, user);
+  const activity = createActivityStore(conn.doc);
   const controller = createBoardController({
     doc: conn.doc,
     docStore: docStore.store,
+    activity: activity.store,
     user,
+    serverNow: conn.serverNow,
     cameraStorage: cameraStorage(roomId),
   });
 
@@ -81,6 +86,7 @@ export function createBoardSession(roomId: string, key: string | null): BoardSes
     user,
     conn,
     doc: docStore.store,
+    activity: activity.store,
     presence: presence.store,
     publisher,
     controller,
@@ -90,6 +96,7 @@ export function createBoardSession(roomId: string, key: string | null): BoardSes
       controller.destroy();
       publisher.destroy();
       presence.destroy();
+      activity.destroy();
       docStore.destroy();
       conn.destroy();
     },

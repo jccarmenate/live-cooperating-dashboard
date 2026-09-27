@@ -24,6 +24,14 @@ describe('keyboard shortcuts', () => {
     });
   });
 
+  it('M selects the comment tool', () => {
+    expect(keyDownAction(k('m'), false)).toEqual({
+      type: 'dispatch',
+      event: { type: 'setTool', tool: 'comment' },
+      preventDefault: false,
+    });
+  });
+
   it('E toggles connector routing', () => {
     expect(keyDownAction(k('e'), false)).toEqual({
       type: 'dispatch',

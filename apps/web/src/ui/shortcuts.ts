@@ -25,6 +25,7 @@ const TOOL_KEYS: Record<string, ToolId> = {
   c: 'code',
   a: 'connector',
   f: 'frame',
+  m: 'comment',
 };
 
 const NUDGE: Record<string, [number, number]> = {

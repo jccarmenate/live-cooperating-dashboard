@@ -2,6 +2,7 @@ import {
   applyCommand,
   type Camera,
   type Command,
+  type CommentAnchor,
   centerOn as centredOn,
   contentBounds,
   createUndo,
@@ -9,19 +10,25 @@ import {
   fitBounds,
   type Identity,
   initialToolState,
+  isVoteOpen,
   LOCAL_ORIGIN,
   type Point,
   type Preview,
   type Rect,
+  SESSION_ORIGIN,
   step,
   type TextDiff,
   type ToolEvent,
   type ToolState,
   throttle,
+  VOTES_PER_USER,
+  voteKey,
+  voteTallies,
   zoomAt,
 } from '@relay/core';
 import type * as Y from 'yjs';
 import { createStore, type StoreApi } from 'zustand/vanilla';
+import type { ActivityState } from '../store/activityStore';
 import type { DocState } from '../store/docStore';
 
 /** Where the camera is remembered between visits (per room); failures just mean no restore. */
@@ -44,6 +51,11 @@ export interface BoardUiState {
   pointer: Point | null;
   /** Space is held: a left-drag pans instead of using the tool. */
   spaceHeld: boolean;
+  /** Open comment composer (comment tool click). */
+  composer: { anchor: CommentAnchor; at: Point } | null;
+  /** Thread whose popover is open. */
+  openThread: string | null;
+  commentsPanel: boolean;
 }
 
 export interface BoardController {
@@ -67,6 +79,17 @@ export interface BoardController {
   stopEditingColumn(): void;
   undo(): void;
   redo(): void;
+  startVote(minutes: number): void;
+  endVote(): void;
+  /** Casts or retracts the local user's vote on a sticky while a vote is open (cap enforced). */
+  toggleVote(shapeId: string): void;
+  /** Posts the composer's comment (trimmed; empty cancels). */
+  addComment(body: string): void;
+  cancelComposer(): void;
+  replyComment(threadId: string, body: string): void;
+  resolveComment(threadId: string, resolved: boolean): void;
+  openThread(id: string | null): void;
+  toggleCommentsPanel(): void;
   destroy(): void;
 }
 
@@ -76,13 +99,16 @@ const UNDO_CAPTURE_TIMEOUT = 60_000;
 export function createBoardController(opts: {
   doc: Y.Doc;
   docStore: StoreApi<DocState>;
+  activity: StoreApi<ActivityState>;
   user: Identity;
   newId?: () => string;
   now?: () => number;
+  serverNow?: () => number;
   cameraStorage?: CameraStorage;
 }): BoardController {
   const newId = opts.newId ?? (() => crypto.randomUUID());
   const now = opts.now ?? Date.now;
+  const serverNow = opts.serverNow ?? Date.now;
   const stored = opts.cameraStorage?.load() ?? null;
   const ui = createStore<BoardUiState>(() => ({
     tool: initialToolState(),
@@ -94,11 +120,15 @@ export function createBoardController(opts: {
     viewport: null,
     pointer: null,
     spaceHeld: false,
+    composer: null,
+    openThread: null,
+    commentsPanel: false,
   }));
   const undoStack = createUndo(opts.doc, { captureTimeout: UNDO_CAPTURE_TIMEOUT });
 
   const commit = (command: Command) => applyCommand(opts.doc, command, LOCAL_ORIGIN);
   const throttledCommit = throttle(commit, 50);
+  const commitSession = (command: Command) => applyCommand(opts.doc, command, SESSION_ORIGIN);
 
   const run = (effects: Effect[]) => {
     for (const effect of effects) {
@@ -125,6 +155,9 @@ export function createBoardController(opts: {
           break;
         case 'endGesture':
           undoStack.stopCapturing();
+          break;
+        case 'compose':
+          ui.setState({ composer: { anchor: effect.anchor, at: effect.at } });
           break;
       }
     }
@@ -183,6 +216,8 @@ export function createBoardController(opts: {
       // A user who draws before the first sync arrives has already started a gesture on
       // the canvas: the initial fit must not yank the camera out from under them later.
       if (event.type === 'pointerDown') fitPending = false;
+      // A canvas press closes any open thread popover or composer (the comment tool reopens one).
+      if (event.type === 'pointerDown') ui.setState({ openThread: null, composer: null });
       const { state, effects } = step(ui.getState().tool, event, {
         shapes: opts.docStore.getState().shapes,
         connectors: opts.docStore.getState().connectors,
@@ -237,6 +272,79 @@ export function createBoardController(opts: {
     },
     undo: () => travel('undo'),
     redo: () => travel('redo'),
+    startVote(minutes) {
+      commitSession({
+        type: 'StartVote',
+        endsAt: serverNow() + minutes * 60_000,
+        maxPerUser: VOTES_PER_USER,
+        startedBy: opts.user.id,
+      });
+    },
+    endVote() {
+      commitSession({ type: 'EndVote' });
+    },
+    toggleVote(shapeId) {
+      const { vote, voteKeys } = opts.activity.getState();
+      if (!vote || !isVoteOpen(vote, serverNow())) return;
+      const shapes = opts.docStore.getState().shapes;
+      if (shapes[shapeId]?.type !== 'sticky') return;
+      if (voteKeys.includes(voteKey(shapeId, opts.user.id))) {
+        commitSession({ type: 'RetractVote', shapeId, userId: opts.user.id });
+        return;
+      }
+      const mine = voteTallies(voteKeys, shapes, vote.maxPerUser).byUser[opts.user.id]?.length ?? 0;
+      if (mine >= vote.maxPerUser) return;
+      commitSession({ type: 'CastVote', shapeId, userId: opts.user.id });
+    },
+    addComment(body) {
+      const composer = ui.getState().composer;
+      const text = body.trim();
+      ui.setState({ composer: null });
+      if (!composer || !text) return;
+      const id = newId();
+      commitSession({
+        type: 'AddComment',
+        id,
+        anchor: composer.anchor,
+        createdBy: opts.user.id,
+        createdAt: now(),
+        entry: {
+          id: newId(),
+          authorId: opts.user.id,
+          author: opts.user.name,
+          body: text,
+          ts: now(),
+        },
+      });
+      ui.setState({ openThread: id });
+    },
+    cancelComposer() {
+      ui.setState({ composer: null });
+    },
+    replyComment(threadId, body) {
+      const text = body.trim();
+      if (!text) return;
+      commitSession({
+        type: 'ReplyComment',
+        commentId: threadId,
+        entry: {
+          id: newId(),
+          authorId: opts.user.id,
+          author: opts.user.name,
+          body: text,
+          ts: now(),
+        },
+      });
+    },
+    resolveComment(threadId, resolved) {
+      commitSession({ type: 'ResolveComment', id: threadId, resolved });
+    },
+    openThread(id) {
+      ui.setState({ openThread: id });
+    },
+    toggleCommentsPanel() {
+      ui.setState({ commentsPanel: !ui.getState().commentsPanel });
+    },
     destroy() {
       throttledCommit.cancel();
       unsubscribe();

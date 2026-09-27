@@ -9,6 +9,7 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as Y from 'yjs';
 import { type CameraStorage, createBoardController } from '../src/board/controller';
+import { createActivityStore } from '../src/store/activityStore';
 import { createDocStore } from '../src/store/docStore';
 
 // Wraps the real createUndo so tests can spy on the Undo instance a controller
@@ -25,19 +26,22 @@ const at = (x: number, y: number, hitId: string | null = null): PointerInfo => (
   hitId,
 });
 
-function setup(opts: { cameraStorage?: CameraStorage } = {}) {
+function setup(opts: { cameraStorage?: CameraStorage; serverNow?: () => number } = {}) {
   const doc = new Y.Doc();
   const docs = createDocStore(doc);
+  const activity = createActivityStore(doc);
   let n = 0;
   const controller = createBoardController({
     doc,
     docStore: docs.store,
+    activity: activity.store,
     user,
     newId: () => `s${++n}`,
     now: () => 1000,
+    serverNow: () => 1_000_000,
     ...opts,
   });
-  return { doc, docs, controller };
+  return { doc, docs, activity, controller };
 }
 
 describe('board controller', () => {
@@ -398,6 +402,25 @@ function addRect(doc: Y.Doc, id: string, x: number, y: number) {
   });
 }
 
+function addSticky(doc: Y.Doc, id: string, x = 0) {
+  applyCommand(doc, {
+    type: 'CreateShape',
+    shape: {
+      id,
+      type: 'sticky',
+      x,
+      y: 0,
+      w: 160,
+      h: 120,
+      style: DEFAULT_STYLE.sticky,
+      text: '',
+      createdBy: 'u1',
+      authorName: 'Brisk Otter',
+      createdAt: 0,
+    },
+  });
+}
+
 describe('camera', () => {
   it('zooms around the viewport centre or an anchor, and resets to 100%', () => {
     const { controller } = setup();
@@ -496,5 +519,96 @@ describe('camera', () => {
     expect(controller.ui.getState().spaceHeld).toBe(true);
     controller.setPointer(null);
     expect(controller.ui.getState().pointer).toBeNull();
+  });
+});
+
+describe('voting', () => {
+  it('starts a vote on server time, toggles votes, caps at three and ends it', () => {
+    const { doc, controller, activity } = setup();
+    for (const id of ['a', 'b', 'c', 'd']) addSticky(doc, id);
+    controller.startVote(3);
+    expect(activity.store.getState().vote).toEqual({
+      open: true,
+      endsAt: 1_000_000 + 180_000,
+      maxPerUser: 3,
+      startedBy: 'u1',
+    });
+    for (const id of ['a', 'b', 'c', 'd']) controller.toggleVote(id);
+    expect(activity.store.getState().voteKeys).toEqual(['a:u1', 'b:u1', 'c:u1']);
+    controller.toggleVote('a');
+    expect(activity.store.getState().voteKeys).toEqual(['b:u1', 'c:u1']);
+    controller.endVote();
+    expect(activity.store.getState().vote?.open).toBe(false);
+    controller.toggleVote('d');
+    expect(activity.store.getState().voteKeys).toEqual(['b:u1', 'c:u1']);
+  });
+
+  it('refuses votes on non-stickies and outside an open vote, and never enters undo', () => {
+    const { doc, controller, activity } = setup();
+    addSticky(doc, 'a');
+    addRect(doc, 'r', 500, 0);
+    controller.toggleVote('a');
+    expect(activity.store.getState().voteKeys).toEqual([]);
+    controller.startVote(1);
+    controller.toggleVote('r');
+    controller.toggleVote('a');
+    expect(activity.store.getState().voteKeys).toEqual(['a:u1']);
+    controller.undo();
+    expect(activity.store.getState().voteKeys).toEqual(['a:u1']);
+  });
+});
+
+describe('comments', () => {
+  it('the comment tool opens a composer; posting creates a thread and opens it', () => {
+    const { controller, activity } = setup();
+    controller.dispatch({ type: 'setTool', tool: 'comment' });
+    controller.dispatch({ type: 'pointerDown', p: at(40, 50) });
+    expect(controller.ui.getState().composer).toEqual({
+      anchor: { x: 40, y: 50 },
+      at: { x: 40, y: 50 },
+    });
+    controller.addComment('  Looks good  ');
+    const [id] = activity.store.getState().commentOrder;
+    expect(activity.store.getState().comments[id as string]?.entries[0]).toMatchObject({
+      authorId: 'u1',
+      author: 'Brisk Otter',
+      body: 'Looks good',
+    });
+    expect(controller.ui.getState().composer).toBeNull();
+    expect(controller.ui.getState().openThread).toBe(id);
+  });
+
+  it('an empty body cancels; replies and resolve work; canvas clicks close popovers', () => {
+    const { controller, activity } = setup();
+    controller.dispatch({ type: 'setTool', tool: 'comment' });
+    controller.dispatch({ type: 'pointerDown', p: at(0, 0) });
+    controller.addComment('   ');
+    expect(activity.store.getState().commentOrder).toEqual([]);
+    expect(controller.ui.getState().composer).toBeNull();
+
+    controller.dispatch({ type: 'pointerDown', p: at(0, 0) });
+    controller.addComment('first');
+    const [id] = activity.store.getState().commentOrder as [string];
+    controller.replyComment(id, 'second');
+    controller.replyComment(id, '  ');
+    expect(activity.store.getState().comments[id]?.entries.map((e) => e.body)).toEqual([
+      'first',
+      'second',
+    ]);
+    controller.resolveComment(id, true);
+    expect(activity.store.getState().comments[id]?.resolved).toBe(true);
+
+    controller.dispatch({ type: 'setTool', tool: 'select' });
+    controller.dispatch({ type: 'pointerDown', p: at(900, 900) });
+    controller.dispatch({ type: 'pointerUp', p: at(900, 900) });
+    expect(controller.ui.getState().openThread).toBeNull();
+  });
+
+  it('toggles the comments panel', () => {
+    const { controller } = setup();
+    controller.toggleCommentsPanel();
+    expect(controller.ui.getState().commentsPanel).toBe(true);
+    controller.toggleCommentsPanel();
+    expect(controller.ui.getState().commentsPanel).toBe(false);
   });
 });
