@@ -15,21 +15,29 @@ entre todos los miembros de una sala. Sin registro: abres el enlace y ya estás 
 ![Dos usuarios anónimos editando el mismo tablero a la vez](docs/demo.gif)
 
 *Dos navegadores independientes, dos usuarios anónimos, un solo tablero. Cada fotograma del
-GIF sale de la aplicación real, manejada por [`scripts/capture.mjs`](scripts/capture.mjs).*
+GIF sale de la aplicación real, controlada por [`scripts/capture.mjs`](scripts/capture.mjs). La
+grabación es del primer hito; más abajo están las funciones posteriores.*
 
 ## Qué hace
 
-- **Colaboración en tiempo real.** Todas las formas (rectángulos, elipses, líneas, texto, notas
-  adhesivas y bloques de código) se sincronizan en vivo. Las ediciones se fusionan carácter a
-  carácter, así que dos personas pueden escribir a la vez en la misma nota.
-- **Presencia.** Cursores remotos con nombre y color, selecciones remotas, avatares y el
-  contador `N online`.
-- **Edición.** Herramientas de selección, rectángulo, elipse, línea, texto, nota adhesiva y bloque de código, con atajos de teclado (`V R O L T S C`). Arrastrar para mover y redimensionar desde 8 asas (Shift mantiene las proporciones); selección por marquesina; las flechas mueven un poco la selección; `Ctrl+Z` / `Ctrl+Shift+Z` deshace y rehace solo tus propios cambios; doble clic para editar el texto.
-- **Persistencia.** Cada sala vive en su propio Durable Object de Cloudflare, respaldado por
-  SQLite. El navegador guarda además una copia local en IndexedDB para cargar al instante.
-- **Enlaces con capacidades.** Sin cuentas. El enlace de una sala lleva una clave HMAC que da
-  permiso de edición o solo de lectura. Lo aplica el servidor: los lectores pueden ver y
-  mostrar su cursor, pero no escribir.
+- **Colaboración en tiempo real.** Todo se sincroniza en vivo: formas, conectores, frames, texto, votos, comentarios y páginas. El texto se fusiona carácter a carácter, así que dos personas pueden escribir a la vez en la misma nota.
+- **Herramientas del tablero:**
+  - Formas: rectángulos, elipses, líneas, texto, notas adhesivas y bloques de código.
+  - **Conectores** anclados a las formas que unen, rectos o en codo.
+  - **Frames con columnas** para retrospectivas. Adoptan las formas que caen dentro y las cuentan por columna.
+  - Redimensionado desde 8 asas, selección por marquesina, desplazamiento con las flechas y doble clic para editar el texto.
+- **Menús contextuales y portapapeles.** El clic derecho sobre cualquier elemento ofrece:
+  - cortar, copiar, pegar y duplicar;
+  - traer al frente y enviar atrás;
+  - colores de relleno, bloquear y comentar.
+
+  Copiar y pegar usan el portapapeles del sistema, así que se pueden llevar formas de un tablero a otro, y el texto de otras apps se pega como nota. Una barra de propiedades flotante cambia relleno, borde, fuente y tamaño de texto. Nadie puede mover, redimensionar, borrar ni editar una forma bloqueada.
+- **Navegación.** Zoom centrado en el cursor (10–400 %), desplazamiento con Espacio+arrastrar o con la rueda, y ajuste de zoom al contenido. El minimapa es interactivo y muestra dónde mira cada persona. Cada página recuerda su propia cámara.
+- **Sesión.** Hay un temporizador de votación por puntos que corre con la hora del servidor, con límite de votos por persona y recuentos en vivo. Los comentarios se anclan a formas o a puntos del lienzo, con respuestas y opción de resolverlos.
+- **Páginas.** Una sala contiene varias páginas en pestañas que se pueden renombrar, reordenar y borrar. Cada página tiene su propio contenido, cámara y presencia.
+- **Presencia.** Cursores y selecciones remotos con nombre y color, una etiqueta "typing…" sobre la forma que otro está editando, y puntos en cada pestaña con quién está en esa página.
+- **Compartir.** Sin cuentas. El enlace de una sala lleva una clave HMAC que da permiso de edición o solo de lectura, y el servidor lo hace cumplir. El diálogo Share muestra los dos enlaces.
+- **Ayuda.** `?` muestra todos los atajos, y una página vacía muestra una pista para empezar.
 
 ## Decisiones de ingeniería
 
@@ -37,37 +45,46 @@ La idea central es que **el documento es un CRDT y todo lo demás es una funció
 
 | Área | Decisión | Por qué importa |
 |---|---|---|
-| Modelo de datos | Las formas son un `Y.Map` de `Y.Map`. El orden en z usa índices fraccionales. El texto es `Y.Text`. | Las ediciones simultáneas sobre formas distintas nunca chocan y no hay un array de orden compartido por el que pelear. |
-| Mutaciones | Cada cambio es un comando tipado que `applyCommand` aplica dentro de una transacción Yjs con origen local. | Un único camino de escritura. Se puede testear sin React y queda listo para el undo por usuario. |
-| Lectura | "Normalizar al leer": conectores huérfanos, padres que no existen y empates de z se resuelven al leer. | Las réplicas pueden pasar por estados raros transitorios sin que nadie tenga que repararlos. |
-| Estado de UI | Una máquina de estados pura para las herramientas, `(estado, evento) → (estado, efectos)`, vive en el paquete core. | Los gestos se prueban con tablas de transiciones. React solo dibuja snapshots y reenvía eventos del puntero. |
+| Modelo de datos | Formas, conectores, comentarios y páginas son `Y.Map` indexados por id. El orden en z usa índices fraccionales. El texto es `Y.Text`. | Las ediciones simultáneas sobre elementos distintos nunca chocan, y no hay un array de orden compartido por el que pelear. |
+| Mutaciones | Cada cambio es un comando tipado que `applyCommand` aplica dentro de una transacción Yjs con un origen: `LOCAL`, o `SESSION` para votos, comentarios y páginas, que el deshacer no sigue. | Un único camino de escritura. Se puede probar sin React y define exactamente qué puede deshacerse. |
+| Lectura | Los conectores huérfanos, los padres inexistentes, las páginas borradas y los empates de z se resuelven al leer el documento ("normalizar al leer"). | Las réplicas pueden pasar por estados raros transitorios sin que nadie tenga que repararlos. |
+| Borrados definitivos | Una página borrada queda registrada en un mapa plano de lápidas de una sola escritura, nunca como un indicador en el mapa de la página. | Un renombrado o un movimiento simultáneo nunca resucita una página borrada. |
+| Estado de UI | Una máquina de estados pura para las herramientas, `(estado, evento) → (estado, efectos)`, vive en el paquete core. El bloqueo se aplica allí y también en los comandos. | Los gestos se prueban con tablas de transiciones. React solo pinta snapshots y reenvía los eventos del puntero. |
 | Render | Renderer SVG propio. Solo se reconstruyen las formas que tocó cada transacción, y el resto conserva su identidad de objeto. | Cada forma solo vuelve a pintarse cuando cambia de verdad. |
-| Convergencia | Un test basado en propiedades (fast-check) ejecuta tres réplicas con comandos concurrentes y orden de entrega aleatorios, y comprueba que el estado final es idéntico. En CI corren 10.000 casos cada noche. | La convergencia se prueba, no se da por hecha. |
-| Seguridad | Las claves son capacidades HMAC-SHA-256 comparadas en tiempo constante. Las claves inválidas se rechazan en el Worker antes de despertar ningún Durable Object. El rol viaja en un header que el servidor sobrescribe, así que el cliente no puede falsificarlo. Hay límites de tamaño por mensaje y un token bucket por conexión. | Todo cabe en el plan gratuito, y un cliente hostil no puede escribir sin clave. |
-| Edición de texto | Un `<textarea>` superpuesto cuyos cambios se aplican como diff sobre `Y.Text`. El diff nunca parte pares surrogate UTF-16 y el caret se recoloca cuando llegan ediciones remotas. | Los emoji y la escritura simultánea no se corrompen. |
-| Preview local | Los arrastres y redimensionados se dibujan desde un overlay local en cada fotograma, mientras los commits al CRDT se limitan a 50 ms | Gestos fluidos a 60 fps sin inundar a los demás ni el cupo de peticiones del plan gratuito |
-| Deshacer | Un `Y.UndoManager` por usuario que solo sigue los orígenes de este cliente; un paso por gesto o por sesión de edición de texto; se prueba con fuzzing en el test de convergencia | Deshacer nunca revierte el trabajo de otra persona, y las réplicas siguen convergiendo |
+| Convergencia | Tests basados en propiedades (fast-check) ejecutan tres réplicas con comandos concurrentes aleatorios (formas, votos, comentarios, páginas, orden en z, estilo y bloqueo) y un orden de entrega aleatorio, y comprueban que el estado final es idéntico. En CI corren 10.000 casos cada noche. | La convergencia se prueba, no se da por hecha. |
+| Tiempo | Los plazos de votación son marcas de tiempo absolutas del servidor. El cliente aplica el desfase de reloj que obtiene de los mensajes `hello`/`time`, y el estado "abierto" se deriva en lugar de guardarse. | Ningún reloj de cliente puede alargar una votación, y nadie tiene que escribir nada cuando termina el temporizador. |
+| Deshacer | Un `Y.UndoManager` por usuario sigue solo los orígenes de este cliente. Cada gesto, pegado o sesión de edición de texto es un paso, y cambiar de página vacía la pila. | Deshacer nunca revierte el trabajo de otra persona ni cambia una página que no estás viendo. |
+| Seguridad | Las claves son capacidades HMAC-SHA-256 comparadas en tiempo constante y verificadas antes de despertar ningún Durable Object. El servidor sobrescribe el header de rol y los mensajes tienen límites de tamaño. Cada conexión tiene un token bucket, y se rechaza un pegado de más de 192 KiB. | Todo cabe en el plan gratuito, y un cliente hostil no puede escribir sin clave. |
+| Edición de texto | Un `<textarea>` superpuesto aplica sus cambios como diff sobre `Y.Text`. El diff nunca parte pares surrogate UTF-16, y el caret se recoloca cuando llegan ediciones remotas. | Los emoji y la escritura simultánea no se corrompen. |
+| Vista previa local | Los arrastres y redimensionados se pintan en cada fotograma desde un overlay local, y los commits al CRDT se limitan a uno cada 50 ms. | Gestos fluidos a 60 fps sin saturar a los demás ni el cupo de peticiones del plan gratuito. |
 
-El razonamiento completo está en la [spec de diseño](docs/superpowers/specs/2026-09-24-relay-design.md), junto con las
-alternativas descartadas (tldraw, Canvas 2D, y-websocket en un host Node). La construcción siguió planes de
-implementación escritos para [F0/F1](docs/superpowers/plans/2026-09-24-relay-f0-f1-foundation-mvp.md)
-y [F2a](docs/superpowers/plans/2026-09-26-relay-f2a-editing.md), con
-revisión de spec y de calidad de código después de cada tarea.
+El razonamiento completo, junto con las alternativas descartadas (tldraw, Canvas 2D,
+y-websocket en un host Node), está en la [spec de diseño](docs/superpowers/specs/2026-09-24-relay-design.md).
+Cada fase siguió un plan de implementación escrito, con revisión de spec y de calidad de
+código después de cada tarea:
+[F0/F1](docs/superpowers/plans/2026-09-24-relay-f0-f1-foundation-mvp.md) ·
+[F2a](docs/superpowers/plans/2026-09-26-relay-f2a-editing.md) ·
+[F2b](docs/superpowers/plans/2026-09-26-relay-f2b-structure.md) ·
+[F3a](docs/superpowers/plans/2026-09-27-relay-f3a-navigation.md) ·
+[F3b](docs/superpowers/plans/2026-09-27-relay-f3b-session.md) ·
+[F4 P1](docs/superpowers/plans/2026-09-27-relay-p1-pages.md) ·
+[F4 P2](docs/superpowers/plans/2026-09-27-relay-p2-canvas-ux.md).
 
 ## Arquitectura
 
 ```mermaid
 flowchart LR
   subgraph Browser["Navegador (Next.js, tablero solo en cliente)"]
-    UI[Toolbar · Header · Overlays] --> FSM[FSM de herramientas<br/>@relay/core]
+    UI[Toolbar · Menús · Overlays] --> FSM[FSM de herramientas<br/>@relay/core]
     FSM -->|efectos| CMD[applyCommand<br/>@relay/core]
-    CMD -->|transact LOCAL| YD[(Y.Doc)]
-    YD -->|observeDeep| Z[Snapshots en Zustand]
+    UI -->|menús, portapapeles, páginas| CMD
+    CMD -->|transact LOCAL / SESSION| YD[(Y.Doc)]
+    YD -->|observeDeep| Z[Snapshots en Zustand<br/>página activa]
     Z --> R[Renderer SVG]
     YD <--> IDB[(IndexedDB)]
   end
   subgraph Cloudflare["Cloudflare (plan gratuito)"]
-    W[Router del Worker<br/>verificación HMAC] --> DO[Durable Object por sala<br/>y-partyserver]
+    W[Router del Worker<br/>verificación HMAC] --> DO[Durable Object por sala<br/>y-partyserver · hora del servidor]
     DO --> SQL[(Snapshot en SQLite)]
   end
   YD <-->|WebSocket: sync Yjs + awareness| W
@@ -75,10 +92,10 @@ flowchart LR
 
 ```
 relay/
-├─ packages/core       TypeScript sin dependencias de plataforma: esquema, comandos, geometría, FSM, presencia
+├─ packages/core       TypeScript sin dependencias de plataforma: esquema, comandos, geometría, FSM, portapapeles, presencia
 ├─ apps/sync-server    Cloudflare Worker + un Durable Object por sala (y-partyserver)
 ├─ apps/web            Next.js 16 App Router, Tailwind 4, Zustand
-├─ e2e/                Playwright con dos contextos de navegador independientes
+├─ e2e/                Playwright, con un contexto de navegador independiente por usuario
 └─ scripts/            Bot de demo + captura del material del README
 ```
 
@@ -98,16 +115,18 @@ Requiere Node ≥ 22. No hace falta cuenta de Cloudflare: Wrangler ejecuta el Wo
 
 ```bash
 npm install
-npm run dev        # web → http://localhost:3000 · sync → http://localhost:8787
+npm run dev        # web → http://localhost:4000 · sync → http://localhost:8787
 ```
 
-Abre <http://localhost:3000>, pulsa **New board** y comparte el enlace con otro navegador o
-una ventana privada.
+Abre <http://localhost:4000>, pulsa **New board** y abre el enlace en otro navegador o en una
+ventana privada. **SHARE** te da un enlace de edición y otro de solo lectura.
+
+(La web usa el puerto 4000 porque Windows suele reservar el rango 2900–3100.)
 
 **Colaboradores automáticos.** Mira cómo se llena el tablero con bots que usan la UI real:
 
 ```bash
-npm run demo:bot -- --role writer            # crea una sala y escribe una retro
+npm run demo:bot -- --role writer              # crea una sala y escribe una retro
 npm run demo:bot -- --role mover <url-tablero> # se une, mueve formas y añade "+1"
 ```
 
@@ -116,33 +135,39 @@ O con Docker: `docker compose up`.
 ## Tests
 
 ```bash
-npm test         # tests unitarios, de propiedades y de integración (≈140)
-npm run e2e      # Playwright: dos usuarios colaborando, edición con doble clic, enlaces inválidos,
-                 # redimensionado + deshacer/rehacer visto por un segundo usuario, marquesina + borrado, dibujo de elipses/líneas/bloques de código
+npm test         # ≈500 tests unitarios, de propiedades y de integración
+npm run e2e      # 25 escenarios de Playwright con varios navegadores independientes
 npm run lint && npm run typecheck
 ```
 
 | Suite | Qué demuestra |
 |---|---|
-| `packages/core` (Vitest + fast-check) | Geometría, tablas de transiciones de la FSM, comandos sobre un `Y.Doc` real, diff de texto (incluidos emoji), geometría de redimensionado, hit-testing de marquesina, deshacer por usuario y convergencia de tres réplicas |
-| `apps/sync-server` (Vitest + `wrangler dev` real) | Sincronización entre editores, lectores de solo lectura, 4401 con claves inválidas, header de rol falsificado, límites de mensaje y de awareness, tope de tamaño y persistencia tras reiniciar el servidor |
-| `apps/web` (Vitest) | El puente Yjs → Zustand (solo se reconstruyen las formas tocadas), el controlador del tablero (commits de arrastre con throttle, overlay local, deshacer/rehacer) y la firma de presencia |
-| `e2e/` (Playwright) | Dos navegadores ven las ediciones y los cursores con nombre del otro, el estado sobrevive a que todos se vayan, la edición con doble clic, el rechazo de enlaces inválidos, redimensionado + deshacer/rehacer visto por un segundo usuario, selección por marquesina + borrado, y el dibujo de elipses/líneas/bloques de código |
+| `packages/core` (Vitest + fast-check) | Geometría, tablas de transiciones de la FSM (incluido el bloqueo), comandos sobre un `Y.Doc` real, la validación del portapapeles y la reasignación de ids, el diff de texto con emoji, el deshacer por usuario, los recuentos de votos, las lápidas de páginas, y la convergencia de tres réplicas para formas, datos de sesión y páginas |
+| `apps/sync-server` (Vitest + `wrangler dev` real) | Sincronización entre editores, lectores de solo lectura, 4401 con claves inválidas, header de rol falsificado, límites de mensaje y de awareness, tope de tamaño, hora del servidor y persistencia tras reiniciar el servidor |
+| `apps/web` (Vitest) | La proyección Yjs → Zustand por página, el controlador del tablero (arrastres con throttle, portapapeles, orden en z, estilo, bloqueo, menús y pasos de deshacer), los atajos y los permisos por rol, los temporizadores de votación, los enlaces de compartir y los avisos |
+| `e2e/` (Playwright) | Estos escenarios: dos usuarios que ven las ediciones y los cursores del otro; conectores y frames; zoom, minimapa y restauración de la cámara; votación y comentarios entre usuarios; crear, reordenar y borrar páginas, y enlaces con hash; menús contextuales, portapapeles, bloqueo, ayuda y límites de los lectores |
 
 ## Hoja de ruta
 
-Construido por fases desplegables; los detalles están en la spec.
+Se construye por fases, cada una desplegable; los detalles están en la spec.
 
-- [x] **F0 — Base:** monorepo, CI, tokens de diseño, spike que confirma el soporte de hibernación de WebSockets
-- [x] **F1 — MVP:** formas, notas y textos en vivo, cursores, presencia, persistencia, enlaces con capacidades
-- [x] **F2a — Edición core:** deshacer/rehacer por usuario, asas de redimensionado, selección por marquesina, elipses, líneas, bloques de código, preview de arrastre a 60 fps
-- [ ] **F2b — Estructura:** conectores anclados, frames con columnas
-- [ ] **F3 — Navegación y sesión:** zoom al cursor, minimapa, temporizador de votación compartido, "Typing…", comentarios
-- [ ] **F4 — Publicación:** interfaz de enlaces para compartir, sala demo que se reinicia cada noche, endurecimiento del protocolo, despliegue (Vercel + Workers), pulido offline
-- [ ] **F5 — IA:** "Cluster & summarize" para retros. El agrupamiento es determinista (embeddings más clustering aglomerativo) y corre en Workers AI; la salida del LLM se valida con un esquema y se mide con Adjusted Rand Index.
+- [x] **F0 — Base:** monorepo, CI, tokens de diseño, un spike que confirma el soporte de hibernación de WebSockets
+- [x] **F1 — MVP:** formas, notas y texto en vivo, cursores, presencia, persistencia, enlaces con capacidades
+- [x] **F2 — Edición y estructura:** deshacer/rehacer por usuario, redimensionado, marquesina, elipses, líneas, bloques de código, conectores anclados, frames con columnas
+- [x] **F3 — Navegación y sesión:** zoom y desplazamiento, un minimapa interactivo, selecciones remotas y "typing…", hora del servidor, votación por puntos, comentarios
+- [ ] **F4 — Espacio de trabajo**
+  - [x] **P1 páginas:** pestañas, contenido y presencia por página, el diálogo Share, título editable
+  - [x] **P2 UX del lienzo:** menús contextuales, portapapeles del sistema, barra de propiedades, orden en z, bloqueo, ayuda y pulido
+  - [ ] **P3 páginas de hoja de cálculo** con fórmulas básicas (en curso)
+  - [ ] **P4 páginas de calendario** (mes y semana)
+- [ ] **F5 — Publicación:** sala demo que se reinicia cada noche, endurecimiento del protocolo, despliegue (Vercel + Workers), pulido offline
+- [ ] **F6 — IA:** "Cluster & summarize" para retros. El agrupamiento es determinista (embeddings más clustering aglomerativo) y corre en Workers AI. La salida del LLM se valida con un esquema y se mide con el Adjusted Rand Index.
 
-**Limitaciones conocidas (previstas para F2/F4):**
-- El protocolo de sincronización necesita el endurecimiento de F4 (validación de frames de awareness, un estimador de tamaño más fino) antes de abrir la sala demo pública.
+**Limitaciones conocidas (previstas para F5):**
+- El protocolo de sincronización necesita una fase de endurecimiento antes de abrir la sala demo pública:
+  - validación estricta de los frames de awareness;
+  - un estimador de tamaño de documento más fino;
+  - mostrar en la UI los cierres por "mensaje demasiado grande".
 
 ## Licencia
 
