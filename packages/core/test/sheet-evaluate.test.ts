@@ -170,9 +170,11 @@ describe('evaluateSheet', () => {
 
     it('survives a stack overflow from a deep nested downward chain', () => {
       let values: Map<string, CellValue> | undefined;
+      const t0 = Date.now();
       expect(() => {
         values = evaluateSheet(chain(1200, 'down', NESTED));
       }).not.toThrow();
+      expect(Date.now() - t0).toBeLessThan(1000);
       expect(values?.get(x(0))?.t).toBe('err');
     });
   });

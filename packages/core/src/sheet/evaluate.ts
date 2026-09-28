@@ -315,11 +315,12 @@ export function evaluateSheet(sheet: SheetSnapshot): Map<string, CellValue> {
     .map((o) => o.key);
   for (const key of order) {
     // Last resort: a stack overflow from deeply nested formulas must never crash the sheet.
-    // Cells left mid-evaluation are not memoized and get evaluated again later in this loop.
+    // Every cell left mid-evaluation is memoized #NUM! too, so later cells do not re-descend the chain.
     try {
       cellValue(key);
     } catch (e) {
       if (!(e instanceof RangeError)) throw e;
+      for (const k of stack) values.set(k, err('#NUM!'));
       stack.length = 0;
       onStack.clear();
       values.set(key, err('#NUM!'));
