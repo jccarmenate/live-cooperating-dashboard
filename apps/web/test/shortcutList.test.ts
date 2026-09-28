@@ -14,4 +14,10 @@ describe('SHORTCUT_GROUPS', () => {
       expect(all).toContain(what);
     }
   });
+
+  it('lists Backspace and Ctrl Y next to their twins', () => {
+    const keys = SHORTCUT_GROUPS.flatMap((g) => g.items.map(([k]) => k));
+    expect(keys).toContain('Del / Backspace');
+    expect(keys).toContain('Ctrl Shift Z / Ctrl Y');
+  });
 });

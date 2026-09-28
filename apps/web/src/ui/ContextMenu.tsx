@@ -54,6 +54,7 @@ export function ContextMenu({
     const onDown = (e: PointerEvent) => {
       if (!ref.current?.contains(e.target as Node)) onClose();
     };
+    // Fallback for when focus is outside the menu (keys inside it stop at the menu root).
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
     };
@@ -88,10 +89,14 @@ export function ContextMenu({
       className="fixed z-50 min-w-48 border-2 border-ink bg-white py-1 shadow-hard"
       style={pos}
       onContextMenu={(e) => e.preventDefault()}
+      // Keys pressed inside the menu never reach the window's board shortcuts (Delete, tool
+      // letters, Escape's cancel); Escape is handled here because the window listener no
+      // longer sees it.
       onKeyDown={(e) => {
+        e.stopPropagation();
+        if (e.key === 'Escape') onClose();
         if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
           e.preventDefault();
-          e.stopPropagation();
           move(e.key === 'ArrowDown' ? 1 : -1);
         }
       }}

@@ -7,10 +7,11 @@ export async function writeClip(text: string): Promise<void> {
   }
 }
 
-/** Reads the system clipboard, or returns `fallback` when the browser refuses. */
+/** Reads the system clipboard, or returns `fallback` when the browser refuses or it is empty. */
 export async function readClip(fallback: string | null): Promise<string | null> {
   try {
-    return await navigator.clipboard.readText();
+    const text = await navigator.clipboard.readText();
+    return text === '' ? fallback : text;
   } catch {
     return fallback;
   }

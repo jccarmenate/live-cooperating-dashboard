@@ -123,6 +123,20 @@ describe('canvas UX shortcuts', () => {
     expect(keyDownAction(key('?', { shiftKey: true }), false)).toEqual({ type: 'help' });
   });
 
+  it('maps the physical [ and ] keys to z-order on layouts where they type something else', () => {
+    expect(keyDownAction(key('Dead', { code: 'BracketLeft' }), false)).toEqual({
+      type: 'z',
+      where: 'back',
+    });
+    expect(keyDownAction(key('+', { code: 'BracketRight' }), false)).toEqual({
+      type: 'z',
+      where: 'front',
+    });
+    expect(keyDownAction(key('+', { code: 'BracketRight', ctrlKey: true }), false)).toBeNull();
+    expect(keyDownAction(key('+', { code: 'BracketRight', altKey: true }), false)).toBeNull();
+    expect(keyDownAction(key('+', { code: 'BracketRight' }), true)).toBeNull();
+  });
+
   it('viewers cannot duplicate or restack but can select all, fit and open help', () => {
     expect(gateByRole({ type: 'duplicate' }, 'view')).toBeNull();
     expect(gateByRole({ type: 'z', where: 'front' }, 'view')).toBeNull();

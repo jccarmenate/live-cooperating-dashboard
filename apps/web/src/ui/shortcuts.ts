@@ -64,6 +64,10 @@ export function keyDownAction(e: KeyInput, typing: boolean): ShortcutAction | nu
   if (e.shiftKey && e.code === 'Digit1') return { type: 'zoomToFit' };
   if (e.key === ']') return { type: 'z', where: 'front' };
   if (e.key === '[') return { type: 'z', where: 'back' };
+  // By physical key too: on AltGr layouts (e.g. Spanish) the characters need AltGr, which
+  // arrives as Alt (dropped above), so the plain key where [ and ] sit on US keyboards works.
+  if (e.code === 'BracketRight') return { type: 'z', where: 'front' };
+  if (e.code === 'BracketLeft') return { type: 'z', where: 'back' };
   if (key === 'e') return dispatch({ type: 'toggleRouting' });
   const tool = TOOL_KEYS[key];
   if (tool) return dispatch({ type: 'setTool', tool });
