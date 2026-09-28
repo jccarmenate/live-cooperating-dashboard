@@ -275,6 +275,9 @@ export function createSheetController(opts: {
     return text;
   };
 
+  /** What an edit started from (the A1 text shown and the grid): the draft is read against it. */
+  let editStart: { shown: string; grid: ReturnType<typeof gridOf> } | null = null;
+
   const insertAt = <T extends { order: string }>(list: readonly T[], at: number, count: number) =>
     keysBetween(list[at - 1]?.order ?? null, list[at]?.order ?? null, count);
 
@@ -314,9 +317,12 @@ export function createSheetController(opts: {
       const a = ui.getState().anchor;
       if (!s || !a) return;
       const current = s.cells[cellKey(a.row, a.col)]?.src ?? '';
+      const grid = gridOf(s);
+      const shown = toDisplay(current, grid).slice(0, MAX_CELL_SRC);
+      editStart = { shown, grid };
       ui.setState({
         editing: {
-          draft: (initialText ?? toDisplay(current, gridOf(s))).slice(0, MAX_CELL_SRC),
+          draft: initialText?.slice(0, MAX_CELL_SRC) ?? shown,
           origin,
         },
       });
@@ -329,16 +335,28 @@ export function createSheetController(opts: {
       const e = ui.getState().editing;
       const s = snap();
       const a = ui.getState().anchor;
+      const start = editStart;
+      let src: string | null = null;
+      // The draft is A1 as seen when the edit started: resolve it against that grid, so a
+      // concurrent insert or delete never re-points it. An unchanged draft writes nothing.
+      if (e && s && a && start && e.draft !== start.shown) {
+        src = toStored(e.draft, start.grid);
+        if (src.length > MAX_CELL_SRC) {
+          // Refused: the edit stays open with its draft, where it is.
+          notify('That formula is too long');
+          return;
+        }
+      }
+      editStart = null;
       ui.setState({ editing: null });
-      if (e && s && a) {
+      if (src !== null && s && a) {
         const cell = s.cells[cellKey(a.row, a.col)];
-        const src = toStored(e.draft, gridOf(s));
-        if (src.length > MAX_CELL_SRC) notify('That formula is too long');
-        else if (src !== (cell?.src ?? '')) setCells([write(a.row, a.col, src, cell?.fmt)]);
+        if (src !== (cell?.src ?? '')) setCells([write(a.row, a.col, src, cell?.fmt)]);
       }
       if (then) move(then.dRow, then.dCol);
     },
     cancelEdit() {
+      editStart = null;
       ui.setState({ editing: null });
     },
     clear,

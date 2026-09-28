@@ -46,7 +46,8 @@ export function FormulaBar({
           if (e.key === 'Enter') {
             e.preventDefault();
             ctl.commitEdit({ dRow: e.shiftKey ? -1 : 1, dCol: 0 });
-            e.currentTarget.blur();
+            // A refused commit keeps the edit open: keep typing here.
+            if (!ctl.ui.getState().editing) e.currentTarget.blur();
           } else if (e.key === 'Escape') {
             ctl.cancelEdit();
             e.currentTarget.blur();

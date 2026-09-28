@@ -1,4 +1,4 @@
-import { cellKey, gridOf, toDisplay } from '@relay/core';
+import { applyCommand, cellKey, gridOf, keysBetween, toDisplay } from '@relay/core';
 import { describe, expect, it, vi } from 'vitest';
 import * as Y from 'yjs';
 import { createBoardController } from '../src/board/controller';
@@ -51,7 +51,7 @@ function setup(opts: { canEdit?: boolean } = {}) {
     ctl.startEdit(text);
     ctl.commitEdit();
   };
-  return { board, ctl, s, at, src, value, type, notify };
+  return { doc, page, board, ctl, s, at, src, value, type, notify };
 }
 
 describe('sheet controller', () => {
@@ -289,6 +289,66 @@ describe('sheet controller', () => {
     expect(s().rows).toHaveLength(50);
     ctl.select(at('B2'));
     expect(ctl.copy()).toBe('');
+  });
+
+  describe('an edit across a concurrent structure change', () => {
+    /** B5 holds =A5*2; an edit starts on it; then a peer inserts a row above row 1. */
+    const editThenPeerInsert = () => {
+      const t = setup();
+      t.type('A5', '3');
+      t.type('B5', '=A5*2');
+      const stored = t.s().cells[cellKey(t.at('B5').row, t.at('B5').col)]?.src;
+      t.ctl.select(t.at('B5'));
+      t.ctl.startEdit(undefined, 'bar');
+      const first = t.s().rows[0]?.order ?? null;
+      applyCommand(t.doc, {
+        type: 'InsertRows',
+        pageId: t.page,
+        rows: keysBetween(null, first, 1).map((order) => ({ id: 'peer0001', order })),
+      });
+      return { ...t, stored };
+    };
+
+    it('an unchanged draft writes nothing', () => {
+      const { ctl, s, at, src, stored } = editThenPeerInsert();
+      ctl.commitEdit();
+      expect(s().cells[cellKey(at('B6').row, at('B6').col)]?.src).toBe(stored);
+      expect(src('B6')).toBe('=A6*2');
+    });
+
+    it('a changed draft resolves against the grid the edit started on', () => {
+      const { ctl, src, value } = editThenPeerInsert();
+      ctl.setDraft('=A5*3');
+      ctl.commitEdit();
+      expect(src('B6')).toBe('=A6*3');
+      expect(value('B6')).toEqual({ t: 'num', v: 9 });
+    });
+
+    it('a changed draft naming a row a peer deleted is #REF!, not the next row', () => {
+      const { doc, page, ctl, at, src, value, type } = setup();
+      type('A5', '3');
+      type('A6', '4');
+      type('B1', '=A5*2');
+      ctl.select(at('B1'));
+      ctl.startEdit(undefined, 'bar');
+      applyCommand(doc, { type: 'DeleteRows', pageId: page, ids: [at('A5').row] });
+      ctl.setDraft('=A5*3');
+      ctl.commitEdit();
+      expect(src('B1')).toBe('=#REF!*3');
+      expect(value('B1')).toEqual({ t: 'err', v: '#REF!' });
+    });
+  });
+
+  it('keeps a refused edit open with its draft, and does not move', () => {
+    const { ctl, at, src, notify } = setup();
+    const long = `=${Array.from({ length: 100 }, () => 'A1').join('+')}`;
+    ctl.select(at('B2'));
+    ctl.startEdit(long);
+    ctl.commitEdit({ dRow: 1, dCol: 0 });
+    expect(notify).toHaveBeenCalledWith('That formula is too long');
+    expect(ctl.ui.getState().editing).toEqual({ draft: long, origin: 'cell' });
+    expect(ctl.ui.getState().anchor).toEqual(at('B2'));
+    expect(src('B2')).toBe('');
   });
 
   it('resets the selection when its row is deleted by anyone', () => {

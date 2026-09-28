@@ -120,9 +120,16 @@ export function SheetGrid({
         if (!p) return;
         // A stale page-text selection would make Ctrl+C copy that text instead of the cells.
         window.getSelection()?.removeAllRanges();
+        if (ctl.ui.getState().editing) {
+          ctl.commitEdit();
+          // A refused commit keeps the edit open: stay in it rather than move its draft.
+          if (ctl.ui.getState().editing) {
+            e.preventDefault();
+            return;
+          }
+        }
         const active = document.activeElement;
         if (active instanceof HTMLElement && active !== document.body) active.blur();
-        if (ctl.ui.getState().editing) ctl.commitEdit();
         // Keyboard focus follows the click onto the grid, not a leftover button or select.
         e.currentTarget.focus({ preventScroll: true });
         ctl.select(p, e.shiftKey);
