@@ -1,9 +1,11 @@
 import {
   applyCommand,
   type Camera,
+  type ClipPayload,
   type Command,
   type CommentAnchor,
   centerOn as centredOn,
+  childrenOf,
   contentBounds,
   copyPayload,
   createUndo,
@@ -150,7 +152,10 @@ export interface BoardController {
   closeMenu(): void;
   /** Serialises the selection as a Relay clip and remembers it; null when nothing is copyable. */
   copySelection(): string | null;
-  /** Copies, then deletes the unlocked part of the selection (one undo step). */
+  /**
+   * Copies, then deletes exactly what was cut, minus locked shapes (one undo step).
+   * Null mid-gesture or when nothing is copyable.
+   */
   cutSelection(): string | null;
   /** The last clip this controller copied (in-app clipboard fallback). */
   lastCopied(): string | null;
@@ -310,9 +315,10 @@ export function createBoardController(opts: {
     ui.setState({ tool: { mode: 'idle', tool: 'select', selection: ids } });
   };
   const selectionNow = () => ui.getState().tool.selection;
-  /** Several commands as exactly one undo step. */
+  const idle = () => ui.getState().tool.mode === 'idle';
+  /** Several commands as exactly one undo step; only between gestures (never splits one). */
   const commitStep = (...commands: Command[]) => {
-    if (commands.length === 0) return;
+    if (commands.length === 0 || !idle()) return;
     throttledCommit.cancel();
     undoStack.stopCapturing();
     for (const c of commands) commit(c);
@@ -343,14 +349,16 @@ export function createBoardController(opts: {
   // times in a row it was pasted, so repeated pastes step down and right.
   let clip: string | null = null;
   let repeat = { text: '', n: 0 };
-  const copySelection = (): string | null => {
+  /** Copies the selection into the in-app clipboard; returns what was copied. */
+  const copy = (): ClipPayload | null => {
     const { shapes, connectors } = opts.docStore.getState();
     const payload = copyPayload(selectionNow(), shapes, connectors);
     if (!payload) return null;
     clip = serializeClip(payload);
     repeat = { text: clip, n: 0 };
-    return clip;
+    return payload;
   };
+  const copySelection = (): string | null => (copy() ? clip : null);
 
   const unsubscribe = opts.docStore.subscribe((doc, prev) => {
     // A page change (local, or a remote fallback when the active page is deleted) starts
@@ -588,19 +596,29 @@ export function createBoardController(opts: {
     },
     copySelection,
     cutSelection() {
-      const text = copySelection();
-      if (!text) return null;
-      const payload = parseClip(text);
+      if (!idle()) return null;
+      const payload = copy();
+      if (!payload || clip === null) return null;
       const { shapes } = opts.docStore.getState();
-      // Everything the copy took (frame children included), plus selected connectors; never locked shapes.
-      const ids = [
-        ...new Set([...(payload?.shapes.map((s) => s.id) ?? []), ...selectionNow()]),
-      ].filter((id) => !shapes[id]?.locked);
-      if (ids.length > 0) {
-        commitStep({ type: 'DeleteShapes', ids });
-        setSelection(selectionNow().filter((id) => !ids.includes(id)));
+      const unlocked = (id: string) => {
+        const s = shapes[id];
+        return !!s && !s.locked;
+      };
+      // Exactly what was cut: unlocked selected shapes, the unlocked children of unlocked
+      // selected frames, and the connectors the copy took (never one it dropped).
+      const ids = new Set<string>();
+      for (const id of selectionNow()) {
+        if (!unlocked(id)) continue;
+        ids.add(id);
+        if (shapes[id]?.type !== 'frame') continue;
+        for (const child of childrenOf(shapes, id)) if (unlocked(child)) ids.add(child);
       }
-      return text;
+      for (const c of payload.connectors) ids.add(c.id);
+      if (ids.size > 0) {
+        commitStep({ type: 'DeleteShapes', ids: [...ids] });
+        setSelection(selectionNow().filter((id) => !ids.has(id)));
+      }
+      return clip;
     },
     lastCopied: () => clip,
     pasteText(text, at) {

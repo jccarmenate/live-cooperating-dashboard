@@ -47,6 +47,8 @@ const sticky = (id: string, extra: Partial<NewShape> = {}): NewShape => ({
   createdAt: 1,
   ...extra,
 });
+const frame = (id: string): NewShape =>
+  sticky(id, { type: 'frame', w: 600, h: 400, style: DEFAULT_STYLE.frame, text: '' });
 const add = (doc: Y.Doc, shape: NewShape) =>
   applyCommand(doc, { type: 'CreateShape', shape }, LOCAL_ORIGIN);
 const read = (doc: Y.Doc, id: string) => {
@@ -126,6 +128,77 @@ describe('controller canvas actions', () => {
     expect(read(doc, 'a')).toBeNull();
     expect(read(doc, 'b')).not.toBeNull();
     expect(selection(controller)).toEqual(['b']);
+  });
+
+  it('mutating actions do nothing mid-gesture; cut returns null without copying', () => {
+    const { doc, controller } = setup();
+    add(doc, sticky('a'));
+    controller.dispatch({
+      type: 'pointerDown',
+      p: { world: { x: 5, y: 5 }, shift: false, hitId: 'a' },
+    });
+    controller.dispatch({
+      type: 'pointerMove',
+      p: { world: { x: 60, y: 60 }, shift: false, hitId: null },
+    });
+    expect(controller.ui.getState().tool.mode).toBe('dragging');
+    expect(controller.cutSelection()).toBeNull();
+    controller.setStyle({ fill: '#000000' });
+    expect(read(doc, 'a')).not.toBeNull();
+    expect(read(doc, 'a')?.style.fill).toBe(DEFAULT_STYLE.sticky.fill);
+    expect(controller.lastCopied()).toBeNull();
+  });
+
+  it('cutting a locked frame leaves it and its unlocked child', () => {
+    const { doc, controller } = setup();
+    add(doc, frame('f'));
+    add(doc, sticky('c', { x: 20, y: 20, parentId: 'f' }));
+    applyCommand(doc, { type: 'SetLocked', ids: ['f'], locked: true }, LOCAL_ORIGIN);
+    controller.select(['f']);
+    expect(controller.cutSelection()?.startsWith(CLIP_PREFIX)).toBe(true);
+    expect(read(doc, 'f')).not.toBeNull();
+    expect(read(doc, 'c')).not.toBeNull();
+    expect(selection(controller)).toEqual(['f']);
+  });
+
+  it('cutting an unlocked frame deletes it and its child as one undo step', () => {
+    const { doc, controller } = setup();
+    add(doc, frame('f'));
+    add(doc, sticky('c', { x: 20, y: 20, parentId: 'f' }));
+    controller.select(['f']);
+    controller.cutSelection();
+    expect(read(doc, 'f')).toBeNull();
+    expect(read(doc, 'c')).toBeNull();
+    controller.undo();
+    expect(read(doc, 'f')).not.toBeNull();
+    expect(read(doc, 'c')).not.toBeNull();
+  });
+
+  it('cut never deletes a selected connector the copy dropped', () => {
+    const { doc, controller } = setup();
+    add(doc, sticky('a'));
+    add(doc, sticky('b', { x: 400 }));
+    applyCommand(doc, { type: 'SetLocked', ids: ['a'], locked: true }, LOCAL_ORIGIN);
+    applyCommand(
+      doc,
+      {
+        type: 'Connect',
+        connector: {
+          id: 'k',
+          from: { shapeId: 'a', anchor: 'auto' },
+          to: { shapeId: 'b', anchor: 'auto' },
+          routing: 'straight',
+          head: 'arrow',
+          createdBy: 'u1',
+        },
+      },
+      LOCAL_ORIGIN,
+    );
+    controller.select(['a', 'k']);
+    controller.cutSelection();
+    expect(read(doc, 'a')).not.toBeNull();
+    expect(read(doc, 'b')).not.toBeNull();
+    expect(getRoots(doc).connectors.get('k')).toBeDefined();
   });
 
   it('duplicate copies the selection at +24 px without touching the clipboard', () => {
