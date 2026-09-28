@@ -468,7 +468,17 @@ to back, `Shift+1` zooms to fit everything, `?` opens the shortcut help.
   for "Paste here" — on the active page, selects it, and is one undo step.
   Plain text from another app pastes as a sticky with that text (capped at
   2000 characters). `Ctrl+X` = copy + delete (unlocked only); `Ctrl+D` =
-  paste of the selection's own payload at +24 px. Viewers can copy.
+  paste of the selection's own payload at +24 px. Viewers can copy. A
+  paste (or duplicate) whose single update would exceed 192 KiB is refused
+  with a toast "Too much to paste at once", because the sync server closes
+  messages above 256 KiB.
+- **Undo and locks:** undo of your own earlier edit is not blocked by a
+  lock someone set later; undo reverts your own history.
+- **Concurrent restyling:** `SetStyle` writes the whole style object, so
+  two concurrent restyles of different fields on the same shape are
+  last-writer-wins.
+- **Cut vs Delete on frames:** Delete on a frame leaves its children; Cut
+  takes (and removes) the frame's unlocked children too.
 - **Context menu (right-click):** on a selection — Cut, Copy, Paste,
   Duplicate, Delete, Bring to front, Send to back, a row of fill swatches,
   Lock / Unlock, Comment here, Vote (a sticky during an open vote); on a
