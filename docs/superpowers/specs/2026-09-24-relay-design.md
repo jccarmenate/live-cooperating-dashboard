@@ -668,6 +668,7 @@ A `sheet` page is a shared spreadsheet. It is a grid of cells whose rows and col
     - **On commit:** each reference is translated to ids using the current order, as `[<rowId>.<colId>]`. A `$` goes before each absolute part, e.g. `[$ab12cd34.$ef56gh78]`. A range stores its corners as `[…]:[…]`.
     - **On display** (formula bar, cell editor): the stored form is translated back to A1 with the current order. A reference whose row or column no longer exists shows `#REF!`, and it evaluates to `#REF!`.
     - **Ranges:** a range covers the rows and columns between its two corners in the current order, so rows inserted inside it are included. A range with a deleted corner is `#REF!`.
+    - **Out-of-bounds references:** an A1 reference beyond the sheet's current rows or columns is stored as `#REF!` when the formula is committed.
   - **Values:**
     - A value is a number, text, a boolean or an error.
     - A non-formula source that is a number literal is a number, `TRUE`/`FALSE` is a boolean, and anything else is text.
@@ -675,6 +676,7 @@ A `sheet` page is a shared spreadsheet. It is a grid of cells whose rows and col
     - **Empty cells:** an empty cell is 0 in arithmetic and `""` in `&`.
     - **Aggregates:** they skip empty cells, text and booleans in ranges. `COUNT` counts numbers.
     - **Arithmetic:** text in arithmetic is `#VALUE!`.
+    - **`IF` conditions:** a condition is true for a non-zero number or `TRUE`; text is `#VALUE!`.
     - **Comparisons:** numbers compare numerically and text compares case-insensitively. Across types, number < text < boolean.
     - **`IF`:** only the chosen branch is evaluated.
     - **Errors:** they propagate; the first one in evaluation order wins.
@@ -723,7 +725,7 @@ A `sheet` page is a shared spreadsheet. It is a grid of cells whose rows and col
   - **Cut** copies, then clears the sources of the range.
 - **Fill:**
   - `Ctrl+D` copies the top row of the selection into the rows below it within the selection.
-  - The fill handle (a square at the selection's bottom-right corner) dragged down or right repeats the selected row or column over the dragged cells.
+  - The fill handle (a square at the selection's bottom-right corner) dragged down or right repeats the selection's rows (down) or columns (right) cyclically over the dragged cells.
   - Formulas shift like a paste. There is no series inference.
 - **Presence:** each user publishes `sheet` (their range and whether they are editing) with `page`. Peers on the same sheet see a coloured outline around each peer's range with a small name tag, which shows "typing…" while that peer edits.
 - **Roles and other pages:**
