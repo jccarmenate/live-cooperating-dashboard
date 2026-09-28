@@ -100,8 +100,11 @@ export interface BoardController {
   renamePage(id: string, title: string): void;
   /** Moves a page to `toIndex` among the visible pages. */
   movePage(id: string, toIndex: number): void;
-  /** Deletes a page and everything on it; never the last visible page. */
-  deletePage(id: string): void;
+  /**
+   * Deletes a page and everything on it; never the last visible page (nor one that is not visible).
+   * Returns whether it deleted.
+   */
+  deletePage(id: string): boolean;
   /** Renames the board (trimmed; empty is ignored). */
   renameBoard(title: string): void;
   destroy(): void;
@@ -431,8 +434,10 @@ export function createBoardController(opts: {
       });
     },
     deletePage(id) {
-      if (opts.docStore.getState().pages.length <= 1) return;
+      const pages = opts.docStore.getState().pages;
+      if (pages.length <= 1 || !pages.some((p) => p.id === id)) return false;
       commitPage({ type: 'DeletePage', id });
+      return true;
     },
     renameBoard(title) {
       const text = title.trim();

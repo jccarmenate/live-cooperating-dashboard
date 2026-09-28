@@ -786,6 +786,20 @@ describe('pages', () => {
     expect(docs.store.getState().pages.map((p) => p.id)).toEqual(['main']);
   });
 
+  it('deletePage reports whether it deleted: false for the last or a missing page', () => {
+    const { docs, controller } = setup();
+    expect(controller.deletePage('main')).toBe(false);
+    const a = controller.createPage('board');
+    const b = controller.createPage('board');
+    expect(controller.deletePage(a)).toBe(true);
+    expect(docs.store.getState().pages.map((p) => p.id)).toEqual(['main', b]);
+    expect(controller.deletePage(a)).toBe(false);
+    expect(controller.deletePage('nope')).toBe(false);
+    expect(controller.deletePage(b)).toBe(true);
+    expect(controller.deletePage('main')).toBe(false);
+    expect(docs.store.getState().pages.map((p) => p.id)).toEqual(['main']);
+  });
+
   it('vote cap counts stickies on every page', () => {
     const { doc, controller, activity } = setup();
     const p2 = controller.createPage('board');
