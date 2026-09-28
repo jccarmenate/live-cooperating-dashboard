@@ -14,6 +14,7 @@ import { CanvasMenu } from '../ui/CanvasMenu';
 import { CommentsPanel } from '../ui/CommentsPanel';
 import { Header } from '../ui/Header';
 import { PageTabs } from '../ui/PageTabs';
+import { PropertiesBar } from '../ui/PropertiesBar';
 import { StatusBanner } from '../ui/StatusBanner';
 import { ToastHost } from '../ui/ToastHost';
 import { Toolbar } from '../ui/Toolbar';
@@ -41,6 +42,7 @@ function BoardView({ session }: { session: BoardSession }) {
           <ColumnTitleEditor session={session} />
           <CommentComposer session={session} />
           <Toolbar session={session} />
+          <PropertiesBar session={session} />
           <ZoomControls session={session} />
           <Minimap session={session} />
           <CommentsPanel session={session} />
