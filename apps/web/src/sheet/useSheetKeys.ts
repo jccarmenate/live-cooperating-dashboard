@@ -26,6 +26,15 @@ export function useSheetKeys(session: BoardSession, ctl: SheetController | null)
     const onKeyDown = (e: KeyboardEvent) => {
       if (isTyping(e.target) || isControl(e.target) || e.altKey || ctl.ui.getState().editing)
         return;
+      // Escape on the grid itself lets keyboard users move on (Tab moves between cells).
+      if (
+        e.key === 'Escape' &&
+        e.target instanceof HTMLElement &&
+        e.target.dataset.testid === 'sheet-grid'
+      ) {
+        e.target.blur();
+        return;
+      }
       const canEdit = session.conn.clock.getState().role === 'edit';
       if (e.ctrlKey || e.metaKey) {
         const k = e.key.toLowerCase();

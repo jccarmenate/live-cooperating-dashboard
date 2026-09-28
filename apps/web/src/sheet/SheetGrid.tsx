@@ -107,7 +107,7 @@ export function SheetGrid({
       ref={scroller}
       data-scroll-region
       data-testid="sheet-grid"
-      // biome-ignore lint/a11y/noNoninteractiveTabindex: the grid takes keyboard focus so arrows/Tab/Enter drive the selection and Tab can leave it
+      // biome-ignore lint/a11y/noNoninteractiveTabindex: the grid takes keyboard focus so arrows/Tab/Enter drive the selection; as in spreadsheets, Tab moves between cells and Escape leaves the grid
       tabIndex={0}
       className="relative min-h-0 flex-1 select-none overflow-auto bg-white"
       onScroll={(e) =>
@@ -117,6 +117,8 @@ export function SheetGrid({
         if (e.button !== 0) return;
         const p = cellFromPoint(e.clientX, e.clientY);
         if (!p) return;
+        // A stale page-text selection would make Ctrl+C copy that text instead of the cells.
+        window.getSelection()?.removeAllRanges();
         const active = document.activeElement;
         if (active instanceof HTMLElement && active !== document.body) active.blur();
         if (ctl.ui.getState().editing) ctl.commitEdit();

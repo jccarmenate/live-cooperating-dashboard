@@ -40,7 +40,8 @@ export function CellEditor({ session, ctl }: { session: BoardSession; ctl: Sheet
       onKeyDown={(e) => {
         e.stopPropagation();
         // An IME composition uses Enter/Tab to pick a candidate: never commit mid-composition.
-        if (e.nativeEvent.isComposing) return;
+        // Safari ends a composition with isComposing false but keyCode 229.
+        if (e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229) return;
         if (e.key === 'Enter') {
           e.preventDefault();
           ctl.commitEdit({ dRow: e.shiftKey ? -1 : 1, dCol: 0 });

@@ -6,6 +6,7 @@ import { CellEditor } from './CellEditor';
 import { FormatBar } from './FormatBar';
 import { FormulaBar } from './FormulaBar';
 import { SheetGrid } from './SheetGrid';
+import { FillHandle, useSheetHeaders } from './SheetHeaders';
 import { createSheetController, type SheetController } from './sheetController';
 import { useSheetClipboard } from './useSheetClipboard';
 import { useSheetKeys } from './useSheetKeys';
@@ -49,9 +50,6 @@ export function SheetPage({ session }: { session: BoardSession }) {
     };
   }, [session]);
 
-  useSheetKeys(session, ctl);
-  useSheetClipboard(session, ctl);
-
   if (!ctl) return null;
   if (!hasSheet) {
     return (
@@ -63,6 +61,23 @@ export function SheetPage({ session }: { session: BoardSession }) {
       </div>
     );
   }
+  return <SheetBody session={session} ctl={ctl} canEdit={canEdit} />;
+}
+
+/** The grid-level UI; mounted once the controller exists, so its hooks always have one. */
+function SheetBody({
+  session,
+  ctl,
+  canEdit,
+}: {
+  session: BoardSession;
+  ctl: SheetController;
+  canEdit: boolean;
+}) {
+  useSheetKeys(session, ctl);
+  useSheetClipboard(session, ctl);
+  const { headers, menu } = useSheetHeaders(session, ctl, canEdit);
+
   return (
     <div data-testid="sheet-page" className="flex h-full min-h-0 flex-col">
       {canEdit && <FormatBar session={session} ctl={ctl} />}
@@ -71,8 +86,15 @@ export function SheetPage({ session }: { session: BoardSession }) {
         session={session}
         ctl={ctl}
         canEdit={canEdit}
-        overlay={<CellEditor session={session} ctl={ctl} />}
+        headers={headers}
+        overlay={
+          <>
+            <CellEditor session={session} ctl={ctl} />
+            {canEdit && <FillHandle session={session} ctl={ctl} />}
+          </>
+        }
       />
+      {menu}
     </div>
   );
 }
