@@ -22,6 +22,7 @@ export * from './sheet/address';
 export * from './sheet/lexer';
 export * from './sheet/model';
 export * from './sheet/parser';
+export * from './sheet/stored';
 export * from './sync/messages';
 export * from './text/diff';
 export * from './tools/machine';
