@@ -46,3 +46,7 @@ export const VOTE_DURATIONS_MIN = [1, 3, 5] as const;
 export const MAX_COMMENT_BODY = 2000;
 export const MAX_AUTHOR_NAME = 40;
 export const MAX_THREAD_ENTRIES = 200;
+
+/** Title limits, enforced on read and when a title is written. */
+export const MAX_PAGE_TITLE = 80;
+export const MAX_BOARD_TITLE = 120;

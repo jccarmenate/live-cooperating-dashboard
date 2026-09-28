@@ -377,4 +377,13 @@ describe('sync server', () => {
     await waitForOpen(viewer);
     expect((await viewerHello).viewKey).toBeUndefined();
   });
+
+  it('sends no view key in the demo room, where every key edits', async () => {
+    const editor = rawConnect('demo');
+    const hello = nextCustom(editor);
+    await waitForOpen(editor);
+    const h = await hello;
+    expect(h.role).toBe('edit');
+    expect(h.viewKey).toBeUndefined();
+  });
 });

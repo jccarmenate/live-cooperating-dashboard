@@ -4,7 +4,18 @@ import { Dialog } from './Dialog';
 import { shareLinks } from './shareLinks';
 import { toast } from './toasts';
 
-function LinkRow({ label, link, testId }: { label: string; link: string | null; testId: string }) {
+function LinkRow({
+  label,
+  link,
+  testId,
+  unavailable = false,
+}: {
+  label: string;
+  link: string | null;
+  testId: string;
+  /** No such link will ever exist here (vs. null while still connecting). */
+  unavailable?: boolean;
+}) {
   return (
     <label className="mt-3 block">
       <span className="font-mono text-[10px] uppercase text-ink/60">{label}</span>
@@ -12,7 +23,7 @@ function LinkRow({ label, link, testId }: { label: string; link: string | null; 
         <input
           readOnly
           data-testid={`share-${testId}-link`}
-          value={link ?? 'Connecting…'}
+          value={link ?? (unavailable ? 'Not available' : 'Connecting…')}
           className="flex-1 border-2 border-ink/30 px-2 py-1 font-mono text-xs"
           onFocus={(e) => e.currentTarget.select()}
         />
@@ -56,7 +67,12 @@ export function ShareDialog({ session, onClose }: { session: BoardSession; onClo
         Anyone with a link can open this board. No accounts.
       </p>
       {role === 'edit' && <LinkRow label="Can edit" link={links.edit} testId="edit" />}
-      <LinkRow label="Can view" link={links.view} testId="view" />
+      <LinkRow
+        label="Can view"
+        link={links.view}
+        testId="view"
+        unavailable={links.viewUnavailable}
+      />
     </Dialog>
   );
 }

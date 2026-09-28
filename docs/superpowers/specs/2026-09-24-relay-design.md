@@ -478,28 +478,43 @@ pages.
   existed are the implicit `main` page (type `board`, title `Board`, order
   `a0`) and keep working with no migration; renaming or moving `main` writes
   its entry. Shapes, connectors and comments carry `pageId` (absent =
-  `main`); new ones are created on the active page.
+  `main`); new ones are created on the active page. A stored `pageId` that
+  is not a non-empty string of at most 64 characters also reads as `main`.
+  A `pages` entry that is not a map (a misbehaving client) reads as absent:
+  it is not listed, a non-map `main` entry does not hide the implicit
+  `main`, and rename, move and delete leave it alone (deleting `main` still
+  writes its tombstone). Titles are capped on read and on write: 80
+  characters for a page title, 120 for the board title; the rename inputs
+  enforce the same limits.
 - **Commands:** `CreatePage { id, type, title, order }`, `RenamePage { id,
   title }`, `MovePage { id, order }` (fractional key between neighbours),
   `DeletePage { id }` (writes `pageTombstones[id] = true`; rename, move and
   create ignore tombstoned ids; plus deletion of the page's shapes,
-  connectors and comments in the same transaction), and `RenameBoard {
-  title }` for `meta.title`. Page commands and `RenameBoard` are applied
+  connectors and comments in the same transaction; a `DeletePage` of an id
+  this replica never held as a page writes no tombstone and deletes
+  nothing), and `RenameBoard { title }` for `meta.title`. Page commands
+  and `RenameBoard` are applied
   with the `SESSION` origin, so they are never undoable (a page delete must
   never be undone into shapes on a tombstoned page); deleting asks for
   confirmation. The last visible page cannot be deleted from the
   UI; if concurrent deletes remove every page, the UI shows an empty state
-  with "New page".
+  reading "No pages yet" with a "New board" button (editors only).
 - **Active page:** local state, mirrored in the URL hash (`#k=<key>&p=<page
   id>`) so a link can open a given page; an unknown or deleted page falls
-  back to the first visible page. The document projection publishes only the
+  back to the first visible page. Once a fallback page is shown it is
+  pinned, so a later reorder or delete of the first page does not move the
+  user. A page named in a link waits for the first sync (it may simply not
+  have arrived yet) and is only replaced by the fallback after it; a hash
+  without a page is corrected at once. The document projection publishes only the
   active page's shapes and connectors, so the canvas, tool machine, minimap,
   initial fit and comment pins need no page awareness. The camera is saved
   per room and page (`relay:camera:<roomId>:<pageId>`). Switching pages
   clears the undo and redo stacks, so `Ctrl+Z` never changes a page the user
-  is not looking at. The vote session stays room-wide; badges show only on
-  the active page's stickies.
-- **Presence:** each user publishes `page`. Remote cursors, selections,
+  is not looking at. The vote session stays room-wide: vote tallies and the
+  per-user vote cap count stickies on all visible pages, while badges show
+  only on the active page's stickies.
+- **Presence:** each user publishes `page`; a peer with `page: null` (or
+  none) counts as `main`. Remote cursors, selections,
   typing tags and minimap viewports only show for peers on the same page;
   each tab shows small dots in the colours of the peers looking at it.
 - **Tabs:** a strip under the header lists the visible pages. Click
@@ -512,7 +527,11 @@ pages.
 - **Share and title:** the header's SHARE button opens a dialog with the
   edit link and the read-only link (the latter built from the `viewKey` the
   server sends editors), each with a Copy button; viewers only see the
-  read-only link. Clicking the board title (editors) edits it in place.
+  read-only link. Until the server's hello names the role, the dialog shows
+  "Connecting…". The demo room has no read-only link (every key edits it),
+  so the server sends demo editors no `viewKey` and the dialog shows "Not
+  available" with Copy disabled; the same happens when the server has no
+  `ROOM_SECRET`. Clicking the board title (editors) edits it in place.
 - **Toasts:** a small queue of transient notices at the bottom centre ("Link
   copied", "Page deleted"), each dismissed after 3 s.
 

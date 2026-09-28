@@ -137,7 +137,8 @@ export class Room extends YServer {
   /** Capability, server clock and — for editors only — the view key for sharing a read-only link. */
   async #sendHello(connection: Connection, role: Role): Promise<void> {
     let viewKey: string | undefined;
-    if (role === 'edit') {
+    // Every key edits the demo room, so a "view" link there would open an editable board.
+    if (role === 'edit' && this.name !== DEMO_ROOM) {
       try {
         viewKey = await deriveKey(this.env.ROOM_SECRET, this.name, 'view');
       } catch {

@@ -12,6 +12,8 @@ import {
   initialToolState,
   isVoteOpen,
   LOCAL_ORIGIN,
+  MAX_BOARD_TITLE,
+  MAX_PAGE_TITLE,
   orderBetween,
   type PageType,
   type Point,
@@ -412,7 +414,7 @@ export function createBoardController(opts: {
         page: {
           id,
           type,
-          title: `${label} ${sameType + 1}`,
+          title: `${label} ${sameType + 1}`.slice(0, MAX_PAGE_TITLE),
           order: orderBetween(pages.at(-1)?.order ?? null, null),
           createdBy: opts.user.id,
           createdAt: now(),
@@ -421,7 +423,7 @@ export function createBoardController(opts: {
       return id;
     },
     renamePage(id, title) {
-      const text = title.trim();
+      const text = title.trim().slice(0, MAX_PAGE_TITLE);
       if (text) commitPage({ type: 'RenamePage', id, title: text });
     },
     movePage(id, toIndex) {
@@ -440,7 +442,7 @@ export function createBoardController(opts: {
       return true;
     },
     renameBoard(title) {
-      const text = title.trim();
+      const text = title.trim().slice(0, MAX_BOARD_TITLE);
       if (text) commitPage({ type: 'RenameBoard', title: text });
     },
     destroy() {

@@ -1,4 +1,4 @@
-import { MAIN_PAGE, type PageInfo, type PageType, type Peer } from '@relay/core';
+import { MAIN_PAGE, MAX_PAGE_TITLE, type PageInfo, type PageType, type Peer } from '@relay/core';
 import { Plus } from 'lucide-react';
 import { useCallback, useRef, useState } from 'react';
 import { useStore } from 'zustand';
@@ -33,6 +33,8 @@ export function PageTabs({ session }: { session: BoardSession }) {
   const renameFinished = useRef(false);
 
   const closeMenu = useCallback(() => setMenu(null), []);
+  // Stable, so the dialog's window Escape listener is not re-attached on every render.
+  const closeConfirm = useCallback(() => setConfirm(null), []);
 
   const add = (type: PageType) => {
     const id = controller.createPage(type);
@@ -55,7 +57,7 @@ export function PageTabs({ session }: { session: BoardSession }) {
 
   return (
     <nav
-      aria-label="Pages"
+      // Unlabelled: the tablist inside carries the "Pages" name, so it is not announced twice.
       className="flex h-9 shrink-0 items-end gap-1 overflow-x-auto border-b-2 border-ink bg-paper px-3"
     >
       <div
@@ -95,6 +97,7 @@ export function PageTabs({ session }: { session: BoardSession }) {
                   data-testid="page-rename-input"
                   aria-label="Page name"
                   defaultValue={p.title}
+                  maxLength={MAX_PAGE_TITLE}
                   className="h-8 w-32 border-2 border-b-0 border-ink bg-white px-2 font-mono text-xs outline-none"
                   onKeyDown={(e) => {
                     e.stopPropagation();
@@ -196,7 +199,7 @@ export function PageTabs({ session }: { session: BoardSession }) {
           onConfirm={() => {
             if (controller.deletePage(confirm.id)) toast('Page deleted');
           }}
-          onClose={() => setConfirm(null)}
+          onClose={closeConfirm}
         />
       )}
     </nav>

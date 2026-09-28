@@ -8,13 +8,16 @@ describe('shareLinks', () => {
     expect(shareLinks({ ...base, key: 'EDITKEY', role: null, viewKey: null })).toEqual({
       edit: null,
       view: null,
+      viewUnavailable: false,
     });
   });
 
-  it('gives an editor without a view key no view link yet', () => {
+  it('marks the view link unavailable for an editor the server sent no view key', () => {
+    // The demo room (every key edits) and a server without ROOM_SECRET send no view key.
     const links = shareLinks({ ...base, key: 'EDITKEY', role: 'edit', viewKey: null });
     expect(links.edit).toBe('https://relay.test/r/room1#k=EDITKEY&p=main');
     expect(links.view).toBeNull();
+    expect(links.viewUnavailable).toBe(true);
   });
 
   it("never puts the editor's own key in the view link", () => {
@@ -22,12 +25,14 @@ describe('shareLinks', () => {
     expect(links.edit).toBe('https://relay.test/r/room1#k=EDITKEY&p=main');
     expect(links.view).toBe('https://relay.test/r/room1#k=VIEWKEY&p=main');
     expect(links.view).not.toContain('EDITKEY');
+    expect(links.viewUnavailable).toBe(false);
   });
 
   it('gives a viewer no edit link and a view link with its own key', () => {
     expect(shareLinks({ ...base, key: 'VIEWKEY', role: 'view', viewKey: null })).toEqual({
       edit: null,
       view: 'https://relay.test/r/room1#k=VIEWKEY&p=main',
+      viewUnavailable: false,
     });
   });
 

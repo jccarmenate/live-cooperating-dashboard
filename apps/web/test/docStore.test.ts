@@ -270,4 +270,48 @@ describe('pages', () => {
     const docs = createDocStore(doc);
     expect(docs.store.getState().connectors).toEqual({});
   });
+
+  it('leaves shapes on a tombstoned page out of allShapes, even before they are deleted', () => {
+    // A replica can receive the tombstone ahead of the shape deletions.
+    const doc = new Y.Doc();
+    createPage(doc, 'p2', 'a1');
+    sticky(doc, 'm1');
+    sticky(doc, 'q1', 'p2');
+    const docs = createDocStore(doc);
+    expect(Object.keys(docs.store.getState().allShapes).sort()).toEqual(['m1', 'q1']);
+    getRoots(doc).pageTombstones.set('p2', true);
+    expect(getRoots(doc).shapes.has('q1')).toBe(true);
+    expect(Object.keys(docs.store.getState().allShapes)).toEqual(['m1']);
+  });
+
+  it('projects a shape whose parent frame is on another page as a root shape', () => {
+    const doc = new Y.Doc();
+    createPage(doc, 'p2', 'a1');
+    applyCommand(
+      doc,
+      {
+        type: 'CreateShape',
+        shape: {
+          id: 'f1',
+          type: 'frame',
+          x: 0,
+          y: 0,
+          w: 720,
+          h: 440,
+          style: DEFAULT_STYLE.frame,
+          createdBy: 'u1',
+          authorName: 'A',
+          createdAt: 0,
+        },
+      },
+      LOCAL_ORIGIN,
+    );
+    sticky(doc, 'q1', 'p2');
+    getRoots(doc).shapes.get('q1')?.set('parentId', 'f1');
+    const docs = createDocStore(doc, 'p2');
+    expect(docs.store.getState().activePage).toBe('p2');
+    expect(docs.store.getState().shapes.q1).toBeDefined();
+    expect(docs.store.getState().shapes.q1?.parentId).toBeUndefined();
+    expect(docs.store.getState().shapes.f1).toBeUndefined();
+  });
 });

@@ -1,5 +1,6 @@
 import * as Y from 'yjs';
-import { DEFAULT_STYLE, MAX_COLUMNS } from './defaults';
+import { DEFAULT_STYLE, MAX_BOARD_TITLE, MAX_COLUMNS } from './defaults';
+import { MAIN_PAGE, pageIdOf } from './pages';
 import {
   type BoardMeta,
   type Connector,
@@ -48,8 +49,8 @@ export function readShape(id: string, m: Y.Map<unknown>): Shape | null {
   if (parentId) shape.parentId = parentId;
   const columnId = str(m.get('columnId'));
   if (columnId) shape.columnId = columnId;
-  const pageId = str(m.get('pageId'));
-  if (pageId) shape.pageId = pageId;
+  const pageId = pageIdOf(m.get('pageId'));
+  if (pageId !== MAIN_PAGE) shape.pageId = pageId;
   const tag = str(m.get('tag'));
   if (tag) shape.tag = tag;
   const lang = str(m.get('lang'));
@@ -99,6 +100,7 @@ export function readConnector(id: string, m: Y.Map<unknown>): Connector | null {
   const from = readEndpoint(m.get('from'));
   const to = readEndpoint(m.get('to'));
   if (!from || !to) return null;
+  const pageId = pageIdOf(m.get('pageId'));
   return {
     id,
     from,
@@ -107,7 +109,7 @@ export function readConnector(id: string, m: Y.Map<unknown>): Connector | null {
     head: m.get('head') === 'none' ? 'none' : 'arrow',
     z: str(m.get('z')) ?? 'a0',
     createdBy: str(m.get('createdBy')) ?? 'unknown',
-    ...(str(m.get('pageId')) ? { pageId: str(m.get('pageId')) as string } : {}),
+    ...(pageId !== MAIN_PAGE ? { pageId } : {}),
   };
 }
 
@@ -115,7 +117,7 @@ export function readMeta(meta: Y.Map<unknown>): BoardMeta {
   const breadcrumb = meta.get('breadcrumb');
   return {
     schemaVersion: num(meta.get('schemaVersion'), SCHEMA_VERSION),
-    title: str(meta.get('title')) ?? 'Untitled board',
+    title: (str(meta.get('title')) ?? 'Untitled board').slice(0, MAX_BOARD_TITLE),
     breadcrumb: Array.isArray(breadcrumb)
       ? breadcrumb.filter((b): b is string => typeof b === 'string')
       : [],

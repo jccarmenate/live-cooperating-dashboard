@@ -4,6 +4,8 @@ import {
   DEFAULT_STYLE,
   getRoots,
   LOCAL_ORIGIN,
+  MAX_BOARD_TITLE,
+  MAX_PAGE_TITLE,
   type PointerInfo,
   SESSION_ORIGIN,
   type Undo,
@@ -838,5 +840,15 @@ describe('pages', () => {
     controller.renameBoard('  Q3 Retro ');
     controller.renameBoard('  ');
     expect(docs.store.getState().meta.title).toBe('Q3 Retro');
+  });
+
+  it('writes page and board titles cut to their caps', () => {
+    const { doc, controller } = setup();
+    const a = controller.createPage('board');
+    controller.renamePage(a, ` ${'p'.repeat(200)} `);
+    controller.renameBoard(` ${'b'.repeat(300)} `);
+    const { pages, meta } = getRoots(doc);
+    expect(pages.get(a)?.get('title')).toBe('p'.repeat(MAX_PAGE_TITLE));
+    expect(meta.get('title')).toBe('b'.repeat(MAX_BOARD_TITLE));
   });
 });

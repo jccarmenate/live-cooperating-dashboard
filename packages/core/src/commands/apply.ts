@@ -1,7 +1,7 @@
 import { generateKeyBetween } from 'fractional-indexing';
 import * as Y from 'yjs';
 import { getRoots } from '../schema/doc';
-import { MAIN_DEFAULTS, MAIN_PAGE } from '../schema/pages';
+import { MAIN_DEFAULTS, MAIN_PAGE, pageIdOf } from '../schema/pages';
 import { readVote, voteKey } from '../schema/session';
 import type { CommentEntry, FrameColumn } from '../schema/types';
 import { TEXT_TYPES } from '../schema/types';
@@ -42,6 +42,7 @@ function refersTo(end: unknown, ids: ReadonlySet<string>): boolean {
  * The map of a page that is not deleted; for the implicit main page, created with its
  * defaults on first write. Two peers may create main's map concurrently and one write
  * is lost, but deletes live in `pageTombstones`, so that can only lose a rename or move.
+ * An entry that is not a map (a misbehaving client) is left alone: undefined.
  */
 function pageEntry(
   pages: Y.Map<Y.Map<unknown>>,
@@ -49,8 +50,10 @@ function pageEntry(
   id: string,
 ): Y.Map<unknown> | undefined {
   if (tombstones.has(id)) return undefined;
-  const existing = pages.get(id);
-  if (existing || id !== MAIN_PAGE) return existing;
+  const existing: unknown = pages.get(id);
+  if (existing !== undefined || id !== MAIN_PAGE) {
+    return existing instanceof Y.Map ? (existing as Y.Map<unknown>) : undefined;
+  }
   const m = new Y.Map<unknown>();
   for (const [k, v] of Object.entries(MAIN_DEFAULTS)) m.set(k, v);
   pages.set(id, m);
@@ -223,13 +226,10 @@ function apply(doc: Y.Doc, cmd: Command): void {
       return;
     }
     case 'DeletePage': {
-      // Main always exists (implicitly or not); any other page must be known here.
-      if (cmd.id !== MAIN_PAGE && !pages.has(cmd.id)) return;
+      // Main always exists (implicitly or not); any other page must be held here as a map.
+      if (cmd.id !== MAIN_PAGE && !((pages.get(cmd.id) as unknown) instanceof Y.Map)) return;
       if (!pageTombstones.has(cmd.id)) pageTombstones.set(cmd.id, true);
-      const onPage = (item: Y.Map<unknown>) => {
-        const p = item.get('pageId');
-        return (typeof p === 'string' ? p : MAIN_PAGE) === cmd.id;
-      };
+      const onPage = (item: Y.Map<unknown>) => pageIdOf(item.get('pageId')) === cmd.id;
       const removed = new Set<string>();
       for (const [id, s] of [...shapes.entries()]) {
         if (!onPage(s)) continue;

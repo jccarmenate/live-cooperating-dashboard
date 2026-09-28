@@ -1,3 +1,4 @@
+import { MAX_BOARD_TITLE } from '@relay/core';
 import { useRef, useState } from 'react';
 import { useStore } from 'zustand';
 import type { BoardSession } from '../board/session';
@@ -32,6 +33,7 @@ export function BoardTitle({ session }: { session: BoardSession }) {
         data-testid="board-title-input"
         aria-label="Board title"
         defaultValue={title}
+        maxLength={MAX_BOARD_TITLE}
         className="w-48 border-2 border-ink px-1 font-mono text-xs font-semibold outline-none"
         onKeyDown={(e) => {
           e.stopPropagation();

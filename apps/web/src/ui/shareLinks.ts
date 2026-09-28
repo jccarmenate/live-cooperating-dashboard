@@ -1,6 +1,16 @@
 import type { Role } from '@relay/core';
 import { hashFor } from '../sync/key';
 
+export interface ShareLinks {
+  edit: string | null;
+  view: string | null;
+  /**
+   * True when the server named us an editor but sent no view key: the demo room (where every
+   * key edits) or a server without ROOM_SECRET. No read-only link exists, so none will arrive.
+   */
+  viewUnavailable: boolean;
+}
+
 /**
  * The links the Share dialog offers; null while one is not known yet. An editor's view link
  * uses the server-sent view key, never its own (edit) key. Before the server's hello names the
@@ -13,14 +23,17 @@ export function shareLinks(opts: {
   role: Role | null;
   viewKey: string | null;
   page: string;
-}): { edit: string | null; view: string | null } {
+}): ShareLinks {
   const base = `${opts.origin}/r/${opts.roomId}`;
   if (opts.role === 'edit') {
     return {
       edit: `${base}${hashFor(opts.key, opts.page)}`,
       view: opts.viewKey ? `${base}${hashFor(opts.viewKey, opts.page)}` : null,
+      viewUnavailable: !opts.viewKey,
     };
   }
-  if (opts.role === 'view') return { edit: null, view: `${base}${hashFor(opts.key, opts.page)}` };
-  return { edit: null, view: null };
+  if (opts.role === 'view') {
+    return { edit: null, view: `${base}${hashFor(opts.key, opts.page)}`, viewUnavailable: false };
+  }
+  return { edit: null, view: null, viewUnavailable: false };
 }

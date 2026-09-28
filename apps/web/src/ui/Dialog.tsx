@@ -14,7 +14,8 @@ export function Dialog({
   useEffect(() => {
     panel.current?.focus();
   }, []);
-  // Escape still closes the dialog when focus has left the panel (e.g. a click on the backdrop).
+  // Escape still closes the dialog when focus has left the panel (e.g. Tab past its last
+  // control, since there is no focus trap). A backdrop click closes the dialog on its own.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
@@ -66,7 +67,7 @@ export function ConfirmDialog({
 }) {
   return (
     <Dialog title={title} onClose={onClose}>
-      <p className="font-mono text-xs">{message}</p>
+      <p className="break-words font-mono text-xs">{message}</p>
       <div className="mt-4 flex justify-end gap-2">
         <button
           type="button"

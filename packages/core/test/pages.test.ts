@@ -6,7 +6,10 @@ import {
   getRoots,
   LOCAL_ORIGIN,
   MAIN_PAGE,
+  MAX_BOARD_TITLE,
+  MAX_PAGE_TITLE,
   orderBetween,
+  pageIdOf,
   pageOf,
   readComment,
   readConnector,
@@ -432,5 +435,160 @@ describe('pages', () => {
     expect(orderBetween('a5', null) > 'a5').toBe(true);
     expect(orderBetween(null, 'a0') < 'a0').toBe(true);
     expect(typeof orderBetween('!!bad', null)).toBe('string');
+  });
+});
+
+describe('title caps', () => {
+  it('reads an oversized page title cut to MAX_PAGE_TITLE', () => {
+    const doc = new Y.Doc();
+    applyCommand(
+      doc,
+      { type: 'CreatePage', page: { ...newPage('p2', 'a1'), title: 'x'.repeat(500) } },
+      LOCAL_ORIGIN,
+    );
+    applyCommand(doc, { type: 'RenamePage', id: 'main', title: 'y'.repeat(500) }, LOCAL_ORIGIN);
+    const titles = visible(doc).map((p) => p.title);
+    expect(MAX_PAGE_TITLE).toBe(80);
+    expect(titles).toEqual(['y'.repeat(MAX_PAGE_TITLE), 'x'.repeat(MAX_PAGE_TITLE)]);
+  });
+
+  it('reads an oversized board title cut to MAX_BOARD_TITLE', () => {
+    const doc = new Y.Doc();
+    applyCommand(doc, { type: 'RenameBoard', title: 'z'.repeat(1000) }, LOCAL_ORIGIN);
+    expect(MAX_BOARD_TITLE).toBe(120);
+    expect(readMeta(getRoots(doc).meta).title).toBe('z'.repeat(MAX_BOARD_TITLE));
+  });
+});
+
+describe('non-map page entries', () => {
+  /** A misbehaving client may write any value under a page id. */
+  const junk = (doc: Y.Doc, id: string) =>
+    (getRoots(doc).pages as unknown as Y.Map<unknown>).set(id, 'junk');
+
+  it('reads a non-map entry as absent; a non-map main does not hide the implicit main', () => {
+    const doc = new Y.Doc();
+    junk(doc, 'p3');
+    junk(doc, MAIN_PAGE);
+    expect(visible(doc)).toEqual([
+      { id: 'main', type: 'board', title: 'Board', order: 'a0', createdBy: '', createdAt: 0 },
+    ]);
+  });
+
+  it('rename and move leave non-map entries alone', () => {
+    const doc = new Y.Doc();
+    junk(doc, 'p3');
+    junk(doc, MAIN_PAGE);
+    for (const id of ['p3', MAIN_PAGE]) {
+      applyCommand(doc, { type: 'RenamePage', id, title: 'T' }, LOCAL_ORIGIN);
+      applyCommand(doc, { type: 'MovePage', id, order: 'a5' }, LOCAL_ORIGIN);
+      expect((getRoots(doc).pages as unknown as Y.Map<unknown>).get(id)).toBe('junk');
+    }
+  });
+
+  it('DeletePage of a non-map page is a no-op, but deleting main still tombstones it', () => {
+    const doc = new Y.Doc();
+    junk(doc, 'p3');
+    junk(doc, MAIN_PAGE);
+    sticky(doc, 's3', 'p3');
+    sticky(doc, 'sm');
+    applyCommand(doc, { type: 'DeletePage', id: 'p3' }, LOCAL_ORIGIN);
+    expect(getRoots(doc).pageTombstones.has('p3')).toBe(false);
+    expect(getRoots(doc).shapes.has('s3')).toBe(true);
+    applyCommand(doc, { type: 'DeletePage', id: MAIN_PAGE }, LOCAL_ORIGIN);
+    expect(getRoots(doc).pageTombstones.get(MAIN_PAGE)).toBe(true);
+    expect(getRoots(doc).shapes.has('sm')).toBe(false);
+    expect(visible(doc)).toEqual([]);
+  });
+});
+
+describe('pageIdOf', () => {
+  const long = 'p'.repeat(65);
+
+  it('keeps a non-empty id of at most 64 characters; anything else is main', () => {
+    expect(pageIdOf('p2')).toBe('p2');
+    expect(pageIdOf('p'.repeat(64))).toBe('p'.repeat(64));
+    expect(pageIdOf('')).toBe(MAIN_PAGE);
+    expect(pageIdOf(long)).toBe(MAIN_PAGE);
+    expect(pageIdOf(7)).toBe(MAIN_PAGE);
+    expect(pageIdOf(null)).toBe(MAIN_PAGE);
+    expect(pageIdOf(undefined)).toBe(MAIN_PAGE);
+    expect(pageIdOf({ id: 'p2' })).toBe(MAIN_PAGE);
+  });
+
+  it('shapes, connectors and comments with a malformed pageId read as main', () => {
+    for (const bad of ['', long, 42, true]) {
+      const doc = new Y.Doc();
+      const { shapes, connectors, comments } = getRoots(doc);
+      sticky(doc, 's');
+      shapes.get('s')?.set('pageId', bad);
+      applyCommand(
+        doc,
+        {
+          type: 'Connect',
+          connector: {
+            id: 'k',
+            from: { x: 0, y: 0 },
+            to: { x: 5, y: 5 },
+            routing: 'straight',
+            head: 'arrow',
+            createdBy: 'u1',
+          },
+        },
+        LOCAL_ORIGIN,
+      );
+      connectors.get('k')?.set('pageId', bad);
+      applyCommand(
+        doc,
+        {
+          type: 'AddComment',
+          id: 'c',
+          pageId: 'main',
+          anchor: { x: 0, y: 0 },
+          createdBy: 'u1',
+          createdAt: 0,
+          entry: { id: 'e', authorId: 'u1', author: 'A', body: 'hi', ts: 0 },
+        },
+        SESSION_ORIGIN,
+      );
+      comments.get('c')?.set('pageId', bad);
+      expect(readShape('s', shapes.get('s') as Y.Map<unknown>)?.pageId).toBeUndefined();
+      expect(readConnector('k', connectors.get('k') as Y.Map<unknown>)?.pageId).toBeUndefined();
+      expect(readComment('c', comments.get('c') as Y.Map<unknown>)?.pageId).toBe(MAIN_PAGE);
+    }
+  });
+
+  it('a connector on main reads with no pageId', () => {
+    const doc = new Y.Doc();
+    applyCommand(
+      doc,
+      {
+        type: 'Connect',
+        connector: {
+          id: 'k',
+          pageId: MAIN_PAGE,
+          from: { x: 0, y: 0 },
+          to: { x: 5, y: 5 },
+          routing: 'straight',
+          head: 'arrow',
+          createdBy: 'u1',
+        },
+      },
+      LOCAL_ORIGIN,
+    );
+    const k = getRoots(doc).connectors.get('k') as Y.Map<unknown>;
+    expect(k.get('pageId')).toBe(MAIN_PAGE);
+    expect(readConnector('k', k)?.pageId).toBeUndefined();
+  });
+
+  it('deleting main removes items whose pageId is malformed', () => {
+    const doc = new Y.Doc();
+    applyCommand(doc, { type: 'CreatePage', page: newPage('p2', 'a1') }, LOCAL_ORIGIN);
+    sticky(doc, 'empty');
+    sticky(doc, 'long');
+    sticky(doc, 'kept', 'p2');
+    getRoots(doc).shapes.get('empty')?.set('pageId', '');
+    getRoots(doc).shapes.get('long')?.set('pageId', long);
+    applyCommand(doc, { type: 'DeletePage', id: MAIN_PAGE }, LOCAL_ORIGIN);
+    expect([...getRoots(doc).shapes.keys()]).toEqual(['kept']);
   });
 });
