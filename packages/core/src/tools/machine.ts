@@ -188,16 +188,18 @@ function newShape(ctx: ToolContext, type: DrawTool | ClickTool, rect: Rect): New
 
 const pastThreshold = (a: Point, b: Point) => Math.hypot(b.x - a.x, b.y - a.y) >= DRAG_THRESHOLD;
 
-/** The selection plus the children of any selected frame (they move together). */
+/** The unlocked selection plus the unlocked children of any unlocked selected frame (they move together). */
 function withChildren(selection: string[], ctx: ToolContext): string[] {
   const ids: string[] = [];
   const add = (id: string) => {
-    if (ctx.shapes[id] && !ids.includes(id)) ids.push(id);
+    const s = ctx.shapes[id];
+    if (s && !s.locked && !ids.includes(id)) ids.push(id);
   };
   for (const id of selection) {
+    const s = ctx.shapes[id];
+    if (!s || s.locked) continue;
     add(id);
-    if (ctx.shapes[id]?.type === 'frame')
-      for (const child of childrenOf(ctx.shapes, id)) add(child);
+    if (s.type === 'frame') for (const child of childrenOf(ctx.shapes, id)) add(child);
   }
   return ids;
 }
@@ -323,7 +325,7 @@ function pointerDownIdle(state: IdleState, p: PointerInfo, ctx: ToolContext): St
     case 'select': {
       const only = state.selection.length === 1 ? state.selection[0] : undefined;
       const target = only ? ctx.shapes[only] : undefined;
-      if (p.handle && only && target) {
+      if (p.handle && only && target && !target.locked) {
         return none({
           mode: 'resizing',
           tool: 'select',
@@ -362,6 +364,8 @@ function pointerDownIdle(state: IdleState, p: PointerInfo, ctx: ToolContext): St
         const s = ctx.shapes[id];
         if (s) starts[id] = geometryOf(s);
       }
+      // Nothing movable under the press (only locked shapes): just select.
+      if (Object.keys(starts).length === 0) return none(idle('select', selection));
       return none({
         mode: 'dragging',
         tool: 'select',
@@ -422,12 +426,17 @@ function stepIdle(state: IdleState, event: ToolEvent, ctx: ToolContext): StepRes
   switch (event.type) {
     case 'setTool':
       return none(idle(event.tool, event.tool === 'select' ? state.selection : []));
-    case 'deleteSelection':
-      if (state.selection.length === 0) return none(state);
+    case 'deleteSelection': {
+      const ids = state.selection.filter((id) => !ctx.shapes[id]?.locked);
+      if (ids.length === 0) return none(state);
       return {
-        state: idle(state.tool, []),
-        effects: [command({ type: 'DeleteShapes', ids: state.selection }), END],
+        state: idle(
+          state.tool,
+          state.selection.filter((id) => !ids.includes(id)),
+        ),
+        effects: [command({ type: 'DeleteShapes', ids }), END],
       };
+    }
     case 'nudge': {
       const rects: Record<string, Rect> = {};
       for (const id of withChildren(state.selection, ctx)) {
@@ -462,6 +471,7 @@ function stepIdle(state: IdleState, event: ToolEvent, ctx: ToolContext): StepRes
       if (
         column &&
         frame?.type === 'frame' &&
+        !frame.locked &&
         frameColumns(frame).some((c) => c.id === column.columnId)
       ) {
         return {
@@ -470,7 +480,7 @@ function stepIdle(state: IdleState, event: ToolEvent, ctx: ToolContext): StepRes
         };
       }
       const shape = event.p.hitId ? ctx.shapes[event.p.hitId] : undefined;
-      if (!shape || !TEXT_TYPES.has(shape.type)) return none(state);
+      if (!shape || !TEXT_TYPES.has(shape.type) || shape.locked) return none(state);
       return { state: idle('select', [shape.id]), effects: [{ type: 'editText', id: shape.id }] };
     }
     case 'pointerDown':
