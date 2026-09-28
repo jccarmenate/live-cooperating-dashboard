@@ -721,7 +721,7 @@ A `sheet` page is a shared spreadsheet. It is a grid of cells whose rows and col
   - **Copy** writes the selected range to the clipboard as tab-separated text of the *displayed* values. It also remembers the range's sources and formats in the tab.
   - **Pasting back the same text** into a sheet uses the remembered sources: relative references shift by the offset between the source and target cells (as in Excel), and a shifted reference outside the sheet becomes `#REF!`.
   - **Pasting other text** parses tab-separated rows (with quoted fields as Excel and Google Sheets write them). Each field is stored as typed, and a field starting with `=` is read as an A1 formula at its target cell.
-  - **Size:** a paste starts at the active cell. Rows and columns are added as needed up to the limits, in the same undo step as the cells.
+  - **Size:** a paste starts at the selection's top-left cell. Rows and columns are added as needed up to the limits, in the same undo step as the cells.
   - **Cut** copies, then clears the sources of the range.
 - **Fill:**
   - `Ctrl+D` copies the top row of the selection into the rows below it within the selection.

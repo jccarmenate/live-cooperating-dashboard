@@ -147,7 +147,7 @@ describe('sheet controller', () => {
   });
 
   it('paste and cut are one undo step each', () => {
-    const { board, ctl, s, at, type } = setup();
+    const { board, ctl, s, at, src, type } = setup();
     ctl.select(at('A1'));
     ctl.paste('1\t2\n3\t4');
     board.undo();
@@ -156,6 +156,89 @@ describe('sheet controller', () => {
     ctl.select(at('A1'));
     expect(ctl.cut()).toBe('x');
     expect(s().cells).toEqual({});
+    board.undo();
+    expect(src('A1')).toBe('x');
+  });
+
+  it('pastes its own copy on another sheet page, reading references there', () => {
+    const { board, ctl, at, src, value, type } = setup();
+    type('A1', '2');
+    type('B1', '=A1+1');
+    ctl.select(at('B1'));
+    expect(ctl.copy()).toBe('3');
+    board.setPage(board.createPage('sheet'));
+    type('A1', '5');
+    ctl.select(at('B1'));
+    expect(ctl.paste('3')).toBe(true);
+    expect(src('B1')).toBe('=A1+1');
+    expect(value('B1')).toEqual({ t: 'num', v: 6 });
+  });
+
+  it('shifts its own copy from the copy-time position after a structural edit', () => {
+    const { ctl, at, src, type } = setup();
+    type('A2', '7');
+    type('B2', '=A2+1');
+    ctl.select(at('B2'));
+    const text = ctl.copy() as string;
+    ctl.select(at('A1'));
+    ctl.insertRows('above');
+    expect(src('B3')).toBe('=A3+1');
+    ctl.select(at('B5'));
+    expect(ctl.paste(text)).toBe(true);
+    expect(src('B5')).toBe('=A5+1');
+  });
+
+  it('recognises its own copy when the clipboard turned newlines into CRLF', () => {
+    const { ctl, at, src, type } = setup();
+    type('A1', '2');
+    type('A2', '=A1+1');
+    ctl.select(at('A1'));
+    ctl.select(at('A2'), true);
+    const text = ctl.copy() as string;
+    expect(text).toBe('2\n3');
+    ctl.select(at('C1'));
+    expect(ctl.paste(`${text.replace(/\n/g, '\r\n')}\r\n`)).toBe(true);
+    expect(src('C2')).toBe('=C1+1');
+  });
+
+  it('counts the paste budget in bytes, not characters', () => {
+    const { ctl, s, at, notify } = setup();
+    ctl.select(at('A1'));
+    expect(ctl.paste(Array.from({ length: 100 }, () => '漢'.repeat(800)).join('\n'))).toBe(false);
+    expect(notify).toHaveBeenCalledWith('Too much to paste at once');
+    expect(s().cells).toEqual({});
+  });
+
+  it('skips pasted formulas whose stored form is too long, telling once; slices plain text', () => {
+    const { ctl, at, src, notify } = setup();
+    const long = `=${Array.from({ length: 100 }, () => 'A1').join('+')}`;
+    ctl.select(at('A1'));
+    expect(ctl.paste(`${long}\t${long}\thello\t${'z'.repeat(1200)}`)).toBe(true);
+    expect(src('A1')).toBe('');
+    expect(src('B1')).toBe('');
+    expect(src('C1')).toBe('hello');
+    expect(src('D1')).toHaveLength(1000);
+    expect(notify.mock.calls.filter(([m]) => m === 'That formula is too long')).toHaveLength(1);
+  });
+
+  it('clamps a very tall paste to the row limit', () => {
+    const { ctl, s, at } = setup();
+    ctl.select(at('A1'));
+    expect(ctl.paste(Array.from({ length: 200_000 }, () => 'a').join('\n'))).toBe(true);
+    expect(s().rows).toHaveLength(500);
+    expect(ctl.range()).toEqual({ r0: 0, r1: 499, c0: 0, c1: 0 });
+  });
+
+  it('fillTo anchors the result at the top-left of the selection', () => {
+    const { ctl, at, type } = setup();
+    type('B1', '1');
+    type('B2', '2');
+    ctl.select(at('B2'));
+    ctl.select(at('B1'), true);
+    ctl.fillTo(at('D1'));
+    expect(ctl.ui.getState().anchor).toEqual(at('B1'));
+    expect(ctl.ui.getState().focus).toEqual(at('D2'));
+    expect(ctl.range()).toEqual({ r0: 0, r1: 1, c0: 1, c1: 3 });
   });
 
   it('fills down and to the right, shifting relative references', () => {

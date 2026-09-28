@@ -16,6 +16,7 @@ import {
   type SheetCellWrite,
   type SheetSnapshot,
   sheetId,
+  shiftA1,
   shiftStored,
   toDisplay,
   toStored,
@@ -91,8 +92,17 @@ export function rangeOf(sheet: SheetSnapshot, a: CellPos, b: CellPos): SheetRang
 }
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
-/** Rough size of a SetCells batch as a Yjs update (JSON text plus per-entry overhead). */
-const batchBytes = (cells: SheetCellWrite[]) => JSON.stringify(cells).length + cells.length * 16;
+/** Rough size of a SetCells batch as a Yjs update (UTF-8 JSON bytes plus per-entry overhead). */
+const batchBytes = (cells: SheetCellWrite[]) =>
+  new TextEncoder().encode(JSON.stringify(cells)).length + cells.length * 16;
+/** Clipboard text as compared with the remembered copy (clipboards may add CRLF or a final newline). */
+const normalizeClip = (t: string) => t.replace(/\r\n?/g, '\n').replace(/\n$/, '');
+
+/** A cell of the remembered copy: formulas in A1 form as of copy time, so they paste on any page. */
+interface ClipCell {
+  src: string;
+  fmt?: CellFormat;
+}
 
 function mergeFormat(fmt: CellFormat | undefined, patch: FormatPatch): CellFormat | undefined {
   const next: CellFormat = { ...fmt };
@@ -235,7 +245,8 @@ export function createSheetController(opts: {
     setCells(writes);
   };
 
-  let clip: { text: string; r0: number; c0: number; cells: (CellData | null)[][] } | null = null;
+  /** The last copy: its normalized text, its copy-time top-left indices and its cells. */
+  let clip: { text: string; r0: number; c0: number; cells: ClipCell[][] } | null = null;
 
   const copy = (): string | null => {
     const s = snap();
@@ -243,21 +254,24 @@ export function createSheetController(opts: {
     if (!s || !r) return null;
     const values = opts.sheet.getState().values;
     const lines: string[][] = [];
-    const cells: (CellData | null)[][] = [];
+    const grid = gridOf(s);
+    const cells: ClipCell[][] = [];
     for (let i = r.r0; i <= r.r1; i++) {
       const line: string[] = [];
-      const row: (CellData | null)[] = [];
+      const row: ClipCell[] = [];
       for (let j = r.c0; j <= r.c1; j++) {
         const c = cellAt(s, i, j);
         const key = c ? cellKey(c.row, c.col) : '';
         line.push(formatValue(values.get(key) ?? { t: 'empty' }, c?.cell?.fmt));
-        row.push(c?.cell ?? null);
+        const cell = c?.cell;
+        const src = cell?.src.startsWith('=') ? toDisplay(cell.src, grid) : (cell?.src ?? '');
+        row.push(cell?.fmt ? { src, fmt: cell.fmt } : { src });
       }
       lines.push(line);
       cells.push(row);
     }
     const text = toTsv(lines);
-    clip = { text, r0: r.r0, c0: r.c0, cells };
+    clip = { text: normalizeClip(text), r0: r.r0, c0: r.c0, cells };
     return text;
   };
 
@@ -421,15 +435,13 @@ export function createSheetController(opts: {
       const r = range();
       const pageId = page();
       if (!s || !r || !pageId || !opts.canEdit()) return false;
-      const own = clip && clip.text === text ? clip : null;
-      const block: { src: string; fmt?: CellFormat }[][] = own
-        ? own.cells.map((row) =>
-            row.map((c) => (c?.fmt ? { src: c.src, fmt: c.fmt } : { src: c?.src ?? '' })),
-          )
-        : parseTsv(text).map((row) => row.map((src) => ({ src })));
+      const own = clip && clip.text === normalizeClip(text) ? clip : null;
+      const block: ClipCell[][] = (
+        own ? own.cells : parseTsv(text).map((row) => row.map((src) => ({ src })))
+      ).slice(0, MAX_SHEET_ROWS - r.r0);
       if (block.length === 0) return false;
       const height = block.length;
-      const width = Math.max(...block.map((row) => row.length));
+      const width = block.reduce((w, row) => Math.max(w, row.length), 0);
       const rowsNeeded = Math.min(MAX_SHEET_ROWS, r.r0 + height) - s.rows.length;
       const colsNeeded = Math.min(MAX_SHEET_COLS, r.c0 + width) - s.cols.length;
       const newRows =
@@ -451,19 +463,27 @@ export function createSheetController(opts: {
         cols: [...s.cols.map((x) => x.id), ...newCols.map((x) => x.id)],
       };
       const writes: SheetCellWrite[] = [];
+      let tooLong = false;
       block.forEach((line, i) => {
         line.forEach((b, j) => {
           const row = grid.rows[r.r0 + i];
           const col = grid.cols[r.c0 + j];
           if (!row || !col) return;
-          let src = b.src;
-          if (src.startsWith('=')) {
-            src = own ? shiftStored(src, r.r0 - own.r0, r.c0 - own.c0, grid) : toStored(src, grid);
-          }
           const fmt = own ? b.fmt : s.cells[cellKey(row, col)]?.fmt;
-          writes.push(write(row, col, src.slice(0, MAX_CELL_SRC), fmt));
+          if (!b.src.startsWith('=')) {
+            writes.push(write(row, col, b.src.slice(0, MAX_CELL_SRC), fmt));
+            return;
+          }
+          // Own copy: A1 as of copy time, shifted by the offset from the copy-time position.
+          const a1 = own ? shiftA1(b.src, r.r0 - own.r0, r.c0 - own.c0) : b.src;
+          const src = toStored(a1, grid);
+          // Never cut a stored formula mid-id: skip it instead.
+          if (src.length > MAX_CELL_SRC) tooLong = true;
+          else writes.push(write(row, col, src, fmt));
         });
       });
+      if (tooLong) notify('That formula is too long');
+      if (writes.length === 0) return false;
       if (batchBytes(writes) > MAX_SHEET_BATCH_BYTES) {
         notify('Too much to paste at once');
         return false;
@@ -504,6 +524,7 @@ export function createSheetController(opts: {
       const t = rangeOf(s, target, target);
       if (!t) return;
       const writes: SheetCellWrite[] = [];
+      const anchor = posAt(s, r.r0, r.c0);
       let focus: CellPos | null = null;
       if (t.r0 > r.r1) {
         const h = r.r1 - r.r0 + 1;
@@ -522,7 +543,7 @@ export function createSheetController(opts: {
           }
         focus = posAt(s, r.r1, t.c0);
       } else return;
-      if (setCells(writes) && focus) ui.setState({ focus });
+      if (setCells(writes) && anchor && focus) ui.setState({ anchor, focus });
     },
     destroy() {
       unsubscribe();
