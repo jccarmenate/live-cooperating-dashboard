@@ -11,7 +11,9 @@ export function useSheetClipboard(session: BoardSession, ctl: SheetController | 
       !e.clipboardData ||
       isTyping(e.target) ||
       ctl.ui.getState().editing !== null ||
-      (e.target instanceof Element && e.target.closest('[role="dialog"]') !== null);
+      (e.target instanceof Element && e.target.closest('[role="dialog"]') !== null) ||
+      // Selected page text (a header, a toast) copies natively; a paste still goes to the grid.
+      (e.type !== 'paste' && window.getSelection()?.isCollapsed === false);
     const canEdit = () => session.conn.clock.getState().role === 'edit';
     const onCopy = (e: ClipboardEvent) => {
       if (skip(e)) return;

@@ -10,12 +10,22 @@ const ARROWS: Partial<Record<string, [number, number]>> = {
   ArrowRight: [0, 1],
 };
 
+/** Focus is on an interactive control: its keys (Tab, Enter, arrows) keep their native meaning. */
+function isControl(target: EventTarget | null): boolean {
+  return (
+    target instanceof Element &&
+    target.closest('button, select, a[href], [role="menuitem"], [role="tab"], [role="option"]') !==
+      null
+  );
+}
+
 /** Grid keys on a sheet page (the formula bar and cell editor handle their own keys). */
 export function useSheetKeys(session: BoardSession, ctl: SheetController | null) {
   useEffect(() => {
     if (!ctl) return;
     const onKeyDown = (e: KeyboardEvent) => {
-      if (isTyping(e.target) || e.altKey || ctl.ui.getState().editing) return;
+      if (isTyping(e.target) || isControl(e.target) || e.altKey || ctl.ui.getState().editing)
+        return;
       const canEdit = session.conn.clock.getState().role === 'edit';
       if (e.ctrlKey || e.metaKey) {
         const k = e.key.toLowerCase();

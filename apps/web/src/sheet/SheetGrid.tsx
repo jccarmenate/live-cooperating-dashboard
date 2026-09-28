@@ -107,6 +107,8 @@ export function SheetGrid({
       ref={scroller}
       data-scroll-region
       data-testid="sheet-grid"
+      // biome-ignore lint/a11y/noNoninteractiveTabindex: the grid takes keyboard focus so arrows/Tab/Enter drive the selection and Tab can leave it
+      tabIndex={0}
       className="relative min-h-0 flex-1 select-none overflow-auto bg-white"
       onScroll={(e) =>
         setView({ top: e.currentTarget.scrollTop, height: e.currentTarget.clientHeight })
@@ -118,6 +120,8 @@ export function SheetGrid({
         const active = document.activeElement;
         if (active instanceof HTMLElement && active !== document.body) active.blur();
         if (ctl.ui.getState().editing) ctl.commitEdit();
+        // Keyboard focus follows the click onto the grid, not a leftover button or select.
+        e.currentTarget.focus({ preventScroll: true });
         ctl.select(p, e.shiftKey);
         dragging.current = true;
         e.currentTarget.setPointerCapture(e.pointerId);
