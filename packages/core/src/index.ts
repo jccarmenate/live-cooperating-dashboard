@@ -19,6 +19,7 @@ export * from './schema/session';
 export * from './schema/snapshot';
 export * from './schema/types';
 export * from './sheet/address';
+export * from './sheet/evaluate';
 export * from './sheet/lexer';
 export * from './sheet/model';
 export * from './sheet/parser';
