@@ -223,6 +223,11 @@ comments    Y.Map<id, Y.Map>
               createdBy   user id
               createdAt   epoch ms
               thread      Y.Array<{ id, authorId, author, body, ts }>
+sheets      Y.Map<pageId, Y.Map>      (sheet pages only; created with the page)
+              rows        Y.Map<rowId, Y.Map { order }>
+              cols        Y.Map<colId, Y.Map { order, width? }>
+              cells       Y.Map<"<rowId>|<colId>", { src, fmt? }>   (atomic JSON;
+                          fmt: { bold?, align?, num? })
 ```
 
 Lines are shapes (`type: 'line'`) with endpoints encoded in `x, y, w, h`
@@ -270,6 +275,8 @@ geometry is derived from the shapes they attach to.
   editing: string | null;                    // shape id being text-edited ("typing…")
   viewport: { x: number; y: number; w: number; h: number } | null;  // world rect in view
   page: string | null;                       // page id this user is looking at
+  sheet?: { anchor: [string, string]; focus: [string, string]; editing: boolean } | null;
+                                             // [rowId, colId] selection on a sheet page
   ai?: { status: 'thinking'; target: string };
 }
 ```
@@ -305,10 +312,13 @@ All mutations are values of a typed union — `CreateShape`, `MoveShapes`,
 `RenameColumn`, `SetZ`, `SetText`, `SetStyle`, `SetLocked`, `SetHead`,
 `PasteItems`, `StartVote`, `EndVote`,
 `CastVote`, `RetractVote`, `AddComment`, `ReplyComment`, `ResolveComment`,
+the sheet commands (`SetCells`, `InsertRows`, `InsertCols`, `DeleteRows`,
+`DeleteCols`, `MoveRow`, `MoveCol`, `SetColWidth`),
 `ApplyAiProposal`, … — applied by `applyCommand(doc, cmd)` inside
 `doc.transact(fn, origin)`. UI code never touches Yjs types directly.
 
-`Y.UndoManager` tracks the `LOCAL` and `AI` origins only, so each user undoes
+`Y.UndoManager` tracks the `shapes`, `connectors` and `sheets` roots and
+the `LOCAL` and `AI` origins only, so each user undoes
 only their own changes. Votes and comments are applied with a third origin,
 `SESSION`, that the undo manager does not track: `Ctrl+Z` undoes board
 edits, never a vote or a message. Gestures call `stopCapturing()` on completion so a
@@ -442,6 +452,8 @@ break and Escape or a click outside ends editing. `M` selects the comment
 tool for editors only. `Ctrl+C` / `Ctrl+X` / `Ctrl+V` copy, cut and paste,
 `Ctrl+D` duplicates, `Ctrl+A` selects all, `]` / `[` bring to front / send
 to back, `Shift+1` zooms to fit everything, `?` opens the shortcut help.
+These are board shortcuts: on a sheet page they (and the board's clipboard
+handlers) are off, and the grid's own keys apply (see Sheets).
 
 ### Canvas UX (F4·P2)
 
@@ -554,7 +566,7 @@ pages.
   title }`, `MovePage { id, order }` (fractional key between neighbours),
   `DeletePage { id }` (writes `pageTombstones[id] = true`; rename, move and
   create ignore tombstoned ids; plus deletion of the page's shapes,
-  connectors and comments in the same transaction; a `DeletePage` of an id
+  connectors, comments and sheet in the same transaction; a `DeletePage` of an id
   this replica never held as a page writes no tombstone and deletes
   nothing), and `RenameBoard { title }` for `meta.title`. Page commands
   and `RenameBoard` are applied
@@ -585,8 +597,8 @@ pages.
 - **Tabs:** a strip under the header lists the visible pages. Click
   switches, double-click renames (Enter commits, Escape cancels, empty keeps
   the old title), dragging reorders, right-click opens a context menu
-  (Rename, Delete). "+" opens a menu of page types; `sheet` and `calendar`
-  are shown disabled ("soon") until P3/P4 enable them. A page of a type this
+  (Rename, Delete). "+" opens a menu of page types; `calendar` is shown
+  disabled ("soon") until P4 enables it (`sheet` is enabled since P3). A page of a type this
   client does not know renders an "unsupported page" notice. Viewers can
   switch pages but get no "+", no rename, no reorder and no delete.
 - **Share and title:** the header's SHARE button opens a dialog with the
@@ -599,6 +611,124 @@ pages.
   `ROOM_SECRET`. Clicking the board title (editors) edits it in place.
 - **Toasts:** a small queue of transient notices at the bottom centre ("Link
   copied", "Page deleted"), each dismissed after 3 s.
+
+### Sheets (F4·P3)
+
+A `sheet` page is a shared spreadsheet. It is a grid of cells whose rows and columns several users can insert, delete and reorder at the same time, with basic formulas.
+
+- **Model** (`sheets[pageId]`):
+  - **Rows and columns:** `rows` and `cols` are maps of small maps holding a fractional `order`, plus a column `width`.
+  - **Cells:** `cells` is a flat map keyed `"<rowId>|<colId>"`. Each value is an atomic `{ src, fmt? }`.
+  - **Ids:** row and column ids are 8-character random base-36 strings. They never contain `|`.
+  - **Source:** `src` is what the cell holds: text, a number as typed, or a formula starting with `=` in *stored form* (references by id, see Formulas).
+  - **Format:** `fmt` is `{ bold?: true, align?: 'left'|'center'|'right', num?: 'number'|'percent'|'eur'|'usd' }`.
+  - **Why this shape:**
+    - One entry per cell keeps concurrent edits of different cells independent. Concurrent edits of the same cell are last-writer-wins.
+    - Rows and columns are nested maps, so a concurrent move and delete of the same row cannot resurrect it: a write into a deleted map is dropped.
+    - Nested maps are only created with fresh ids by one client, so no two clients create the same key.
+- **Normalize on read:**
+  - **Order:** visible rows and columns are sorted by `order`, then id. Only the first 500 rows and 60 columns in that order are read.
+  - **Orphans:** a cell whose row or column is missing is ignored. This covers a cell written concurrently with the delete of its row, which is left as garbage.
+  - **Values:**
+    - an empty `src` is an empty cell;
+    - `src` is capped at 1000 characters;
+    - unknown `fmt` values are dropped;
+    - a `width` outside 40–600 px reads as the default 120.
+  - **Missing sheet:** a sheet page with no sheet map (or a malformed one) renders the "unsupported page" notice.
+- **Limits:**
+  - **Size:** a new sheet has 50 rows and 12 columns (A–L). A sheet has at most 500 rows and 60 columns; insert is disabled at the cap. A source is at most 1000 characters, and the editor enforces it.
+  - **Batches:** a batch of cell writes whose single update would exceed 192 KiB is refused with the toast "Too much to paste at once" (the same budget as board pastes).
+- **Commands:**
+  - **Origin:** all sheet commands are `LOCAL` origin, so they are undoable.
+    - The undo manager also tracks `sheets`.
+    - Switching pages still clears the undo and redo stacks.
+    - A cell edit, a paste, a fill, a clear, a format change and each structure change are each one undo step.
+  - **`SetCells { pageId, cells: [{ row, col, src, fmt? }] }`:** one transaction.
+    - An entry with an empty `src` and no `fmt` deletes the cell.
+    - A cell whose row or column does not exist at apply time is skipped.
+  - **`InsertRows { pageId, rows: [{ id, order }] }` and `InsertCols { pageId, cols: [{ id, order, width? }] }`.**
+  - **`DeleteRows { pageId, ids }` and `DeleteCols { pageId, ids }`:** these also delete those rows' or columns' cells in the same transaction.
+  - **`MoveRow { pageId, id, order }`, `MoveCol { pageId, id, order }` and `SetColWidth { pageId, id, width }`.**
+  - **No lazy creation:** commands never create a sheet map. A write to a page with no sheet (deleted, or not a sheet) is a no-op.
+  - **Page commands:** `CreatePage` for a `sheet` writes its sheet with the initial rows and columns in the same transaction. `DeletePage` deletes `sheets[pageId]`.
+- **Formulas:** a source starting with `=` is a formula.
+  - **Grammar:**
+    - **Literals:** numbers (`12`, `3.5`, `.5`, `1e3`), double-quoted text (`"a""b"` escapes a quote), and `TRUE`/`FALSE`.
+    - **References:** `A1`, `$A1`, `A$1` and `$A$1` (columns A–BH, rows 1–500), plus ranges `A1:B5`.
+    - **Operators,** from lowest to highest precedence:
+      1. comparisons `= <> < > <= >=`
+      2. `&` (concatenation)
+      3. `+ -`
+      4. `* /`
+      5. `^` (right-associative)
+      6. unary `- +`
+      7. postfix `%`
+    - **Functions:** `SUM`, `AVERAGE`, `MIN`, `MAX`, `COUNT`, `ROUND(x, digits)`, `ABS(x)` and `IF(cond, then, else?)`. Names are case-insensitive. Aggregates accept ranges.
+  - **Stored form:**
+    - **On commit:** each reference is translated to ids using the current order, as `[<rowId>.<colId>]`. A `$` goes before each absolute part, e.g. `[$ab12cd34.$ef56gh78]`. A range stores its corners as `[…]:[…]`.
+    - **On display** (formula bar, cell editor): the stored form is translated back to A1 with the current order. A reference whose row or column no longer exists shows `#REF!`, and it evaluates to `#REF!`.
+    - **Ranges:** a range covers the rows and columns between its two corners in the current order, so rows inserted inside it are included. A range with a deleted corner is `#REF!`.
+  - **Values:**
+    - A value is a number, text, a boolean or an error.
+    - A non-formula source that is a number literal is a number, `TRUE`/`FALSE` is a boolean, and anything else is text.
+  - **Evaluation rules:**
+    - **Empty cells:** an empty cell is 0 in arithmetic and `""` in `&`.
+    - **Aggregates:** they skip empty cells, text and booleans in ranges. `COUNT` counts numbers.
+    - **Arithmetic:** text in arithmetic is `#VALUE!`.
+    - **Comparisons:** numbers compare numerically and text compares case-insensitively. Across types, number < text < boolean.
+    - **`IF`:** only the chosen branch is evaluated.
+    - **Errors:** they propagate; the first one in evaluation order wins.
+  - **Errors:**
+    - `#DIV/0!`: division by zero;
+    - `#NAME?`: unknown function;
+    - `#VALUE!`: wrong type or arity;
+    - `#NUM!`: a non-finite result;
+    - `#ERROR!`: a syntax error;
+    - `#REF!`: a missing reference;
+    - `#CYCLE!`: every cell in a dependency cycle.
+  - **Recalculation:** every formula of the active sheet is re-evaluated from the document snapshot after each change. This happens in a pure, memoized core function.
+  - **Display:**
+    - numbers follow the browser locale, with up to 10 significant digits;
+    - `number` shows 2 decimals with grouping;
+    - `percent` shows the value ×100 with `%`;
+    - `eur` and `usd` show currency with 2 decimals;
+    - numbers align right and text aligns left, unless `align` is set.
+- **Grid UI:**
+  - **Layout:**
+    - sticky column letters and row numbers;
+    - rows are virtualised (only the visible rows plus a margin render). A row is 28 px and a column defaults to 120 px;
+    - a formula bar above the grid shows the active cell's address (e.g. `B3`) and its source in A1 form, and edits it;
+    - a format toolbar has Bold, align left/centre/right, and a number format picker (General, Number, Percent, € Euro, $ Dollar).
+  - **Keys:**
+    - **Moving:** arrows move, Shift+arrows extend a range, Tab / Shift+Tab move right/left, and Enter / Shift+Enter move down/up and commit an edit.
+    - **Editing:** a printable key starts editing with that character. F2 or a double-click edits the current content. Escape cancels.
+    - **Clearing:** Delete/Backspace clear the sources of the selected range and keep formats.
+    - **Other shortcuts:**
+      - `Ctrl+B`: bold
+      - `Ctrl+C` / `Ctrl+X` / `Ctrl+V`: copy, cut, paste
+      - `Ctrl+D`: fill down
+      - `Ctrl+Z` / `Ctrl+Shift+Z`: undo, redo
+      - `Ctrl+A`: select all
+  - **Mouse:**
+    - click selects, and drag or Shift+click extends;
+    - a header click selects the whole row or column;
+    - a right-click on a row header offers Insert above / below and Delete (the selected rows); on a column header, Insert left / right and Delete;
+    - dragging a header reorders it;
+    - dragging a column header's right edge resizes it (40–600 px).
+- **Copy and paste:**
+  - **Copy** writes the selected range to the clipboard as tab-separated text of the *displayed* values. It also remembers the range's sources and formats in the tab.
+  - **Pasting back the same text** into a sheet uses the remembered sources: relative references shift by the offset between the source and target cells (as in Excel), and a shifted reference outside the sheet becomes `#REF!`.
+  - **Pasting other text** parses tab-separated rows (with quoted fields as Excel and Google Sheets write them). Each field is stored as typed, and a field starting with `=` is read as an A1 formula at its target cell.
+  - **Size:** a paste starts at the active cell. Rows and columns are added as needed up to the limits, in the same undo step as the cells.
+  - **Cut** copies, then clears the sources of the range.
+- **Fill:**
+  - `Ctrl+D` copies the top row of the selection into the rows below it within the selection.
+  - The fill handle (a square at the selection's bottom-right corner) dragged down or right repeats the selected row or column over the dragged cells.
+  - Formulas shift like a paste. There is no series inference.
+- **Presence:** each user publishes `sheet` (their range and whether they are editing) with `page`. Peers on the same sheet see a coloured outline around each peer's range with a small name tag, which shows "typing…" while that peer edits.
+- **Roles and other pages:**
+  - Viewers see the grid and can select and copy. They get no editing, formula bar input, structure menu, reordering, resizing, format toolbar or paste.
+  - On a sheet page the board's shortcuts and clipboard handlers are off.
 
 ### Comments
 
