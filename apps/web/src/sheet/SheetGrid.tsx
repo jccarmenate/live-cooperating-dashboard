@@ -106,6 +106,7 @@ export function SheetGrid({
     <div
       ref={scroller}
       data-scroll-region
+      data-sheet-grid
       data-testid="sheet-grid"
       // biome-ignore lint/a11y/noNoninteractiveTabindex: the grid takes keyboard focus so arrows/Tab/Enter drive the selection; as in spreadsheets, Tab moves between cells and Escape leaves the grid
       tabIndex={0}

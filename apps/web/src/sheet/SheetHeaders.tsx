@@ -1,4 +1,10 @@
-import { COL_WIDTH_MAX, COL_WIDTH_MIN, colLetters } from '@relay/core';
+import {
+  COL_WIDTH_MAX,
+  COL_WIDTH_MIN,
+  colLetters,
+  MAX_SHEET_COLS,
+  MAX_SHEET_ROWS,
+} from '@relay/core';
 import {
   type ReactNode,
   type PointerEvent as ReactPointerEvent,
@@ -37,17 +43,28 @@ export function useSheetHeaders(session: BoardSession, ctl: SheetController, can
       if (kind === 'row') ctl.selectRow(id);
       else ctl.selectCol(id);
     }
+    // Inserting adds as many rows (columns) as are selected: disable it when that passes the cap.
+    const s = session.sheet.getState().sheet;
+    const r = ctl.range();
+    const full =
+      !s ||
+      !r ||
+      (kind === 'row'
+        ? s.rows.length + (r.r1 - r.r0 + 1) > MAX_SHEET_ROWS
+        : s.cols.length + (r.c1 - r.c0 + 1) > MAX_SHEET_COLS);
     const items: MenuItem[] =
       kind === 'row'
         ? [
             {
               label: 'Insert row above',
               testId: 'sheet-menu-insert-above',
+              disabled: full,
               onSelect: () => ctl.insertRows('above'),
             },
             {
               label: 'Insert row below',
               testId: 'sheet-menu-insert-below',
+              disabled: full,
               onSelect: () => ctl.insertRows('below'),
             },
             {
@@ -61,11 +78,13 @@ export function useSheetHeaders(session: BoardSession, ctl: SheetController, can
             {
               label: 'Insert column left',
               testId: 'sheet-menu-insert-left',
+              disabled: full,
               onSelect: () => ctl.insertCols('left'),
             },
             {
               label: 'Insert column right',
               testId: 'sheet-menu-insert-right',
+              disabled: full,
               onSelect: () => ctl.insertCols('right'),
             },
             {
@@ -82,6 +101,8 @@ export function useSheetHeaders(session: BoardSession, ctl: SheetController, can
     onPointerDown: (e: ReactPointerEvent<HTMLDivElement>) => {
       if (e.button !== 0) return;
       e.stopPropagation();
+      // A stale page-text selection would make Ctrl+C copy that text instead of the cells.
+      window.getSelection()?.removeAllRanges();
       if (ctl.ui.getState().editing) ctl.commitEdit();
       drag.current = { kind, id, startX: e.clientX, startY: e.clientY, moved: false };
       e.currentTarget.setPointerCapture(e.pointerId);
@@ -137,6 +158,7 @@ export function useSheetHeaders(session: BoardSession, ctl: SheetController, can
               aria-hidden
               className="absolute -right-1 top-0 z-10 h-full w-2 cursor-col-resize"
               onPointerDown={(e) => {
+                if (e.button !== 0) return;
                 e.stopPropagation();
                 e.currentTarget.setPointerCapture(e.pointerId);
                 const startX = e.clientX;
@@ -150,9 +172,18 @@ export function useSheetHeaders(session: BoardSession, ctl: SheetController, can
                     ),
                   });
                 const target = e.currentTarget;
-                const onUp = (ev: PointerEvent) => {
+                const stop = () => {
                   target.removeEventListener('pointermove', onMove);
                   target.removeEventListener('pointerup', onUp);
+                  target.removeEventListener('pointercancel', onCancel);
+                };
+                // A cancelled gesture ends the preview without committing a width.
+                const onCancel = () => {
+                  stop();
+                  setResize(null);
+                };
+                const onUp = (ev: PointerEvent) => {
+                  stop();
                   const final = Math.min(
                     COL_WIDTH_MAX,
                     Math.max(COL_WIDTH_MIN, start + ev.clientX - startX),
@@ -162,6 +193,7 @@ export function useSheetHeaders(session: BoardSession, ctl: SheetController, can
                 };
                 target.addEventListener('pointermove', onMove);
                 target.addEventListener('pointerup', onUp);
+                target.addEventListener('pointercancel', onCancel);
               }}
             />
           )}

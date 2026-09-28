@@ -41,6 +41,8 @@ export function FormulaBar({
         onChange={(e) => ctl.setDraft(e.target.value)}
         onKeyDown={(e) => {
           e.stopPropagation();
+          // An IME composition uses Enter/Escape itself (Safari reports keyCode 229): leave them to it.
+          if (e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229) return;
           if (e.key === 'Enter') {
             e.preventDefault();
             ctl.commitEdit({ dRow: e.shiftKey ? -1 : 1, dCol: 0 });

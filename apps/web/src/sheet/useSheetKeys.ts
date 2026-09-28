@@ -30,7 +30,7 @@ export function useSheetKeys(session: BoardSession, ctl: SheetController | null)
       if (
         e.key === 'Escape' &&
         e.target instanceof HTMLElement &&
-        e.target.dataset.testid === 'sheet-grid'
+        e.target.hasAttribute('data-sheet-grid')
       ) {
         e.target.blur();
         return;
