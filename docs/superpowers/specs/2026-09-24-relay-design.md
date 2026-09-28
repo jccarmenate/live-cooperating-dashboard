@@ -195,7 +195,9 @@ shapes      Y.Map<id, Y.Map>
               z           fractional-index string
               parentId?   frame id
               columnId?   column id within parent frame
-              style       atomic JSON { fill, stroke, font }
+              style       atomic JSON { fill, stroke, font, size? }   (size: 's'|'m'|'l',
+                          text-bearing shapes; absent = 'm')
+              locked?     true   (no move/resize/delete/restyle/text edit)
               text?       Y.Text (sticky, text, code, rect label)
               tag?        string
               lang?       string (code)
@@ -300,7 +302,8 @@ bounded size (≤ 1e6 world units per side).
 
 All mutations are values of a typed union — `CreateShape`, `MoveShapes`,
 `ResizeShapes`, `DeleteShapes`, `Reparent`, `Connect`, `SetRouting`,
-`RenameColumn`, `SetZ`, `SetText`, `SetStyle`, `StartVote`, `EndVote`,
+`RenameColumn`, `SetZ`, `SetText`, `SetStyle`, `SetLocked`, `SetHead`,
+`PasteItems`, `StartVote`, `EndVote`,
 `CastVote`, `RetractVote`, `AddComment`, `ReplyComment`, `ResolveComment`,
 `ApplyAiProposal`, … — applied by `applyCommand(doc, cmd)` inside
 `doc.transact(fn, origin)`. UI code never touches Yjs types directly.
@@ -436,7 +439,58 @@ Ctrl/⌘+wheel or pinch. Keyboard shortcuts are ignored while typing in an
 input, textarea or contenteditable element. Enter commits a frame title
 (frame titles are single-line); in other text shapes Enter inserts a line
 break and Escape or a click outside ends editing. `M` selects the comment
-tool for editors only.
+tool for editors only. `Ctrl+C` / `Ctrl+X` / `Ctrl+V` copy, cut and paste,
+`Ctrl+D` duplicates, `Ctrl+A` selects all, `]` / `[` bring to front / send
+to back, `Shift+1` zooms to fit everything, `?` opens the shortcut help.
+
+### Canvas UX (F4·P2)
+
+- **Commands** (all `LOCAL` origin, so undoable; locked shapes are skipped
+  by every command except `SetLocked`, `SetZ` and `PasteItems`):
+  `SetZ { ids, where: 'front' | 'back' }` gives the ids, in their current
+  relative order, fresh fractional keys above the current top (or below
+  the current bottom) of their layer — frames only among frames, other
+  shapes among non-frames; `SetStyle { ids, patch }` merges `fill`,
+  `stroke`, `font` and `size` into each style (unknown values dropped on
+  read); `SetLocked { ids, locked }`; `SetHead { id, head }` for connectors;
+  `PasteItems { shapes, connectors }` creates a whole clipboard payload in
+  one transaction (new ids already assigned by the client).
+- **Lock:** a locked shape can still be selected (to unlock it) and shows a
+  lock badge; it cannot be moved, resized, deleted, restyled or text-edited
+  by anyone (the flag lives in the document). In a mixed selection, delete,
+  nudge, drag, restyle and resize apply to the unlocked shapes only.
+- **Clipboard:** the system clipboard as text `relay-clip:v1:<json>` with
+  `{ shapes, connectors }` (connectors only when both attached ends are in
+  the copy; text included). Paste validates every item with the normal
+  readers, caps a payload at 500 shapes, assigns new ids (remapping
+  parents, columns kept only if the parent frame is pasted too, connector
+  ends), places it offset by 24 px — or centred on the context-menu point
+  for "Paste here" — on the active page, selects it, and is one undo step.
+  Plain text from another app pastes as a sticky with that text (capped at
+  2000 characters). `Ctrl+X` = copy + delete (unlocked only); `Ctrl+D` =
+  paste of the selection's own payload at +24 px. Viewers can copy.
+- **Context menu (right-click):** on a selection — Cut, Copy, Paste,
+  Duplicate, Delete, Bring to front, Send to back, a row of fill swatches,
+  Lock / Unlock, Comment here, Vote (a sticky during an open vote); on a
+  connector also Straight / Elbow and Arrow on / off; on empty canvas —
+  Paste here, New sticky / rectangle / frame here, Select all, Zoom to
+  fit. Viewers get only Copy and Zoom to fit. Right-clicking an unselected
+  shape selects it first.
+- **Properties bar:** a floating bar above the selection bounds (screen
+  space, clamped to the viewport), hidden during a gesture and for viewers:
+  fill and stroke swatches (the palette plus none), font (`sans`, `mono`,
+  `display`) and size (S/M/L) when a text-bearing shape is selected, lock
+  toggle; for a connector selection, routing and arrow toggles.
+- **Help and empty state:** a "?" button at the bottom of the toolbar (and
+  the `?` key) opens a dialog listing every shortcut; an empty board page
+  shows a hint card ("S sticky · R rectangle · F frame · Space-drag to pan ·
+  ? for help") that disappears once the page has a shape.
+- **Polish:** a toast "The page you were on was deleted" when a remote
+  delete moves the user; `hashchange` switches to the linked page of the
+  same room; dialogs trap focus; the Share link inputs are labelled on their
+  own; new page titles never repeat an existing title; consistent
+  `focus-visible` rings and hover states; toasts "Undone" / "Redone"; a
+  landing page that explains the product next to its two buttons.
 
 ### Voting
 
@@ -745,7 +799,7 @@ workflow.
 | F1 — MVP | One room, grid, rect/sticky/text, move, cursors, presence, DO persistence | 30 |
 | F2 — Editing | Ellipse, lines, connectors, selection + marquee, resize, undo/redo, frames with columns, code block | 50 |
 | F3 — Navigation & session | F3a: pan/zoom, zoom controls, coordinates, camera persistence, interactive minimap with peer viewports, remote selections and "typing…", frame adoption and F2b polish. F3b: server time, voting + timer, comments | 40 |
-| F4 — Workspace | P1: pages (tabs, per-page content and presence, share dialog, editable title, toasts). P2: canvas UX (context menus, clipboard, properties bar, lock, help, polish). P3: spreadsheet page with basic formulas. P4: calendar page (month and week) | — |
+| F4 — Workspace | P1: pages (tabs, per-page content and presence, share dialog, editable title, toasts). P2: canvas UX (context menus, system clipboard, properties bar, z-order, style, lock, help, empty state, polish). P3: spreadsheet page with basic formulas. P4: calendar page (month and week) | — |
 | F5 — Ship | Offline, capability links, demo room + cron, E2E, deploy, bilingual README, mermaid, GIF | 40 |
 | F6 — AI | Clustering pipeline, proposal UI, evaluation | 15 |
 | **Total** | | **~185** |
