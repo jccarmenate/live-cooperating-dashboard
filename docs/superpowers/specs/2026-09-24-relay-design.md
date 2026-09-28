@@ -246,7 +246,7 @@ geometry is derived from the shapes they attach to.
    case. Frames cannot be nested, so parent cycles cannot occur. Pages:
    the visible pages are the entries of `pages` whose id is not in
    `pageTombstones`, plus the implicit `main` board page when `pages` has no
-   `main` entry and `main` is not tombstoned, sorted by
+   `Y.Map` entry for `main` and `main` is not tombstoned, sorted by
    `order` then id; a shape, connector or comment whose page is deleted is
    hidden; a connector is dropped when either attached endpoint lives on
    another page; a `parentId` pointing to a frame on another page is treated
@@ -501,10 +501,11 @@ pages.
   reading "No pages yet" with a "New board" button (editors only).
 - **Active page:** local state, mirrored in the URL hash (`#k=<key>&p=<page
   id>`) so a link can open a given page; an unknown or deleted page falls
-  back to the first visible page. Once a fallback page is shown it is
-  pinned, so a later reorder or delete of the first page does not move the
-  user. A page named in a link waits for the first sync (it may simply not
-  have arrived yet) and is only replaced by the fallback after it; a hash
+  back to the first visible page. The fallback is pinned — so a later
+  reorder or delete of the first page does not move the user — as soon as
+  the active page is deleted, and otherwise after the first sync: a page
+  named in a link may simply not have arrived yet, so until then the
+  fallback is shown but the named page still wins if it arrives. A hash
   without a page is corrected at once. The document projection publishes only the
   active page's shapes and connectors, so the canvas, tool machine, minimap,
   initial fit and comment pins need no page awareness. The camera is saved
