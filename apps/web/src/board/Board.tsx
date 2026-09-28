@@ -10,6 +10,7 @@ import { Minimap } from '../render/Minimap';
 import { RemoteCursors } from '../render/RemoteCursors';
 import { TextEditor } from '../render/TextEditor';
 import { keyFromHash, pageFromHash } from '../sync/key';
+import { CanvasMenu } from '../ui/CanvasMenu';
 import { CommentsPanel } from '../ui/CommentsPanel';
 import { Header } from '../ui/Header';
 import { PageTabs } from '../ui/PageTabs';
@@ -43,6 +44,7 @@ function BoardView({ session }: { session: BoardSession }) {
           <ZoomControls session={session} />
           <Minimap session={session} />
           <CommentsPanel session={session} />
+          <CanvasMenu session={session} />
           <StatusBanner session={session} />
         </div>
       ) : (

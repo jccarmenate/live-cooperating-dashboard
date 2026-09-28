@@ -244,6 +244,17 @@ export function Canvas({ session }: { session: BoardSession }) {
         if (controller.ui.getState().spaceHeld) return;
         controller.dispatch({ type: 'doubleClick', p: info(e) });
       }}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        if (controller.ui.getState().spaceHeld) return;
+        const p = info(e);
+        controller.openMenu({
+          screen: { x: e.clientX, y: e.clientY },
+          world: p.world,
+          hitId: p.hitId,
+          connectorId: p.connectorId ?? null,
+        });
+      }}
     >
       <defs>
         <pattern

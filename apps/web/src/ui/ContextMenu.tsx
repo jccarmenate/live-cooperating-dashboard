@@ -1,4 +1,5 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { swatchBackground } from './swatches';
 
 export interface MenuItem {
   label: string;
@@ -6,9 +7,27 @@ export interface MenuItem {
   disabled?: boolean;
   danger?: boolean;
   testId?: string;
+  /** Shortcut shown on the right. */
+  hint?: string;
 }
 
-/** A small menu at screen point (x, y); closes on outside press, Escape, or after a choice. */
+export interface MenuSeparator {
+  separator: true;
+}
+
+export interface MenuSwatches {
+  swatches: { color: string; label: string; onSelect(): void; testId?: string }[];
+  disabled?: boolean;
+}
+
+export type MenuEntry = MenuItem | MenuSeparator | MenuSwatches;
+
+const EDGE = 8;
+
+/**
+ * A small menu at client point (x, y), kept inside the viewport. It closes on an outside
+ * press, Escape, or after a choice. Arrow keys move between the items.
+ */
 export function ContextMenu({
   x,
   y,
@@ -17,10 +36,20 @@ export function ContextMenu({
 }: {
   x: number;
   y: number;
-  items: MenuItem[];
+  items: MenuEntry[];
   onClose(): void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState({ left: x, top: y });
+
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const left = Math.max(EDGE, Math.min(x, window.innerWidth - el.offsetWidth - EDGE));
+    const top = Math.max(EDGE, Math.min(y, window.innerHeight - el.offsetHeight - EDGE));
+    setPos({ left, top });
+  }, [x, y]);
+
   useEffect(() => {
     const onDown = (e: PointerEvent) => {
       if (!ref.current?.contains(e.target as Node)) onClose();
@@ -37,31 +66,77 @@ export function ContextMenu({
     };
   }, [onClose]);
 
+  const move = (delta: number) => {
+    const buttons = [
+      ...(ref.current?.querySelectorAll<HTMLButtonElement>('button:not([disabled])') ?? []),
+    ];
+    if (buttons.length === 0) return;
+    const i = buttons.indexOf(document.activeElement as HTMLButtonElement);
+    buttons[(i + delta + buttons.length) % buttons.length]?.focus();
+  };
+
+  const choose = (onSelect: () => void) => {
+    onClose();
+    onSelect();
+  };
+
   return (
     <div
       ref={ref}
       role="menu"
       data-testid="context-menu"
-      className="fixed z-50 min-w-40 border-2 border-ink bg-white py-1 shadow-hard"
-      style={{ left: x, top: y }}
+      className="fixed z-50 min-w-48 border-2 border-ink bg-white py-1 shadow-hard"
+      style={pos}
       onContextMenu={(e) => e.preventDefault()}
+      onKeyDown={(e) => {
+        if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+          e.preventDefault();
+          e.stopPropagation();
+          move(e.key === 'ArrowDown' ? 1 : -1);
+        }
+      }}
     >
-      {items.map((item) => (
-        <button
-          key={item.label}
-          type="button"
-          role="menuitem"
-          data-testid={item.testId}
-          disabled={item.disabled}
-          className={`block w-full px-3 py-1.5 text-left font-mono text-xs hover:bg-sun focus:bg-sun focus:outline-none disabled:cursor-not-allowed disabled:text-ink/40 disabled:hover:bg-transparent ${item.danger ? 'text-flame' : ''}`}
-          onClick={() => {
-            onClose();
-            item.onSelect();
-          }}
-        >
-          {item.label}
-        </button>
-      ))}
+      {items.map((item, i) => {
+        if ('separator' in item) {
+          // biome-ignore lint/suspicious/noArrayIndexKey: separators have no identity
+          return <hr key={`sep-${i}`} className="my-1 border-ink/20" />;
+        }
+        if ('swatches' in item) {
+          return (
+            // biome-ignore lint/suspicious/noArrayIndexKey: one swatch row per menu position
+            <div key={`swatches-${i}`} className="flex gap-1.5 px-3 py-1.5">
+              {item.swatches.map((s) => (
+                <button
+                  key={s.label}
+                  type="button"
+                  role="menuitem"
+                  aria-label={s.label}
+                  title={s.label}
+                  data-testid={s.testId}
+                  disabled={item.disabled}
+                  className="size-5 border-2 border-ink hover:-translate-y-px focus:outline-2 focus:outline-cobalt disabled:cursor-not-allowed disabled:opacity-40"
+                  style={{ background: swatchBackground(s.color) }}
+                  onClick={() => choose(s.onSelect)}
+                />
+              ))}
+            </div>
+          );
+        }
+        return (
+          <button
+            key={item.label}
+            type="button"
+            role="menuitem"
+            data-testid={item.testId}
+            disabled={item.disabled}
+            className={`flex w-full items-center justify-between gap-6 px-3 py-1.5 text-left font-mono text-xs hover:bg-sun focus:bg-sun focus:outline-none disabled:cursor-not-allowed disabled:text-ink/40 disabled:hover:bg-transparent ${item.danger ? 'text-flame' : ''}`}
+            onClick={() => choose(item.onSelect)}
+          >
+            <span>{item.label}</span>
+            {item.hint && <span className="text-[10px] text-ink/50">{item.hint}</span>}
+          </button>
+        );
+      })}
     </div>
   );
 }
