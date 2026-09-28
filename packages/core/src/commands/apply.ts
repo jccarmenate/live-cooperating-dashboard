@@ -1,6 +1,7 @@
-import { generateKeyBetween } from 'fractional-indexing';
+import { generateKeyBetween, generateNKeysBetween } from 'fractional-indexing';
 import * as Y from 'yjs';
 import { getRoots } from '../schema/doc';
+import { compareZ } from '../schema/normalize';
 import { MAIN_DEFAULTS, MAIN_PAGE, pageIdOf } from '../schema/pages';
 import { readVote, voteKey } from '../schema/session';
 import type { CommentEntry, FrameColumn } from '../schema/types';
@@ -60,6 +61,46 @@ function pageEntry(
   return m;
 }
 
+const isLocked = (m: Y.Map<unknown> | undefined): boolean => m?.get('locked') === true;
+
+const zOf = (m: Y.Map<unknown>): string => {
+  const z = m.get('z');
+  return typeof z === 'string' ? z : 'a0';
+};
+
+/** `n` ascending keys above `edge` (front) or below it (back); tolerant of a malformed edge. */
+function keysBeyond(edge: string | null, where: 'front' | 'back', n: number): string[] {
+  try {
+    return where === 'front'
+      ? generateNKeysBetween(edge, null, n)
+      : generateNKeysBetween(null, edge, n);
+  } catch {
+    // A malformed key from a misbehaving client must not block the command.
+    return generateNKeysBetween(null, null, n);
+  }
+}
+
+/** Gives the moving members of one layer fresh keys past every other member, keeping their order. */
+function restack(
+  members: [string, Y.Map<unknown>][],
+  moving: ReadonlySet<string>,
+  where: 'front' | 'back',
+): void {
+  const chosen = members
+    .filter(([id]) => moving.has(id))
+    .sort((a, b) => compareZ({ id: a[0], z: zOf(a[1]) }, { id: b[0], z: zOf(b[1]) }));
+  if (chosen.length === 0) return;
+  const rest = members
+    .filter(([id]) => !moving.has(id))
+    .map(([, m]) => zOf(m))
+    .sort();
+  const edge = where === 'front' ? (rest.at(-1) ?? null) : (rest[0] ?? null);
+  const keys = keysBeyond(edge, where, chosen.length);
+  chosen.forEach(([, m], i) => {
+    m.set('z', keys[i]);
+  });
+}
+
 function apply(doc: Y.Doc, cmd: Command): void {
   const { shapes, connectors, session, votes, comments, pages, pageTombstones, meta } =
     getRoots(doc);
@@ -84,7 +125,7 @@ function apply(doc: Y.Doc, cmd: Command): void {
     case 'MoveShapes': {
       for (const { id, x, y } of cmd.moves) {
         const m = shapes.get(id);
-        if (!m) continue;
+        if (!m || isLocked(m)) continue;
         m.set('x', x);
         m.set('y', y);
       }
@@ -93,7 +134,7 @@ function apply(doc: Y.Doc, cmd: Command): void {
     case 'ResizeShapes': {
       for (const { id, x, y, w, h } of cmd.rects) {
         const m = shapes.get(id);
-        if (!m) continue;
+        if (!m || isLocked(m)) continue;
         m.set('x', x);
         m.set('y', y);
         m.set('w', w);
@@ -102,7 +143,9 @@ function apply(doc: Y.Doc, cmd: Command): void {
       return;
     }
     case 'SetText': {
-      const text = shapes.get(cmd.id)?.get('text');
+      const m = shapes.get(cmd.id);
+      if (isLocked(m)) return;
+      const text = m?.get('text');
       if (!(text instanceof Y.Text)) return;
       const index = clamp(cmd.index, 0, text.length);
       const deleteCount = clamp(cmd.deleteCount, 0, text.length - index);
@@ -111,7 +154,7 @@ function apply(doc: Y.Doc, cmd: Command): void {
       return;
     }
     case 'DeleteShapes': {
-      const ids = new Set(cmd.ids);
+      const ids = new Set(cmd.ids.filter((id) => !isLocked(shapes.get(id))));
       for (const id of ids) shapes.delete(id);
       for (const id of ids) if (connectors.has(id)) connectors.delete(id);
       const doomed: string[] = [];
@@ -142,7 +185,7 @@ function apply(doc: Y.Doc, cmd: Command): void {
     case 'Reparent': {
       for (const { id, parentId, columnId } of cmd.moves) {
         const m = shapes.get(id);
-        if (!m) continue;
+        if (!m || isLocked(m)) continue;
         if (parentId) m.set('parentId', parentId);
         else m.delete('parentId');
         if (columnId) m.set('columnId', columnId);
@@ -151,7 +194,9 @@ function apply(doc: Y.Doc, cmd: Command): void {
       return;
     }
     case 'RenameColumn': {
-      const cols = shapes.get(cmd.frameId)?.get('columns');
+      const frame = shapes.get(cmd.frameId);
+      if (isLocked(frame)) return;
+      const cols = frame?.get('columns');
       if (!(cols instanceof Y.Array)) return;
       const indexes: number[] = [];
       cols.toArray().forEach((c: unknown, i: number) => {
@@ -165,6 +210,62 @@ function apply(doc: Y.Doc, cmd: Command): void {
         if (idx !== undefined) cols.delete(idx, 1);
       }
       cols.insert(indexes[0] as number, [{ id: cmd.columnId, title: cmd.title }]);
+      return;
+    }
+    case 'SetZ': {
+      // Frames, other shapes and connectors stack independently (they render in that order).
+      const moving = new Set(cmd.ids);
+      const all = [...shapes.entries()];
+      restack(
+        all.filter(([, m]) => m.get('type') === 'frame'),
+        moving,
+        cmd.where,
+      );
+      restack(
+        all.filter(([, m]) => m.get('type') !== 'frame'),
+        moving,
+        cmd.where,
+      );
+      restack([...connectors.entries()], moving, cmd.where);
+      return;
+    }
+    case 'SetStyle': {
+      for (const id of new Set(cmd.ids)) {
+        const m = shapes.get(id);
+        if (!m || isLocked(m)) continue;
+        const current = m.get('style');
+        const next: Record<string, unknown> =
+          current && typeof current === 'object' ? { ...(current as Record<string, unknown>) } : {};
+        for (const [key, value] of Object.entries(cmd.patch)) {
+          if (value !== undefined) next[key] = value;
+        }
+        m.set('style', next);
+      }
+      return;
+    }
+    case 'SetLocked': {
+      for (const id of new Set(cmd.ids)) {
+        const m = shapes.get(id);
+        if (!m) continue;
+        if (cmd.locked) m.set('locked', true);
+        else m.delete('locked');
+      }
+      return;
+    }
+    case 'SetHead': {
+      connectors.get(cmd.id)?.set('head', cmd.head);
+      return;
+    }
+    case 'PasteItems': {
+      const fresh = cmd.shapes.filter((s) => !shapes.has(s.id) && !connectors.has(s.id));
+      const shapeKeys = keysBeyond(topZ(doc), 'front', fresh.length);
+      fresh.forEach((shape, i) => {
+        apply(doc, { type: 'CreateShape', shape: { ...shape, z: shapeKeys[i] } });
+      });
+      const connectorKeys = keysBeyond(topKey(connectors), 'front', cmd.connectors.length);
+      cmd.connectors.forEach((connector, i) => {
+        apply(doc, { type: 'Connect', connector: { ...connector, z: connectorKeys[i] } });
+      });
       return;
     }
     case 'StartVote': {

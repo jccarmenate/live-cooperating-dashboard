@@ -25,7 +25,9 @@ function readStyle(v: unknown, type: ShapeType): Style {
   if (!v || typeof v !== 'object') return d;
   const o = v as Record<string, unknown>;
   const font = o.font === 'sans' || o.font === 'mono' || o.font === 'display' ? o.font : d.font;
-  return { fill: str(o.fill) ?? d.fill, stroke: str(o.stroke) ?? d.stroke, font };
+  const style: Style = { fill: str(o.fill) ?? d.fill, stroke: str(o.stroke) ?? d.stroke, font };
+  if (o.size === 's' || o.size === 'm' || o.size === 'l') style.size = o.size;
+  return style;
 }
 
 /** Builds an immutable snapshot of one shape, or null if it is not a valid shape. */
@@ -49,6 +51,7 @@ export function readShape(id: string, m: Y.Map<unknown>): Shape | null {
   if (parentId) shape.parentId = parentId;
   const columnId = str(m.get('columnId'));
   if (columnId) shape.columnId = columnId;
+  if (m.get('locked') === true) shape.locked = true;
   const pageId = pageIdOf(m.get('pageId'));
   if (pageId !== MAIN_PAGE) shape.pageId = pageId;
   const tag = str(m.get('tag'));

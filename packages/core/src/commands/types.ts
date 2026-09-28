@@ -5,10 +5,12 @@ import type {
   PageType,
   Routing,
   Shape,
+  Style,
 } from '../schema/types';
 
 export type NewShape = Omit<Shape, 'z'> & { z?: string };
 export type NewConnector = Omit<Connector, 'z'> & { z?: string };
+export type StylePatch = Partial<Pick<Style, 'fill' | 'stroke' | 'font' | 'size'>>;
 
 export type Command =
   | { type: 'CreateShape'; shape: NewShape }
@@ -52,4 +54,9 @@ export type Command =
   | { type: 'RenamePage'; id: string; title: string }
   | { type: 'MovePage'; id: string; order: string }
   | { type: 'DeletePage'; id: string }
-  | { type: 'RenameBoard'; title: string };
+  | { type: 'RenameBoard'; title: string }
+  | { type: 'SetZ'; ids: string[]; where: 'front' | 'back' }
+  | { type: 'SetStyle'; ids: string[]; patch: StylePatch }
+  | { type: 'SetLocked'; ids: string[]; locked: boolean }
+  | { type: 'SetHead'; id: string; head: 'arrow' | 'none' }
+  | { type: 'PasteItems'; shapes: NewShape[]; connectors: NewConnector[] };

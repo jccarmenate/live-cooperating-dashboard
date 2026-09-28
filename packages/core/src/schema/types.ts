@@ -22,10 +22,14 @@ export const TEXT_TYPES: ReadonlySet<ShapeType> = new Set<ShapeType>([
 
 export type FontRole = 'sans' | 'mono' | 'display';
 
+export type TextSize = 's' | 'm' | 'l';
+
 export interface Style {
   fill: string;
   stroke: string;
   font: FontRole;
+  /** Text size; absent = 'm'. */
+  size?: TextSize;
 }
 
 export interface Point {
@@ -79,6 +83,8 @@ export interface Shape extends Rect {
   tag?: string;
   lang?: string;
   columns?: FrameColumn[];
+  /** Nobody can move, resize, delete, restyle or edit it until it is unlocked. */
+  locked?: true;
   createdBy: string;
   authorName: string;
   createdAt: number;

@@ -219,3 +219,210 @@ describe('applyCommand', () => {
     expect(getRoots(doc).connectors.has('dup')).toBe(true);
   });
 });
+
+describe('canvas UX commands', () => {
+  const frame = (id: string): NewShape => ({
+    id,
+    type: 'frame',
+    x: 0,
+    y: 0,
+    w: 720,
+    h: 440,
+    style: DEFAULT_STYLE.frame,
+    text: '',
+    columns: [{ id: 'c1', title: 'A' }],
+    createdBy: 'u1',
+    authorName: 'Brisk Otter',
+    createdAt: 1,
+  });
+  const z = (doc: Y.Doc, id: string) => read(doc, id)?.z ?? '';
+  const connect = (doc: Y.Doc, id: string, a: string, b: string) =>
+    applyCommand(doc, {
+      type: 'Connect',
+      connector: {
+        id,
+        from: { shapeId: a, anchor: 'auto' },
+        to: { shapeId: b, anchor: 'auto' },
+        routing: 'straight',
+        head: 'arrow',
+        createdBy: 'u1',
+      },
+    });
+  const connectorZ = (doc: Y.Doc, id: string) => {
+    const m = getRoots(doc).connectors.get(id);
+    return (m ? readConnector(id, m)?.z : '') ?? '';
+  };
+
+  it('SetZ front puts the ids above the rest of their layer, keeping their order', () => {
+    const doc = new Y.Doc();
+    for (const id of ['s1', 's2', 's3'])
+      applyCommand(doc, { type: 'CreateShape', shape: sticky(id) });
+    applyCommand(doc, { type: 'SetZ', ids: ['s2', 's1'], where: 'front' });
+    expect(z(doc, 's3') < z(doc, 's1')).toBe(true);
+    expect(z(doc, 's1') < z(doc, 's2')).toBe(true);
+  });
+
+  it('SetZ back puts the ids below the rest of their layer', () => {
+    const doc = new Y.Doc();
+    for (const id of ['s1', 's2', 's3'])
+      applyCommand(doc, { type: 'CreateShape', shape: sticky(id) });
+    applyCommand(doc, { type: 'SetZ', ids: ['s3'], where: 'back' });
+    expect(z(doc, 's3') < z(doc, 's1')).toBe(true);
+  });
+
+  it('SetZ restacks frames only among frames', () => {
+    const doc = new Y.Doc();
+    // z keys: s1 a0, f1 a1, f2 a2, s2 a3.
+    applyCommand(doc, { type: 'CreateShape', shape: sticky('s1') });
+    applyCommand(doc, { type: 'CreateShape', shape: frame('f1') });
+    applyCommand(doc, { type: 'CreateShape', shape: frame('f2') });
+    applyCommand(doc, { type: 'CreateShape', shape: sticky('s2') });
+    applyCommand(doc, { type: 'SetZ', ids: ['f1'], where: 'front' });
+    expect(z(doc, 'f1') > z(doc, 'f2')).toBe(true);
+    // Only frames were compared: the frame did not have to climb above the top sticky.
+    expect(z(doc, 'f1') <= z(doc, 's2')).toBe(true);
+  });
+
+  it('SetZ restacks connectors among connectors', () => {
+    const doc = new Y.Doc();
+    for (const id of ['s1', 's2']) applyCommand(doc, { type: 'CreateShape', shape: sticky(id) });
+    connect(doc, 'k1', 's1', 's2');
+    connect(doc, 'k2', 's2', 's1');
+    applyCommand(doc, { type: 'SetZ', ids: ['k1'], where: 'front' });
+    expect(connectorZ(doc, 'k1') > connectorZ(doc, 'k2')).toBe(true);
+  });
+
+  it('SetStyle merges the patch into the stored style', () => {
+    const doc = new Y.Doc();
+    applyCommand(doc, { type: 'CreateShape', shape: sticky('s1') });
+    applyCommand(doc, { type: 'SetStyle', ids: ['s1'], patch: { fill: '#3B3BF5', size: 'l' } });
+    expect(read(doc, 's1')?.style).toEqual({
+      fill: '#3B3BF5',
+      stroke: DEFAULT_STYLE.sticky.stroke,
+      font: 'sans',
+      size: 'l',
+    });
+  });
+
+  it('reads an unknown font as the default and an unknown size as absent', () => {
+    const doc = new Y.Doc();
+    applyCommand(doc, { type: 'CreateShape', shape: sticky('s1') });
+    getRoots(doc)
+      .shapes.get('s1')
+      ?.set('style', { fill: '#fff', stroke: '#000', font: 'comic', size: 'xl' });
+    const style = read(doc, 's1')?.style;
+    expect(style?.font).toBe('sans');
+    expect(style?.size).toBeUndefined();
+  });
+
+  it('SetLocked sets and clears the flag; only `true` reads as locked', () => {
+    const doc = new Y.Doc();
+    applyCommand(doc, { type: 'CreateShape', shape: sticky('s1') });
+    applyCommand(doc, { type: 'SetLocked', ids: ['s1'], locked: true });
+    expect(read(doc, 's1')?.locked).toBe(true);
+    applyCommand(doc, { type: 'SetLocked', ids: ['s1'], locked: false });
+    expect(read(doc, 's1')?.locked).toBeUndefined();
+    expect(getRoots(doc).shapes.get('s1')?.has('locked')).toBe(false);
+    getRoots(doc).shapes.get('s1')?.set('locked', 'yes');
+    expect(read(doc, 's1')?.locked).toBeUndefined();
+  });
+
+  it('a locked shape ignores move, resize, text, delete, restyle, reparent and column rename', () => {
+    const doc = new Y.Doc();
+    applyCommand(doc, { type: 'CreateShape', shape: sticky('s1') });
+    applyCommand(doc, { type: 'CreateShape', shape: frame('f1') });
+    applyCommand(doc, { type: 'SetLocked', ids: ['s1', 'f1'], locked: true });
+    applyCommand(doc, { type: 'MoveShapes', moves: [{ id: 's1', x: 50, y: 50 }] });
+    applyCommand(doc, { type: 'ResizeShapes', rects: [{ id: 's1', x: 0, y: 0, w: 10, h: 10 }] });
+    applyCommand(doc, { type: 'SetText', id: 's1', index: 0, deleteCount: 2, insert: 'yo' });
+    applyCommand(doc, { type: 'SetStyle', ids: ['s1'], patch: { fill: '#000000' } });
+    applyCommand(doc, { type: 'Reparent', moves: [{ id: 's1', parentId: 'f1', columnId: 'c1' }] });
+    applyCommand(doc, { type: 'RenameColumn', frameId: 'f1', columnId: 'c1', title: 'Z' });
+    applyCommand(doc, { type: 'DeleteShapes', ids: ['s1', 'f1'] });
+    const s = read(doc, 's1');
+    expect(s).toMatchObject({ x: 0, y: 0, w: 180, h: 140, text: 'hi' });
+    expect(s?.style.fill).toBe(DEFAULT_STYLE.sticky.fill);
+    expect(s?.parentId).toBeUndefined();
+    expect(read(doc, 'f1')?.columns).toEqual([{ id: 'c1', title: 'A' }]);
+  });
+
+  it('a mixed delete removes only the unlocked shapes', () => {
+    const doc = new Y.Doc();
+    applyCommand(doc, { type: 'CreateShape', shape: sticky('s1') });
+    applyCommand(doc, { type: 'CreateShape', shape: sticky('s2') });
+    applyCommand(doc, { type: 'SetLocked', ids: ['s1'], locked: true });
+    applyCommand(doc, { type: 'DeleteShapes', ids: ['s1', 's2'] });
+    expect(read(doc, 's1')).not.toBeNull();
+    expect(read(doc, 's2')).toBeNull();
+  });
+
+  it('SetZ still restacks a locked shape', () => {
+    const doc = new Y.Doc();
+    for (const id of ['s1', 's2']) applyCommand(doc, { type: 'CreateShape', shape: sticky(id) });
+    applyCommand(doc, { type: 'SetLocked', ids: ['s1'], locked: true });
+    applyCommand(doc, { type: 'SetZ', ids: ['s1'], where: 'front' });
+    expect(z(doc, 's1') > z(doc, 's2')).toBe(true);
+  });
+
+  it('DeletePage still removes locked shapes on that page', () => {
+    const doc = new Y.Doc();
+    applyCommand(doc, {
+      type: 'CreatePage',
+      page: { id: 'p2', type: 'board', title: 'Two', order: 'a1', createdBy: 'u1', createdAt: 1 },
+    });
+    applyCommand(doc, { type: 'CreateShape', shape: sticky('s1', { pageId: 'p2' }) });
+    applyCommand(doc, { type: 'SetLocked', ids: ['s1'], locked: true });
+    applyCommand(doc, { type: 'DeletePage', id: 'p2' });
+    expect(read(doc, 's1')).toBeNull();
+  });
+
+  it('SetHead sets a connector head', () => {
+    const doc = new Y.Doc();
+    for (const id of ['s1', 's2']) applyCommand(doc, { type: 'CreateShape', shape: sticky(id) });
+    connect(doc, 'k1', 's1', 's2');
+    applyCommand(doc, { type: 'SetHead', id: 'k1', head: 'none' });
+    const m = getRoots(doc).connectors.get('k1');
+    expect(m ? readConnector('k1', m)?.head : null).toBe('none');
+  });
+
+  it('PasteItems creates everything above the existing items, in order, in one transaction', () => {
+    const doc = new Y.Doc();
+    applyCommand(doc, { type: 'CreateShape', shape: sticky('old') });
+    let updates = 0;
+    doc.on('update', () => updates++);
+    applyCommand(
+      doc,
+      {
+        type: 'PasteItems',
+        shapes: [sticky('p1'), sticky('p2')],
+        connectors: [
+          {
+            id: 'pk',
+            from: { shapeId: 'p1', anchor: 'auto' },
+            to: { shapeId: 'p2', anchor: 'auto' },
+            routing: 'elbow',
+            head: 'arrow',
+            createdBy: 'u1',
+          },
+        ],
+      },
+      LOCAL_ORIGIN,
+    );
+    expect(updates).toBe(1);
+    expect(z(doc, 'old') < z(doc, 'p1')).toBe(true);
+    expect(z(doc, 'p1') < z(doc, 'p2')).toBe(true);
+    expect(read(doc, 'p1')?.text).toBe('hi');
+    expect(getRoots(doc).connectors.has('pk')).toBe(true);
+  });
+
+  it('PasteItems skips ids that already exist', () => {
+    const doc = new Y.Doc();
+    applyCommand(doc, { type: 'CreateShape', shape: sticky('s1', { text: 'original' }) });
+    applyCommand(doc, {
+      type: 'PasteItems',
+      shapes: [sticky('s1', { text: 'pasted' })],
+      connectors: [],
+    });
+    expect(read(doc, 's1')?.text).toBe('original');
+  });
+});

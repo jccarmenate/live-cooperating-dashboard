@@ -74,7 +74,10 @@ type Step =
   | { kind: 'connect'; r: number; a: number; b: number; elbow: boolean }
   | { kind: 'reparent'; r: number; pick: number; parent: number; column: boolean }
   | { kind: 'rename'; r: number; pick: number; column: number; title: string }
-  | { kind: 'routing'; r: number; pick: number; elbow: boolean };
+  | { kind: 'routing'; r: number; pick: number; elbow: boolean }
+  | { kind: 'z'; r: number; pick: number; front: boolean }
+  | { kind: 'style'; r: number; pick: number; fill: string }
+  | { kind: 'lock'; r: number; pick: number; locked: boolean };
 
 const replica = fc.integer({ min: 0, max: N - 1 });
 const coord = fc.integer({ min: -1000, max: 1000 });
@@ -155,6 +158,19 @@ const stepArb: fc.Arbitrary<Step> = fc.oneof(
     r: replica,
     pick: fc.nat(),
     elbow: fc.boolean(),
+  }),
+  fc.record({ kind: fc.constant('z' as const), r: replica, pick: fc.nat(), front: fc.boolean() }),
+  fc.record({
+    kind: fc.constant('style' as const),
+    r: replica,
+    pick: fc.nat(),
+    fill: fc.constantFrom('#111111', '#F5D547', 'transparent'),
+  }),
+  fc.record({
+    kind: fc.constant('lock' as const),
+    r: replica,
+    pick: fc.nat(),
+    locked: fc.boolean(),
   }),
 );
 
@@ -298,6 +314,16 @@ function run(
         LOCAL_ORIGIN,
       );
     if (s.kind === 'delete') applyCommand(doc, { type: 'DeleteShapes', ids: [id] }, LOCAL_ORIGIN);
+    if (s.kind === 'z')
+      applyCommand(
+        doc,
+        { type: 'SetZ', ids: [id], where: s.front ? 'front' : 'back' },
+        LOCAL_ORIGIN,
+      );
+    if (s.kind === 'style')
+      applyCommand(doc, { type: 'SetStyle', ids: [id], patch: { fill: s.fill } }, LOCAL_ORIGIN);
+    if (s.kind === 'lock')
+      applyCommand(doc, { type: 'SetLocked', ids: [id], locked: s.locked }, LOCAL_ORIGIN);
   }
 }
 
