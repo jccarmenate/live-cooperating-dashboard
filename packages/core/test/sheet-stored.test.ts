@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { shiftStored, toDisplay, toStored } from '../src';
+import { shiftA1, shiftStored, toDisplay, toStored } from '../src';
 
 const grid = { rows: ['r1', 'r2', 'r3'], cols: ['c1', 'c2'] };
 
@@ -32,5 +32,11 @@ describe('stored form', () => {
     expect(shiftStored('=[r1.c1]', -1, 0, grid)).toBe('=#REF!');
     expect(shiftStored('=[gone.c1]', 1, 0, grid)).toBe('=#REF!');
     expect(shiftStored('text', 1, 1, grid)).toBe('text');
+  });
+
+  it('shifts A1 formulas by relative parts only; off the grid is #REF!', () => {
+    expect(shiftA1('=A1+$B$2+B$1+$A2', 1, 1)).toBe('=B2+$B$2+C$1+$A3');
+    expect(shiftA1('=A1', -1, 0)).toBe('=#REF!');
+    expect(shiftA1('text', 1, 1)).toBe('text');
   });
 });

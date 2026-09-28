@@ -70,3 +70,14 @@ export function shiftStored(src: string, dRow: number, dCol: number, grid: GridI
     return idText({ row, col, absRow: t.ref.absRow, absCol: t.ref.absCol });
   });
 }
+
+/** An A1 formula moved by (dRow, dCol): relative parts shift, absolute parts stay; off the grid → #REF!. */
+export function shiftA1(input: string, dRow: number, dCol: number): string {
+  return rewrite(input, (t) => {
+    if (t.k !== 'a1') return null;
+    const row = t.ref.absRow ? t.ref.row : t.ref.row + dRow;
+    const col = t.ref.absCol ? t.ref.col : t.ref.col + dCol;
+    if (row < 0 || col < 0) return '#REF!';
+    return a1Text(row, col, t.ref.absRow, t.ref.absCol);
+  });
+}
