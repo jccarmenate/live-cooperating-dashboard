@@ -386,6 +386,32 @@ describe('sheet controller', () => {
     expect(s().cells).toEqual({});
   });
 
+  it('board.commit applies several commands as one document update', () => {
+    const { doc, page, board, s } = setup();
+    const updates = vi.fn();
+    doc.on('update', updates);
+    const row = s().rows[0]?.id as string;
+    const col = s().cols[0]?.id as string;
+    expect(
+      board.commit(
+        {
+          type: 'InsertRows',
+          pageId: page,
+          rows: keysBetween(null, s().rows[0]?.order ?? null, 1).map((order) => ({
+            id: 'newrow01',
+            order,
+          })),
+        },
+        { type: 'SetCells', pageId: page, cells: [{ row, col, src: '1' }] },
+      ),
+    ).toBe(true);
+    expect(updates).toHaveBeenCalledTimes(1);
+    expect(s().rows).toHaveLength(51);
+    board.undo();
+    expect(s().rows).toHaveLength(50);
+    expect(s().cells).toEqual({});
+  });
+
   it('resets the selection when its row is deleted by anyone', () => {
     const { ctl, at } = setup();
     ctl.select(at('C3'));

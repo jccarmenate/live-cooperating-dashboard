@@ -325,12 +325,18 @@ export function createBoardController(opts: {
   };
   const selectionNow = () => ui.getState().tool.selection;
   const idle = () => ui.getState().tool.mode === 'idle';
-  /** Several commands as exactly one undo step; only between gestures (never splits one). */
+  /**
+   * Several commands as exactly one undo step and one transaction (peers get one update, and
+   * observers such as the sheet evaluator run once); only between gestures (never splits one).
+   */
   const commitStep = (...commands: Command[]): boolean => {
     if (commands.length === 0 || !idle()) return false;
     throttledCommit.cancel();
     undoStack.stopCapturing();
-    for (const c of commands) commit(c);
+    // Each commit's own transact nests into this one.
+    opts.doc.transact(() => {
+      for (const c of commands) commit(c);
+    }, LOCAL_ORIGIN);
     undoStack.stopCapturing();
     return true;
   };
