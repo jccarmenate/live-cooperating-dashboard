@@ -14,6 +14,7 @@ import {
   type Effect,
   fitBounds,
   type Identity,
+  initialSheet,
   initialToolState,
   isAttached,
   isVoteOpen,
@@ -116,6 +117,8 @@ export interface BoardController {
   stopEditingColumn(): void;
   undo(): void;
   redo(): void;
+  /** Applies commands as one undo step (LOCAL origin); false (nothing applied) mid-gesture. */
+  commit(...commands: Command[]): boolean;
   startVote(minutes: number): void;
   endVote(): void;
   /** Casts or retracts the local user's vote on a sticky while a vote is open (cap enforced). */
@@ -323,12 +326,13 @@ export function createBoardController(opts: {
   const selectionNow = () => ui.getState().tool.selection;
   const idle = () => ui.getState().tool.mode === 'idle';
   /** Several commands as exactly one undo step; only between gestures (never splits one). */
-  const commitStep = (...commands: Command[]) => {
-    if (commands.length === 0 || !idle()) return;
+  const commitStep = (...commands: Command[]): boolean => {
+    if (commands.length === 0 || !idle()) return false;
     throttledCommit.cancel();
     undoStack.stopCapturing();
     for (const c of commands) commit(c);
     undoStack.stopCapturing();
+    return true;
   };
   const pasteContext = () => ({
     shapes: opts.docStore.getState().shapes,
@@ -480,6 +484,7 @@ export function createBoardController(opts: {
     },
     undo: () => travel('undo'),
     redo: () => travel('redo'),
+    commit: commitStep,
     startVote(minutes) {
       commitSession({
         type: 'StartVote',
@@ -575,6 +580,7 @@ export function createBoardController(opts: {
           createdBy: opts.user.id,
           createdAt: now(),
         },
+        ...(type === 'sheet' ? { sheet: initialSheet() } : {}),
       });
       return id;
     },

@@ -11,6 +11,7 @@ import { SYNC_HOST } from '../config';
 import { type ActivityState, createActivityStore } from '../store/activityStore';
 import { createDocStore, type DocState } from '../store/docStore';
 import { createPresenceStore } from '../store/presenceStore';
+import { createSheetStore, type SheetState } from '../store/sheetStore';
 import { connectRoom, type RoomConnection } from '../sync/connection';
 import { hashFor, hashTarget, pageFromHash } from '../sync/key';
 import { createPresencePublisher, type PresencePublisher } from '../sync/presence';
@@ -26,6 +27,8 @@ export interface BoardSession {
   doc: StoreApi<DocState>;
   activity: StoreApi<ActivityState>;
   presence: StoreApi<{ peers: Peer[] }>;
+  /** Projection of the active sheet page (null sheet on other pages). */
+  sheet: StoreApi<SheetState>;
   publisher: PresencePublisher;
   controller: BoardController;
   /** Switches the active page (the same as `controller.setPage`). */
@@ -70,6 +73,7 @@ export function createBoardSession(
   const user = loadIdentity(safeLocalStorage());
   const conn = connectRoom({ roomId, key, host: SYNC_HOST });
   const docStore = createDocStore(conn.doc, initialPage ?? MAIN_PAGE);
+  const sheetStore = createSheetStore(conn.doc, docStore.store);
   const presence = createPresenceStore(conn.provider.awareness);
   const publisher = createPresencePublisher(conn.provider.awareness, user);
   const activity = createActivityStore(conn.doc);
@@ -174,6 +178,7 @@ export function createBoardSession(
     doc: docStore.store,
     activity: activity.store,
     presence: presence.store,
+    sheet: sheetStore.store,
     publisher,
     controller,
     setPage: controller.setPage,
@@ -186,6 +191,7 @@ export function createBoardSession(
       publisher.destroy();
       presence.destroy();
       activity.destroy();
+      sheetStore.destroy();
       docStore.destroy();
       conn.destroy();
     },

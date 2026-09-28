@@ -171,12 +171,7 @@ export function PageTabs({ session }: { session: BoardSession }) {
               y: r.bottom + 4,
               items: [
                 { label: 'Board', testId: 'page-add-board', onSelect: () => add('board') },
-                {
-                  label: 'Spreadsheet (soon)',
-                  testId: 'page-add-sheet',
-                  disabled: true,
-                  onSelect: () => {},
-                },
+                { label: 'Spreadsheet', testId: 'page-add-sheet', onSelect: () => add('sheet') },
                 {
                   label: 'Calendar (soon)',
                   testId: 'page-add-calendar',

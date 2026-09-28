@@ -29,7 +29,7 @@ test('pages are created, used, renamed, reordered and deleted across users', asy
   const tabs = page.getByTestId('page-tab');
   await expect(tabs).toHaveCount(1);
   await page.getByTestId('page-add').click();
-  await expect(page.getByTestId('page-add-sheet')).toBeDisabled();
+  await expect(page.getByTestId('page-add-calendar')).toBeDisabled();
   await page.getByTestId('page-add-board').click();
   await expect(tabs).toHaveCount(2);
   await expect(tabs.nth(1)).toHaveAttribute('aria-selected', 'true');

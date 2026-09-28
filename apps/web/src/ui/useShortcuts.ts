@@ -3,6 +3,12 @@ import type { BoardSession } from '../board/session';
 import { gateByRole, keyDownAction, keyUpAction, type ShortcutAction } from './shortcuts';
 import { isTyping } from './typing';
 
+/** Board shortcuts and clipboard handlers act only on board pages. */
+const onBoardPage = (session: BoardSession): boolean => {
+  const { activePage, pages } = session.doc.getState();
+  return pages.find((p) => p.id === activePage)?.type === 'board';
+};
+
 export function useShortcuts(session: BoardSession) {
   useEffect(() => {
     const { controller, conn } = session;
@@ -47,8 +53,10 @@ export function useShortcuts(session: BoardSession) {
       }
     };
     // The role is read at keydown time, so a late `hello` (or a role change) applies immediately.
-    const onKeyDown = (e: KeyboardEvent) =>
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (!onBoardPage(session)) return;
       run(gateByRole(keyDownAction(e, isTyping(e.target)), conn.clock.getState().role), e);
+    };
     const onKeyUp = (e: KeyboardEvent) => run(keyUpAction(e), e);
     const onBlur = () => controller.setSpaceHeld(false);
     window.addEventListener('keydown', onKeyDown);

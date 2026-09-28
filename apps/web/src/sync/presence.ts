@@ -1,4 +1,11 @@
-import { type Identity, type Point, type PresenceState, type Rect, throttle } from '@relay/core';
+import {
+  type Identity,
+  type Point,
+  type PresenceState,
+  type Rect,
+  type SheetPresence,
+  throttle,
+} from '@relay/core';
 import type { Awareness } from 'y-protocols/awareness';
 
 export interface PresencePublisher {
@@ -7,6 +14,7 @@ export interface PresencePublisher {
   setEditing(id: string | null): void;
   setViewport(r: Rect | null): void;
   setPage(page: string): void;
+  setSheet(s: SheetPresence | null): void;
   destroy(): void;
 }
 
@@ -18,6 +26,7 @@ export function createPresencePublisher(awareness: Awareness, user: Identity): P
     editing: null,
     viewport: null,
     page: null,
+    sheet: null,
   };
   awareness.setLocalState(initial);
   const setCursor = throttle((cursor: Point | null) => {
@@ -32,6 +41,7 @@ export function createPresencePublisher(awareness: Awareness, user: Identity): P
     setEditing: (id) => awareness.setLocalStateField('editing', id),
     setViewport,
     setPage: (page) => awareness.setLocalStateField('page', page),
+    setSheet: (s) => awareness.setLocalStateField('sheet', s),
     destroy() {
       setCursor.cancel();
       setViewport.cancel();

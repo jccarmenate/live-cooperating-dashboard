@@ -1,6 +1,13 @@
 import type { Point, Rect } from '../schema/types';
 import { type Identity, isIdentity } from './identity';
 
+/** A user's selection on a sheet page: [rowId, colId] corners, and whether they are editing. */
+export interface SheetPresence {
+  anchor: [string, string];
+  focus: [string, string];
+  editing: boolean;
+}
+
 export interface PresenceState {
   user: Identity;
   /** World coordinates, or null when the pointer is off the canvas. */
@@ -12,6 +19,8 @@ export interface PresenceState {
   viewport: Rect | null;
   /** Page this user is looking at; null = unknown (treated as main). */
   page: string | null;
+  /** Selection on a sheet page (only sheet pages publish it). */
+  sheet?: SheetPresence | null;
 }
 
 export interface Peer extends PresenceState {
@@ -46,6 +55,22 @@ const isViewport = (v: unknown): v is Rect => {
 
 const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
 
+const isCellPair = (v: unknown): v is [string, string] =>
+  Array.isArray(v) &&
+  v.length === 2 &&
+  v.every((x) => typeof x === 'string' && x.length > 0 && x.length <= 16);
+
+const readSheetPresence = (v: unknown): SheetPresence | null => {
+  if (!v || typeof v !== 'object') return null;
+  const o = v as Record<string, unknown>;
+  if (!isCellPair(o.anchor) || !isCellPair(o.focus) || typeof o.editing !== 'boolean') return null;
+  return {
+    anchor: [o.anchor[0], o.anchor[1]],
+    focus: [o.focus[0], o.focus[1]],
+    editing: o.editing,
+  };
+};
+
 /** Validates an untrusted awareness state. */
 export function parsePresence(raw: unknown): PresenceState | null {
   if (typeof raw !== 'object' || raw === null) return null;
@@ -56,7 +81,7 @@ export function parsePresence(raw: unknown): PresenceState | null {
   // smuggle a `url(...)` background (leaking every viewer's IP) or an
   // unbounded id.
   if (!HEX_COLOR.test(o.user.color) || o.user.id.length > 64) return null;
-  return {
+  const state: PresenceState = {
     user: { id: o.user.id, name: o.user.name.slice(0, 40), color: o.user.color },
     cursor: isPoint(o.cursor) ? { x: o.cursor.x, y: o.cursor.y } : null,
     selection: Array.isArray(o.selection)
@@ -68,6 +93,9 @@ export function parsePresence(raw: unknown): PresenceState | null {
       : null,
     page: typeof o.page === 'string' && o.page.length > 0 && o.page.length <= 64 ? o.page : null,
   };
+  const sheet = readSheetPresence(o.sheet);
+  if (sheet) state.sheet = sheet;
+  return state;
 }
 
 export function peersFrom(states: Map<number, unknown>, selfClientId: number): Peer[] {

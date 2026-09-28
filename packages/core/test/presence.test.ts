@@ -185,3 +185,21 @@ describe('presence parsing', () => {
     expect(onlineUsers(peers, alice)).toEqual([alice, bob]);
   });
 });
+
+describe('sheet presence', () => {
+  it('keeps a valid sheet selection and drops a malformed one', () => {
+    const sheet = { anchor: ['r1', 'c1'], focus: ['r2', 'c3'], editing: true };
+    expect(parsePresence({ user: alice, sheet })?.sheet).toEqual(sheet);
+    expect(
+      parsePresence({ user: alice, sheet: { anchor: ['r1'], focus: ['r2', 'c3'], editing: true } })
+        ?.sheet,
+    ).toBeUndefined();
+    expect(
+      parsePresence({
+        user: alice,
+        sheet: { anchor: ['r1', 'x'.repeat(17)], focus: ['r2', 'c3'], editing: false },
+      })?.sheet,
+    ).toBeUndefined();
+    expect(parsePresence({ user: alice })).not.toHaveProperty('sheet');
+  });
+});

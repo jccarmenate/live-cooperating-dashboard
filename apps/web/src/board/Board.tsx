@@ -10,6 +10,7 @@ import { EmptyHint } from '../render/EmptyHint';
 import { Minimap } from '../render/Minimap';
 import { RemoteCursors } from '../render/RemoteCursors';
 import { TextEditor } from '../render/TextEditor';
+import { SheetPage } from '../sheet/SheetPage';
 import { keyFromHash, pageFromHash } from '../sync/key';
 import { CanvasMenu } from '../ui/CanvasMenu';
 import { CommentsPanel } from '../ui/CommentsPanel';
@@ -51,6 +52,11 @@ function BoardView({ session }: { session: BoardSession }) {
           <CommentsPanel session={session} />
           <CanvasMenu session={session} />
           <HelpDialog session={session} />
+          <StatusBanner session={session} />
+        </div>
+      ) : type === 'sheet' ? (
+        <div className="relative min-h-0 flex-1">
+          <SheetPage session={session} />
           <StatusBanner session={session} />
         </div>
       ) : (
