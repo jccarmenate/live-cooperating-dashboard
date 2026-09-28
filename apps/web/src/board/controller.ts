@@ -5,7 +5,9 @@ import {
   type CommentAnchor,
   centerOn as centredOn,
   contentBounds,
+  copyPayload,
   createUndo,
+  DEFAULT_SIZE,
   type Effect,
   fitBounds,
   type Identity,
@@ -14,12 +16,22 @@ import {
   LOCAL_ORIGIN,
   MAX_BOARD_TITLE,
   MAX_PAGE_TITLE,
+  type NewConnector,
+  type NewShape,
   orderBetween,
+  PASTE_OFFSET,
   type PageType,
   type Point,
   type Preview,
+  parseClip,
+  pastePlan,
+  plainTextSticky,
   type Rect,
+  type Routing,
   SESSION_ORIGIN,
+  type StylePatch,
+  screenToWorld,
+  serializeClip,
   step,
   type TextDiff,
   type ToolEvent,
@@ -41,6 +53,16 @@ export interface CameraStorage {
   save(pageId: string, camera: Camera): void;
 }
 
+/** An open canvas context menu. */
+export interface CanvasMenuState {
+  /** Client coordinates where it opens. */
+  screen: Point;
+  /** The world point that was right-clicked. */
+  world: Point;
+  /** Shape under the pointer, if any. */
+  hitId: string | null;
+}
+
 export interface BoardUiState {
   tool: ToolState;
   preview: Preview | null;
@@ -60,6 +82,11 @@ export interface BoardUiState {
   /** Thread whose popover is open. */
   openThread: string | null;
   commentsPanel: boolean;
+  menu: CanvasMenuState | null;
+  /** The keyboard shortcuts dialog is open. */
+  help: boolean;
+  /** The document finished its first sync. */
+  synced: boolean;
 }
 
 export interface BoardController {
@@ -109,6 +136,45 @@ export interface BoardController {
   deletePage(id: string): boolean;
   /** Renames the board (trimmed; empty is ignored). */
   renameBoard(title: string): void;
+  /** Replaces the selection (only between gestures) and switches to the select tool. */
+  select(ids: string[]): void;
+  /** Selects every shape and connector on the active page. */
+  selectAll(): void;
+  /** Opens the canvas menu; a hit outside the selection becomes the selection, empty canvas clears it. */
+  openMenu(at: {
+    screen: Point;
+    world: Point;
+    hitId: string | null;
+    connectorId: string | null;
+  }): void;
+  closeMenu(): void;
+  /** Serialises the selection as a Relay clip and remembers it; null when nothing is copyable. */
+  copySelection(): string | null;
+  /** Copies, then deletes the unlocked part of the selection (one undo step). */
+  cutSelection(): string | null;
+  /** The last clip this controller copied (in-app clipboard fallback). */
+  lastCopied(): string | null;
+  /**
+   * Pastes a Relay clip (centred on `at`, or stepped +24 px per repeat) or plain text as a
+   * sticky, selected, as one undo step. Returns whether anything was pasted.
+   */
+  pasteText(text: string, at?: Point): boolean;
+  /** Copies the selection at +24 px without touching the clipboard. */
+  duplicate(): void;
+  setZ(where: 'front' | 'back'): void;
+  /** Restyles the selected unlocked shapes. */
+  setStyle(patch: StylePatch): void;
+  /** Locks the selected shapes, or unlocks them when all are already locked. */
+  toggleLock(): void;
+  setHead(head: 'arrow' | 'none'): void;
+  setRouting(routing: Routing): void;
+  /** Creates a shape at a world point as if the tool were clicked there. */
+  createAt(type: 'sticky' | 'rect' | 'frame', p: Point): void;
+  /** Opens the comment composer at a world point, anchored to `hitId` when given. */
+  commentAt(p: Point, hitId: string | null): void;
+  /** Fits the active page's content into the viewport. */
+  zoomToFit(): void;
+  setHelp(open: boolean): void;
   destroy(): void;
 }
 
@@ -145,6 +211,9 @@ export function createBoardController(opts: {
     composer: null,
     openThread: null,
     commentsPanel: false,
+    menu: null,
+    help: false,
+    synced: false,
   }));
   const undoStack = createUndo(opts.doc, { captureTimeout: UNDO_CAPTURE_TIMEOUT });
 
@@ -235,6 +304,54 @@ export function createBoardController(opts: {
     return v ? { x: v.w / 2, y: v.h / 2 } : { x: 0, y: 0 };
   };
 
+  /** Replaces the selection; only between gestures. Selecting switches to the select tool. */
+  const setSelection = (ids: string[]) => {
+    if (ui.getState().tool.mode !== 'idle') return;
+    ui.setState({ tool: { mode: 'idle', tool: 'select', selection: ids } });
+  };
+  const selectionNow = () => ui.getState().tool.selection;
+  /** Several commands as exactly one undo step. */
+  const commitStep = (...commands: Command[]) => {
+    if (commands.length === 0) return;
+    throttledCommit.cancel();
+    undoStack.stopCapturing();
+    for (const c of commands) commit(c);
+    undoStack.stopCapturing();
+  };
+  const pasteContext = () => ({
+    shapes: opts.docStore.getState().shapes,
+    newId,
+    userId: opts.user.id,
+    userName: opts.user.name,
+    now,
+  });
+  const pointerOrCentre = (): Point =>
+    ui.getState().pointer ?? screenToWorld(ui.getState().camera, viewportCentre());
+  /** Creates a paste plan on the active page, selected, as one undo step. */
+  const place = (plan: { shapes: NewShape[]; connectors: NewConnector[] }): boolean => {
+    if (plan.shapes.length === 0 && plan.connectors.length === 0) return false;
+    const pageId = activePage();
+    commitStep({
+      type: 'PasteItems',
+      shapes: plan.shapes.map((s) => ({ ...s, pageId })),
+      connectors: plan.connectors.map((c) => ({ ...c, pageId })),
+    });
+    setSelection([...plan.shapes.map((s) => s.id), ...plan.connectors.map((c) => c.id)]);
+    return true;
+  };
+  // The in-app clipboard (fallback when the system clipboard cannot be read) and how many
+  // times in a row it was pasted, so repeated pastes step down and right.
+  let clip: string | null = null;
+  let repeat = { text: '', n: 0 };
+  const copySelection = (): string | null => {
+    const { shapes, connectors } = opts.docStore.getState();
+    const payload = copyPayload(selectionNow(), shapes, connectors);
+    if (!payload) return null;
+    clip = serializeClip(payload);
+    repeat = { text: clip, n: 0 };
+    return clip;
+  };
+
   const unsubscribe = opts.docStore.subscribe((doc, prev) => {
     // A page change (local, or a remote fallback when the active page is deleted) starts
     // fresh: no gesture, editor or popover carries over, undo cannot reach the old page,
@@ -252,37 +369,44 @@ export function createBoardController(opts: {
         editingColumn: null,
         composer: null,
         openThread: null,
+        menu: null,
         camera: stored ?? { x: 0, y: 0, zoom: 1 },
       });
       tryFit();
     }
-    // Close the editor if the edited shape is deleted (locally, remotely or by undo).
+    // Close the editor if the edited shape is deleted or locked (locally, remotely or by undo).
     const { editingId, editingColumn } = ui.getState();
-    if (editingId && !doc.shapes[editingId]) stopEditing();
-    if (editingColumn && doc.shapes[editingColumn.frameId]?.type !== 'frame') {
+    if (editingId && (!doc.shapes[editingId] || doc.shapes[editingId]?.locked)) stopEditing();
+    if (
+      editingColumn &&
+      (doc.shapes[editingColumn.frameId]?.type !== 'frame' ||
+        doc.shapes[editingColumn.frameId]?.locked)
+    ) {
       ui.setState({ editingColumn: null });
     }
   });
 
+  const dispatch = (event: ToolEvent) => {
+    // A user who draws before the first sync arrives has already started a gesture on
+    // the canvas: the initial fit must not yank the camera out from under them later.
+    if (event.type === 'pointerDown') fitPending = false;
+    // A canvas press closes any open thread popover or composer (the comment tool reopens one).
+    if (event.type === 'pointerDown') ui.setState({ openThread: null, composer: null });
+    const { state, effects } = step(ui.getState().tool, event, {
+      shapes: opts.docStore.getState().shapes,
+      connectors: opts.docStore.getState().connectors,
+      userId: opts.user.id,
+      userName: opts.user.name,
+      newId,
+      now,
+    });
+    ui.setState({ tool: state });
+    run(effects);
+  };
+
   return {
     ui,
-    dispatch(event) {
-      // A user who draws before the first sync arrives has already started a gesture on
-      // the canvas: the initial fit must not yank the camera out from under them later.
-      if (event.type === 'pointerDown') fitPending = false;
-      // A canvas press closes any open thread popover or composer (the comment tool reopens one).
-      if (event.type === 'pointerDown') ui.setState({ openThread: null, composer: null });
-      const { state, effects } = step(ui.getState().tool, event, {
-        shapes: opts.docStore.getState().shapes,
-        connectors: opts.docStore.getState().connectors,
-        userId: opts.user.id,
-        userName: opts.user.name,
-        newId,
-        now,
-      });
-      ui.setState({ tool: state });
-      run(effects);
-    },
+    dispatch,
     setCamera,
     setViewportSize(w, h) {
       const v = ui.getState().viewport;
@@ -310,6 +434,7 @@ export function createBoardController(opts: {
     },
     markSynced() {
       synced = true;
+      ui.setState({ synced: true });
       tryFit();
     },
     applyText(id, diff) {
@@ -444,6 +569,118 @@ export function createBoardController(opts: {
     renameBoard(title) {
       const text = title.trim().slice(0, MAX_BOARD_TITLE);
       if (text) commitPage({ type: 'RenameBoard', title: text });
+    },
+    select: setSelection,
+    selectAll() {
+      const { order, connectorOrder } = opts.docStore.getState();
+      setSelection([...order, ...connectorOrder]);
+    },
+    openMenu(at) {
+      const { tool } = ui.getState();
+      if (tool.mode !== 'idle') return;
+      const target = at.hitId ?? at.connectorId;
+      if (!target) setSelection([]);
+      else if (!tool.selection.includes(target)) setSelection([target]);
+      ui.setState({ menu: { screen: at.screen, world: at.world, hitId: at.hitId } });
+    },
+    closeMenu() {
+      if (ui.getState().menu) ui.setState({ menu: null });
+    },
+    copySelection,
+    cutSelection() {
+      const text = copySelection();
+      if (!text) return null;
+      const payload = parseClip(text);
+      const { shapes } = opts.docStore.getState();
+      // Everything the copy took (frame children included), plus selected connectors; never locked shapes.
+      const ids = [
+        ...new Set([...(payload?.shapes.map((s) => s.id) ?? []), ...selectionNow()]),
+      ].filter((id) => !shapes[id]?.locked);
+      if (ids.length > 0) {
+        commitStep({ type: 'DeleteShapes', ids });
+        setSelection(selectionNow().filter((id) => !ids.includes(id)));
+      }
+      return text;
+    },
+    lastCopied: () => clip,
+    pasteText(text, at) {
+      if (ui.getState().tool.mode !== 'idle') return false;
+      const ctx = pasteContext();
+      const payload = parseClip(text);
+      if (payload) {
+        if (at) return place(pastePlan(payload, ctx, { at }));
+        repeat = repeat.text === text ? { text, n: repeat.n + 1 } : { text, n: 1 };
+        return place(pastePlan(payload, ctx, { offset: PASTE_OFFSET * repeat.n }));
+      }
+      const body = text.trim();
+      if (!body) return false;
+      return place({
+        shapes: [plainTextSticky(body, at ?? pointerOrCentre(), ctx)],
+        connectors: [],
+      });
+    },
+    duplicate() {
+      if (ui.getState().tool.mode !== 'idle') return;
+      const { shapes, connectors } = opts.docStore.getState();
+      const payload = copyPayload(selectionNow(), shapes, connectors);
+      if (payload) place(pastePlan(payload, pasteContext(), { offset: PASTE_OFFSET }));
+    },
+    setZ(where) {
+      const ids = selectionNow();
+      if (ids.length > 0) commitStep({ type: 'SetZ', ids, where });
+    },
+    setStyle(patch) {
+      const { shapes } = opts.docStore.getState();
+      const ids = selectionNow().filter((id) => shapes[id] && !shapes[id]?.locked);
+      if (ids.length > 0) commitStep({ type: 'SetStyle', ids, patch });
+    },
+    toggleLock() {
+      const { shapes } = opts.docStore.getState();
+      const targets = selectionNow().filter((id) => shapes[id]);
+      if (targets.length === 0) return;
+      const locked = !targets.every((id) => shapes[id]?.locked);
+      commitStep({ type: 'SetLocked', ids: targets, locked });
+    },
+    setHead(head) {
+      const { connectors } = opts.docStore.getState();
+      commitStep(
+        ...selectionNow()
+          .filter((id) => connectors[id])
+          .map((id): Command => ({ type: 'SetHead', id, head })),
+      );
+    },
+    setRouting(routing) {
+      const { connectors } = opts.docStore.getState();
+      commitStep(
+        ...selectionNow()
+          .filter((id) => connectors[id])
+          .map((id): Command => ({ type: 'SetRouting', id, routing })),
+      );
+    },
+    createAt(type, p) {
+      if (ui.getState().tool.mode !== 'idle') return;
+      const size = DEFAULT_SIZE[type];
+      // Click-created stickies centre on the press; drawn tools put their corner there.
+      const world = type === 'sticky' ? p : { x: p.x - size.w / 2, y: p.y - size.h / 2 };
+      const info = { world, shift: false, hitId: null };
+      dispatch({ type: 'setTool', tool: type });
+      dispatch({ type: 'pointerDown', p: info });
+      if (ui.getState().tool.mode === 'drawing') dispatch({ type: 'pointerUp', p: info });
+    },
+    commentAt(p, hitId) {
+      const s = hitId ? opts.docStore.getState().shapes[hitId] : undefined;
+      const anchor: CommentAnchor = s
+        ? { shapeId: s.id, dx: p.x - s.x, dy: p.y - s.y }
+        : { x: p.x, y: p.y };
+      ui.setState({ composer: { anchor, at: p }, openThread: null });
+    },
+    zoomToFit() {
+      const v = ui.getState().viewport;
+      const bounds = contentBounds(opts.docStore.getState().shapes);
+      if (v && bounds) setCamera(fitBounds(bounds, v.w, v.h));
+    },
+    setHelp(open) {
+      ui.setState({ help: open });
     },
     destroy() {
       throttledCommit.cancel();
