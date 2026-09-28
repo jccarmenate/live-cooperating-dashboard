@@ -1,13 +1,7 @@
 import { useEffect } from 'react';
 import type { BoardSession } from '../board/session';
 import { gateByRole, keyDownAction, keyUpAction, type ShortcutAction } from './shortcuts';
-
-function isTyping(target: EventTarget | null): boolean {
-  return (
-    target instanceof HTMLElement &&
-    (target.isContentEditable || target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')
-  );
-}
+import { isTyping } from './typing';
 
 export function useShortcuts(session: BoardSession) {
   useEffect(() => {
@@ -31,6 +25,24 @@ export function useShortcuts(session: BoardSession) {
         case 'dispatch':
           if (action.preventDefault) e.preventDefault();
           controller.dispatch(action.event);
+          break;
+        case 'duplicate':
+          e.preventDefault();
+          controller.duplicate();
+          break;
+        case 'selectAll':
+          e.preventDefault();
+          controller.selectAll();
+          break;
+        case 'z':
+          controller.setZ(action.where);
+          break;
+        case 'zoomToFit':
+          controller.zoomToFit();
+          break;
+        case 'help':
+          e.preventDefault();
+          controller.setHelp(true);
           break;
       }
     };

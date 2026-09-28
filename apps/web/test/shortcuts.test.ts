@@ -65,7 +65,7 @@ describe('keyboard shortcuts', () => {
       type: 'redo',
     });
     expect(keyDownAction(k('y', { ctrlKey: true }), false)).toEqual({ type: 'redo' });
-    expect(keyDownAction(k('a', { ctrlKey: true }), false)).toBeNull();
+    expect(keyDownAction(k('r', { ctrlKey: true }), false)).toBeNull();
   });
 
   it('Space holds and releases the pan mode', () => {
@@ -95,5 +95,40 @@ describe('keyboard shortcuts', () => {
       event: { type: 'cancel' },
       preventDefault: false,
     });
+  });
+});
+
+describe('canvas UX shortcuts', () => {
+  const key = (k: string, extra: Partial<KeyInput> = {}): KeyInput => ({
+    key: k,
+    ctrlKey: false,
+    metaKey: false,
+    shiftKey: false,
+    altKey: false,
+    ...extra,
+  });
+
+  it('maps Ctrl/⌘+D and Ctrl/⌘+A', () => {
+    expect(keyDownAction(key('d', { ctrlKey: true }), false)).toEqual({ type: 'duplicate' });
+    expect(keyDownAction(key('a', { metaKey: true }), false)).toEqual({ type: 'selectAll' });
+    expect(keyDownAction(key('a', { ctrlKey: true }), true)).toBeNull();
+  });
+
+  it('maps ] and [ to z-order, Shift+1 to zoom to fit and ? to help', () => {
+    expect(keyDownAction(key(']'), false)).toEqual({ type: 'z', where: 'front' });
+    expect(keyDownAction(key('['), false)).toEqual({ type: 'z', where: 'back' });
+    expect(keyDownAction(key('!', { shiftKey: true, code: 'Digit1' }), false)).toEqual({
+      type: 'zoomToFit',
+    });
+    expect(keyDownAction(key('?', { shiftKey: true }), false)).toEqual({ type: 'help' });
+  });
+
+  it('viewers cannot duplicate or restack but can select all, fit and open help', () => {
+    expect(gateByRole({ type: 'duplicate' }, 'view')).toBeNull();
+    expect(gateByRole({ type: 'z', where: 'front' }, 'view')).toBeNull();
+    expect(gateByRole({ type: 'selectAll' }, 'view')).toEqual({ type: 'selectAll' });
+    expect(gateByRole({ type: 'zoomToFit' }, null)).toEqual({ type: 'zoomToFit' });
+    expect(gateByRole({ type: 'help' }, 'view')).toEqual({ type: 'help' });
+    expect(gateByRole({ type: 'duplicate' }, 'edit')).toEqual({ type: 'duplicate' });
   });
 });

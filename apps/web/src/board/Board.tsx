@@ -16,12 +16,14 @@ import { PageTabs } from '../ui/PageTabs';
 import { StatusBanner } from '../ui/StatusBanner';
 import { ToastHost } from '../ui/ToastHost';
 import { Toolbar } from '../ui/Toolbar';
+import { useClipboard } from '../ui/useClipboard';
 import { useShortcuts } from '../ui/useShortcuts';
 import { ZoomControls } from '../ui/ZoomControls';
 import { type BoardSession, createBoardSession } from './session';
 
 function BoardView({ session }: { session: BoardSession }) {
   useShortcuts(session);
+  useClipboard(session);
   const type = useStore(session.doc, (d) => d.pages.find((p) => p.id === d.activePage)?.type);
   const hasPages = useStore(session.doc, (d) => d.pages.length > 0);
   const canEdit = useStore(session.conn.clock, (c) => c.role === 'edit');

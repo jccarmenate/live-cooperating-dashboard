@@ -7,15 +7,22 @@ export interface KeyInput {
   metaKey: boolean;
   shiftKey: boolean;
   altKey: boolean;
+  /** Physical key (layout-independent), e.g. 'Digit1'. */
+  code?: string;
 }
 
 export type ShortcutAction =
   | { type: 'undo' }
   | { type: 'redo' }
   | { type: 'space'; held: boolean }
-  | { type: 'dispatch'; event: ToolEvent; preventDefault: boolean };
+  | { type: 'dispatch'; event: ToolEvent; preventDefault: boolean }
+  | { type: 'duplicate' }
+  | { type: 'selectAll' }
+  | { type: 'z'; where: 'front' | 'back' }
+  | { type: 'zoomToFit' }
+  | { type: 'help' };
 
-const TOOL_KEYS: Record<string, ToolId> = {
+export const TOOL_KEYS: Record<string, ToolId> = {
   v: 'select',
   r: 'rect',
   o: 'ellipse',
@@ -48,9 +55,15 @@ export function keyDownAction(e: KeyInput, typing: boolean): ShortcutAction | nu
   if (e.ctrlKey || e.metaKey) {
     if (key === 'z' && !e.shiftKey) return { type: 'undo' };
     if ((key === 'z' && e.shiftKey) || key === 'y') return { type: 'redo' };
+    if (key === 'd' && !e.shiftKey) return { type: 'duplicate' };
+    if (key === 'a' && !e.shiftKey) return { type: 'selectAll' };
     return null;
   }
   if (e.key === ' ') return { type: 'space', held: true };
+  if (e.key === '?') return { type: 'help' };
+  if (e.shiftKey && e.code === 'Digit1') return { type: 'zoomToFit' };
+  if (e.key === ']') return { type: 'z', where: 'front' };
+  if (e.key === '[') return { type: 'z', where: 'back' };
   if (key === 'e') return dispatch({ type: 'toggleRouting' });
   const tool = TOOL_KEYS[key];
   if (tool) return dispatch({ type: 'setTool', tool });
@@ -65,16 +78,17 @@ export function keyDownAction(e: KeyInput, typing: boolean): ShortcutAction | nu
   return null;
 }
 
-/** Drops shortcuts the role may not use: only editors can pick the comment tool (its button is hidden too). */
+/** Drops shortcuts the role may not use (only editors pick the comment tool, duplicate or restack). */
 export function gateByRole(
   action: ShortcutAction | null,
   role: Role | null,
 ): ShortcutAction | null {
+  if (!action || role === 'edit') return action;
+  if (action.type === 'duplicate' || action.type === 'z') return null;
   if (
-    action?.type === 'dispatch' &&
+    action.type === 'dispatch' &&
     action.event.type === 'setTool' &&
-    action.event.tool === 'comment' &&
-    role !== 'edit'
+    action.event.tool === 'comment'
   )
     return null;
   return action;
