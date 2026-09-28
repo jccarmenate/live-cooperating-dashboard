@@ -39,7 +39,7 @@ describe('keyboard shortcuts', () => {
     expect(gateByRole(m, null)).toBeNull();
     const rect = keyDownAction(k('r'), false);
     expect(gateByRole(rect, 'view')).toEqual(rect);
-    expect(gateByRole({ type: 'undo' }, null)).toEqual({ type: 'undo' });
+    expect(gateByRole({ type: 'undo' }, 'edit')).toEqual({ type: 'undo' });
     expect(gateByRole(null, 'edit')).toBeNull();
   });
 
@@ -145,5 +145,45 @@ describe('canvas UX shortcuts', () => {
     expect(gateByRole({ type: 'zoomToFit' }, null)).toEqual({ type: 'zoomToFit' });
     expect(gateByRole({ type: 'help' }, 'view')).toEqual({ type: 'help' });
     expect(gateByRole({ type: 'duplicate' }, 'edit')).toEqual({ type: 'duplicate' });
+  });
+
+  const down = (key: string, mods: Partial<KeyInput> = {}) => keyDownAction(k(key, mods), false);
+  const mutating: [string, ReturnType<typeof keyDownAction>][] = [
+    ['Delete', down('Delete')],
+    ['Backspace', down('Backspace')],
+    ['ArrowLeft (nudge)', down('ArrowLeft')],
+    ['Shift+ArrowDown (nudge)', down('ArrowDown', { shiftKey: true })],
+    ['E (toggle routing)', down('e')],
+    ['Ctrl+D (duplicate)', down('d', { ctrlKey: true })],
+    [']', down(']')],
+    ['[', down('[')],
+    ['Ctrl+Z (undo)', down('z', { ctrlKey: true })],
+    ['Ctrl+Y (redo)', down('y', { ctrlKey: true })],
+    ['Ctrl+Shift+Z (redo)', down('Z', { ctrlKey: true, shiftKey: true })],
+    ['M (comment tool)', down('m')],
+  ];
+  const harmless: [string, ReturnType<typeof keyDownAction>][] = [
+    ['Ctrl+A (select all)', down('a', { ctrlKey: true })],
+    ['Shift+1 (zoom to fit)', down('!', { shiftKey: true, code: 'Digit1' })],
+    ['? (help)', down('?')],
+    ['V (select tool)', down('v')],
+    ['R (rect tool)', down('r')],
+    ['Space', down(' ')],
+    ['Escape (cancel)', down('Escape')],
+  ];
+
+  for (const role of ['view', null] as const) {
+    it.each(mutating)(`role ${role}: drops %s`, (_name, action) => {
+      expect(action).not.toBeNull();
+      expect(gateByRole(action, role)).toBeNull();
+    });
+    it.each(harmless)(`role ${role}: keeps %s`, (_name, action) => {
+      expect(action).not.toBeNull();
+      expect(gateByRole(action, role)).toEqual(action);
+    });
+  }
+
+  it.each([...mutating, ...harmless])('editors keep %s', (_name, action) => {
+    expect(gateByRole(action, 'edit')).toEqual(action);
   });
 });

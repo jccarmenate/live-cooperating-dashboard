@@ -82,20 +82,38 @@ export function keyDownAction(e: KeyInput, typing: boolean): ShortcutAction | nu
   return null;
 }
 
-/** Drops shortcuts the role may not use (only editors pick the comment tool, duplicate or restack). */
+/** Tool events that change the document. */
+const MUTATING_EVENTS: ReadonlySet<ToolEvent['type']> = new Set([
+  'deleteSelection',
+  'nudge',
+  'toggleRouting',
+]);
+
+/**
+ * Drops shortcuts the role may not use: only editors change the document (delete, nudge,
+ * routing, duplicate, restack, undo, redo) or pick the comment tool. The server drops a
+ * viewer's updates anyway; this keeps the viewer's local doc and IndexedDB from forking.
+ */
 export function gateByRole(
   action: ShortcutAction | null,
   role: Role | null,
 ): ShortcutAction | null {
   if (!action || role === 'edit') return action;
-  if (action.type === 'duplicate' || action.type === 'z') return null;
-  if (
-    action.type === 'dispatch' &&
-    action.event.type === 'setTool' &&
-    action.event.tool === 'comment'
-  )
-    return null;
-  return action;
+  switch (action.type) {
+    case 'duplicate':
+    case 'z':
+    case 'undo':
+    case 'redo':
+      return null;
+    case 'dispatch': {
+      const { event } = action;
+      if (MUTATING_EVENTS.has(event.type)) return null;
+      if (event.type === 'setTool' && event.tool === 'comment') return null;
+      return action;
+    }
+    default:
+      return action;
+  }
 }
 
 /** Releasing Space always leaves pan mode, even if focus moved into an editor meanwhile. */
