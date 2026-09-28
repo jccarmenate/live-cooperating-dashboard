@@ -156,3 +156,50 @@ test('viewers can read and copy a sheet but not change it', async ({ page, brows
   expect(copied).toBe('read me');
   await viewerCtx.close();
 });
+
+test('grid keys keep working after Select all, a page tab or a header', async ({
+  page,
+  request,
+}) => {
+  const { roomId, editKey } = await newRoom(request);
+  await openBoard(page, `/r/${roomId}#k=${editKey}`);
+  await addSheet(page);
+  await typeInto(page, 'A1', 'one');
+  await typeInto(page, 'B2', 'two');
+
+  // The Select-all corner leaves the keyboard on the grid.
+  await page.getByRole('button', { name: 'Select all' }).click();
+  await page.keyboard.press('Delete');
+  await expect(page.getByTestId('cell-A1')).toHaveText('');
+  await expect(page.getByTestId('cell-B2')).toHaveText('');
+
+  // So does switching to the sheet from its page tab.
+  await page.getByTestId('page-tab').nth(0).click();
+  await expect(page.getByTestId('sheet-page')).toHaveCount(0);
+  await page.getByTestId('page-tab').nth(1).click();
+  await expect(page.getByTestId('sheet-address')).toHaveText('A1');
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.type('7');
+  await page.keyboard.press('Enter');
+  await expect(page.getByTestId('cell-A2')).toHaveText('7');
+
+  // And pressing a column header.
+  await page.getByTestId('col-header-A').click();
+  await page.keyboard.press('Control+b');
+  await expect(page.getByTestId('cell-A1')).toHaveClass(/font-bold/);
+
+  // AltGr (Ctrl+Alt on Windows) types its character: '@' starts an edit.
+  await page.getByTestId('cell-C3').click();
+  await page.evaluate(() => {
+    document.activeElement?.dispatchEvent(
+      new KeyboardEvent('keydown', {
+        key: '@',
+        ctrlKey: true,
+        altKey: true,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+  });
+  await expect(page.getByTestId('cell-editor')).toHaveValue('@');
+});

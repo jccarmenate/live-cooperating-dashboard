@@ -111,6 +111,8 @@ export function useSheetHeaders(session: BoardSession, ctl: SheetController, can
           return;
         }
       }
+      // Keyboard focus stays on the grid (not a leftover button, tab or editor).
+      document.querySelector<HTMLElement>('[data-sheet-grid]')?.focus({ preventScroll: true });
       drag.current = { kind, id, startX: e.clientX, startY: e.clientY, moved: false };
       e.currentTarget.setPointerCapture(e.pointerId);
       if (kind === 'row') ctl.selectRow(id, e.shiftKey);

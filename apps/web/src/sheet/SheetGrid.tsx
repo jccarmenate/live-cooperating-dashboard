@@ -85,6 +85,12 @@ export function SheetGrid({
     return () => observer.disconnect();
   }, []);
 
+  // Opening a sheet (e.g. from its page tab) hands the keyboard to the grid.
+  const loaded = sheet !== null;
+  useEffect(() => {
+    if (pageId && loaded) scroller.current?.focus({ preventScroll: true });
+  }, [pageId, loaded]);
+
   if (!sheet) return null;
   const offsets = colOffsets(sheet.cols);
   const totalW = ROW_HEADER_W + (offsets.at(-1) ?? 0);
@@ -161,7 +167,12 @@ export function SheetGrid({
             aria-label="Select all"
             className="sticky left-0 z-30 shrink-0 border-b-2 border-r-2 border-ink bg-paper"
             style={{ width: ROW_HEADER_W, height: HEADER_H }}
-            onClick={() => ctl.selectAll()}
+            // Keys keep driving the grid: the button never takes focus, the scroller does.
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => {
+              ctl.selectAll();
+              scroller.current?.focus({ preventScroll: true });
+            }}
           />
           {sheet.cols.map((c, i) =>
             headers ? (
