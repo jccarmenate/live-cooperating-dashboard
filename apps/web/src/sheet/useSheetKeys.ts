@@ -19,13 +19,29 @@ function isControl(target: EventTarget | null): boolean {
   );
 }
 
+/**
+ * The character a key types into a cell, or null for shortcuts and non-printable keys. AltGr
+ * (reported as Ctrl+Alt on Windows) and Option on macOS type characters such as `@` or `€`;
+ * other Ctrl, Cmd and Alt combinations do not.
+ */
+export function typedChar(
+  e: Pick<KeyboardEvent, 'key' | 'ctrlKey' | 'altKey' | 'metaKey'>,
+  mac: boolean,
+): string | null {
+  if (e.key.length !== 1 || e.metaKey) return null;
+  if (e.altKey) return e.ctrlKey !== mac ? e.key : null;
+  return e.ctrlKey ? null : e.key;
+}
+
 /** Grid keys on a sheet page (the formula bar and cell editor handle their own keys). */
 export function useSheetKeys(session: BoardSession, ctl: SheetController | null) {
   useEffect(() => {
     if (!ctl) return;
+    const mac = /Mac|iPhone|iPad|iPod/.test(navigator.platform);
     const onKeyDown = (e: KeyboardEvent) => {
-      if (isTyping(e.target) || isControl(e.target) || e.altKey || ctl.ui.getState().editing)
-        return;
+      if (isTyping(e.target) || isControl(e.target) || ctl.ui.getState().editing) return;
+      const char = typedChar(e, mac);
+      if (e.altKey && char === null) return;
       // Escape on the grid itself lets keyboard users move on (Tab moves between cells).
       if (
         e.key === 'Escape' &&
@@ -36,7 +52,7 @@ export function useSheetKeys(session: BoardSession, ctl: SheetController | null)
         return;
       }
       const canEdit = session.conn.clock.getState().role === 'edit';
-      if (e.ctrlKey || e.metaKey) {
+      if ((e.ctrlKey || e.metaKey) && char === null) {
         const k = e.key.toLowerCase();
         if (k === 'a') {
           e.preventDefault();
@@ -82,9 +98,9 @@ export function useSheetKeys(session: BoardSession, ctl: SheetController | null)
       } else if (e.key === 'Delete' || e.key === 'Backspace') {
         e.preventDefault();
         ctl.clear();
-      } else if (e.key.length === 1) {
+      } else if (char !== null) {
         e.preventDefault();
-        ctl.startEdit(e.key);
+        ctl.startEdit(char);
       }
     };
     window.addEventListener('keydown', onKeyDown);
