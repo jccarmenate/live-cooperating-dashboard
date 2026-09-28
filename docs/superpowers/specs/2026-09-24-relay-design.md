@@ -676,6 +676,7 @@ A `sheet` page is a shared spreadsheet. It is a grid of cells whose rows and col
     - **Empty cells:** an empty cell is 0 in arithmetic and `""` in `&`.
     - **Aggregates:** they skip empty cells, text and booleans in ranges. `COUNT` counts numbers.
     - **Arithmetic:** text in arithmetic is `#VALUE!`.
+    - **Text length:** text results longer than 32,767 characters are `#VALUE!`.
     - **`IF` conditions:** a condition is true for a non-zero number or `TRUE`; text is `#VALUE!`.
     - **Comparisons:** numbers compare numerically and text compares case-insensitively. Across types, number < text < boolean.
     - **`IF`:** only the chosen branch is evaluated.

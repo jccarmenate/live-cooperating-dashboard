@@ -5,6 +5,7 @@ import {
   evaluateSheet,
   literalValue,
   MAX_EVAL_DEPTH,
+  MAX_TEXT_RESULT,
   type SheetSnapshot,
   toStored,
 } from '../src';
@@ -176,6 +177,42 @@ describe('evaluateSheet', () => {
       }).not.toThrow();
       expect(Date.now() - t0).toBeLessThan(1000);
       expect(values?.get(x(0))?.t).toBe('err');
+    });
+  });
+
+  describe('text length cap', () => {
+    /** A column of `length` rows: y0 = "ab", y(i) = y(i-1)&y(i-1), so y(i) has 2^(i+1) characters. */
+    const doubling = (length: number): SheetSnapshot => ({
+      rows: Array.from({ length }, (_, i) => ({
+        id: `y${i}`,
+        order: `a${String(i).padStart(2, '0')}`,
+      })),
+      cols: [{ id: 'c1', order: 'a0', width: 120 }],
+      cells: Object.fromEntries(
+        Array.from({ length }, (_, i) => [
+          cellKey(`y${i}`, 'c1'),
+          { src: i === 0 ? 'ab' : `=[y${i - 1}.c1]&[y${i - 1}.c1]` },
+        ]),
+      ),
+    });
+    const y = (i: number) => cellKey(`y${i}`, 'c1');
+
+    it('gives #VALUE! at the concatenation that crosses MAX_TEXT_RESULT', () => {
+      expect(MAX_TEXT_RESULT).toBe(32767);
+      const values = evaluateSheet(doubling(20));
+      // y13 has 16,384 characters; y14 would have 32,768.
+      expect(values.get(y(13))).toEqual({ t: 'str', v: 'ab'.repeat(8192) });
+      expect(values.get(y(14))).toEqual(e('#VALUE!'));
+      expect(values.get(y(19))).toEqual(e('#VALUE!'));
+    });
+
+    it('evaluates a 28-step doubling chain quickly, with no text over the cap', () => {
+      const t0 = Date.now();
+      const values = evaluateSheet(doubling(28));
+      expect(Date.now() - t0).toBeLessThan(1000);
+      for (const v of values.values())
+        if (v.t === 'str') expect(v.v.length).toBeLessThanOrEqual(MAX_TEXT_RESULT);
+      expect(values.get(y(27))).toEqual(e('#VALUE!'));
     });
   });
 });

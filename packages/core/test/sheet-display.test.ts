@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { defaultAlign, formatValue, parseTsv, toTsv } from '../src';
+import { defaultAlign, formatValue, MAX_TEXT_RESULT, parseTsv, toTsv } from '../src';
 
 const n = (v: number) => ({ t: 'num' as const, v });
 
@@ -15,6 +15,12 @@ describe('formatValue', () => {
     expect(formatValue(n(0.125), { num: 'percent' }, 'en-US')).toBe('12.5%');
     expect(formatValue(n(3), { num: 'eur' }, 'en-US')).toBe('€3.00');
     expect(formatValue(n(3), { num: 'usd' }, 'en-US')).toBe('$3.00');
+  });
+
+  it('never renders text longer than MAX_TEXT_RESULT', () => {
+    expect(formatValue({ t: 'str', v: 'x'.repeat(MAX_TEXT_RESULT + 100) })).toHaveLength(
+      MAX_TEXT_RESULT,
+    );
   });
 
   it('aligns numbers right, booleans and errors centre, text left', () => {

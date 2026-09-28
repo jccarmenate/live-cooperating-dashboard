@@ -12,6 +12,9 @@ export type CellValue =
 type Num = { t: 'num'; v: number };
 type Err = { t: 'err'; v: CellError };
 
+/** Longest text a formula may produce (Excel's cell text limit); longer results are #VALUE!. */
+export const MAX_TEXT_RESULT = 32767;
+
 const EMPTY: CellValue = { t: 'empty' };
 const err = (v: CellError): Err => ({ t: 'err', v });
 const num = (v: number): Num | Err => (Number.isFinite(v) ? { t: 'num', v } : err('#NUM!'));
@@ -96,7 +99,12 @@ const COMPARISONS: Partial<Record<BinOp, (c: number) => boolean>> = {
 function binary(op: BinOp, a: CellValue, b: CellValue): CellValue {
   if (a.t === 'err') return a;
   if (b.t === 'err') return b;
-  if (op === '&') return { t: 'str', v: toText(a) + toText(b) };
+  if (op === '&') {
+    const x = toText(a);
+    const y = toText(b);
+    // Checked before allocating: doubling chains would otherwise reach hundreds of MB.
+    return x.length + y.length > MAX_TEXT_RESULT ? err('#VALUE!') : { t: 'str', v: x + y };
+  }
   const cmp = COMPARISONS[op];
   if (cmp) return { t: 'bool', v: cmp(compare(a, b)) };
   const x = toNum(a);

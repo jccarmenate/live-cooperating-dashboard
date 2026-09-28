@@ -1,4 +1,4 @@
-import type { CellValue } from './evaluate';
+import { type CellValue, MAX_TEXT_RESULT } from './evaluate';
 import type { CellAlign, CellFormat, NumFormat } from './model';
 
 const formatters = new Map<string, Intl.NumberFormat>();
@@ -33,7 +33,8 @@ export function formatValue(v: CellValue, fmt?: CellFormat, locale?: string): st
     case 'bool':
       return v.v ? 'TRUE' : 'FALSE';
     case 'str':
-      return v.v;
+      // Defence in depth: evaluation already caps text results.
+      return v.v.length > MAX_TEXT_RESULT ? v.v.slice(0, MAX_TEXT_RESULT) : v.v;
     case 'num':
       return formatter(locale, fmt?.num ?? 'general').format(v.v);
   }
