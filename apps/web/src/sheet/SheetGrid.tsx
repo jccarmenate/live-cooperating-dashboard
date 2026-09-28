@@ -170,6 +170,11 @@ export function SheetGrid({
             // Keys keep driving the grid: the button never takes focus, the scroller does.
             onMouseDown={(e) => e.preventDefault()}
             onClick={() => {
+              // The editor keeps focus through this press: commit it where it is first.
+              if (ctl.ui.getState().editing) {
+                ctl.commitEdit();
+                if (ctl.ui.getState().editing) return;
+              }
               ctl.selectAll();
               scroller.current?.focus({ preventScroll: true });
             }}

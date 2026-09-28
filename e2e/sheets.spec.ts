@@ -202,4 +202,10 @@ test('grid keys keep working after Select all, a page tab or a header', async ({
     );
   });
   await expect(page.getByTestId('cell-editor')).toHaveValue('@');
+
+  // Select all commits an open edit where it is, never into A1.
+  await page.getByRole('button', { name: 'Select all' }).click();
+  await expect(page.getByTestId('cell-editor')).toHaveCount(0);
+  await expect(page.getByTestId('cell-C3')).toHaveText('@');
+  await expect(page.getByTestId('cell-A1')).toHaveText('');
 });
