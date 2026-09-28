@@ -11,20 +11,29 @@ import {
   StickyNote,
   Type,
 } from 'lucide-react';
-import type { ComponentType } from 'react';
+import { type ComponentType, useEffect, useRef, useState } from 'react';
 import { useStore } from 'zustand';
 import type { BoardSession } from '../board/session';
 
-const TOOLS: {
+interface Tool {
   id: ToolId;
   label: string;
   key: string;
   Icon: ComponentType<{ className?: string }>;
-}[] = [
-  { id: 'select', label: 'Select', key: 'V', Icon: MousePointer2 },
+}
+
+/** The geometric shapes share one toolbar button that opens a flyout. */
+const SHAPES: readonly Tool[] = [
   { id: 'rect', label: 'Rectangle', key: 'R', Icon: Square },
   { id: 'ellipse', label: 'Ellipse', key: 'O', Icon: Circle },
   { id: 'line', label: 'Line', key: 'L', Icon: Slash },
+];
+
+const BEFORE_SHAPES: readonly Tool[] = [
+  { id: 'select', label: 'Select', key: 'V', Icon: MousePointer2 },
+];
+
+const AFTER_SHAPES: readonly Tool[] = [
   { id: 'connector', label: 'Connector', key: 'A', Icon: ArrowUpRight },
   { id: 'text', label: 'Text', key: 'T', Icon: Type },
   { id: 'sticky', label: 'Sticky note', key: 'S', Icon: StickyNote },
@@ -33,30 +42,123 @@ const TOOLS: {
   { id: 'comment', label: 'Comment', key: 'M', Icon: MessageCircle },
 ];
 
+const buttonClass = (pressed: boolean) =>
+  `grid size-9 place-items-center border-2 border-ink ${pressed ? 'bg-sun' : 'bg-white hover:bg-paper'}`;
+
+function ToolButton({ tool, active, onPick }: { tool: Tool; active: boolean; onPick(): void }) {
+  const { id, label, key, Icon } = tool;
+  return (
+    <button
+      type="button"
+      data-testid={`tool-${id}`}
+      aria-label={`${label} (${key})`}
+      aria-pressed={active}
+      title={`${label} (${key})`}
+      onClick={onPick}
+      className={buttonClass(active)}
+    >
+      <Icon className="size-4" />
+    </button>
+  );
+}
+
+/** One button for rectangle, ellipse and line; it shows the last shape used and opens a flyout. */
+function ShapesButton({ session, active }: { session: BoardSession; active: ToolId }) {
+  const [open, setOpen] = useState(false);
+  const [last, setLast] = useState<Tool>(SHAPES[0] as Tool);
+  const ref = useRef<HTMLDivElement>(null);
+  const current = SHAPES.find((s) => s.id === active);
+
+  // A shape picked by keyboard (R, O, L) becomes the button's shape too.
+  useEffect(() => {
+    if (current) setLast(current);
+  }, [current]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: PointerEvent) => {
+      if (!ref.current?.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false);
+    };
+    window.addEventListener('pointerdown', onDown, true);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('pointerdown', onDown, true);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+
+  const Icon = last.Icon;
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        data-testid="tool-shapes"
+        data-current={last.id}
+        aria-label="Shapes (R, O, L)"
+        aria-haspopup="true"
+        aria-expanded={open}
+        aria-pressed={current !== undefined}
+        title="Shapes (R, O, L)"
+        onClick={() => setOpen((o) => !o)}
+        className={`relative ${buttonClass(current !== undefined)}`}
+      >
+        <Icon className="size-4" />
+        <span aria-hidden className="absolute bottom-0 right-0.5 text-[8px] leading-none">
+          ▸
+        </span>
+      </button>
+      {open && (
+        <fieldset
+          aria-label="Shapes"
+          data-testid="shapes-flyout"
+          className="absolute left-full top-0 ml-2 flex gap-1.5 border-[3px] border-ink bg-white p-1.5 shadow-hard"
+        >
+          {SHAPES.map((tool) => (
+            <ToolButton
+              key={tool.id}
+              tool={tool}
+              active={active === tool.id}
+              onPick={() => {
+                session.controller.dispatch({ type: 'setTool', tool: tool.id });
+                setOpen(false);
+              }}
+            />
+          ))}
+        </fieldset>
+      )}
+    </div>
+  );
+}
+
 export function Toolbar({ session }: { session: BoardSession }) {
   const active = useStore(session.controller.ui, (s) => s.tool.tool);
   const role = useStore(session.conn.clock, (c) => c.role);
+  const pick = (id: ToolId) => session.controller.dispatch({ type: 'setTool', tool: id });
   return (
     <nav
       aria-label="Tools"
       className="absolute left-3 top-3 flex flex-col gap-1.5 border-[3px] border-ink bg-white p-1.5 shadow-hard"
     >
-      {TOOLS.filter((t) => t.id !== 'comment' || role === 'edit').map(
-        ({ id, label, key, Icon }) => (
-          <button
-            key={id}
-            type="button"
-            data-testid={`tool-${id}`}
-            aria-label={`${label} (${key})`}
-            aria-pressed={active === id}
-            title={`${label} (${key})`}
-            onClick={() => session.controller.dispatch({ type: 'setTool', tool: id })}
-            className={`grid size-9 place-items-center border-2 border-ink ${active === id ? 'bg-sun' : 'bg-white hover:bg-paper'}`}
-          >
-            <Icon className="size-4" />
-          </button>
-        ),
-      )}
+      {BEFORE_SHAPES.map((tool) => (
+        <ToolButton
+          key={tool.id}
+          tool={tool}
+          active={active === tool.id}
+          onPick={() => pick(tool.id)}
+        />
+      ))}
+      <ShapesButton session={session} active={active} />
+      {AFTER_SHAPES.filter((t) => t.id !== 'comment' || role === 'edit').map((tool) => (
+        <ToolButton
+          key={tool.id}
+          tool={tool}
+          active={active === tool.id}
+          onPick={() => pick(tool.id)}
+        />
+      ))}
       <span className="my-0.5 h-px bg-ink/20" aria-hidden />
       <button
         type="button"

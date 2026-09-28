@@ -118,7 +118,8 @@ test('clicking the canvas commits and blurs the title; board keys work again', a
 
   // The key must reach the board, not a still-focused title input.
   await page.keyboard.press('r');
-  await expect(page.getByTestId('tool-rect')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByTestId('tool-shapes')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByTestId('tool-shapes')).toHaveAttribute('data-current', 'rect');
   await expect(page.getByTestId('board-title')).toHaveText('Renamed');
 });
 

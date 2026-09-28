@@ -26,7 +26,7 @@ export function NewBoardButton() {
         type="button"
         onClick={create}
         disabled={state === 'busy'}
-        className="border-[3px] border-ink bg-white px-5 py-3 font-display text-sm uppercase shadow-hard transition-transform active:translate-x-0.5 active:translate-y-0.5 active:shadow-hard-sm disabled:opacity-60"
+        className="border-[3px] border-ink bg-sun px-5 py-3 font-display text-sm uppercase shadow-hard transition-transform active:translate-x-0.5 active:translate-y-0.5 active:shadow-hard-sm disabled:opacity-60"
       >
         {state === 'busy' ? 'Creating…' : 'New board'}
       </button>
