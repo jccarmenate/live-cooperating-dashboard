@@ -684,7 +684,7 @@ A `sheet` page is a shared spreadsheet. It is a grid of cells whose rows and col
     - `#DIV/0!`: division by zero;
     - `#NAME?`: unknown function;
     - `#VALUE!`: wrong type or arity;
-    - `#NUM!`: a non-finite result;
+    - `#NUM!`: a non-finite result or a reference chain deeper than 1000;
     - `#ERROR!`: a syntax error;
     - `#REF!`: a missing reference;
     - `#CYCLE!`: every cell in a dependency cycle.

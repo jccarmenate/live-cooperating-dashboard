@@ -42,7 +42,7 @@ const toNum = (v: CellValue): Num | Err => {
   }
 };
 
-const numberText = (n: number): string => String(Number(n.toPrecision(10)));
+const numberText = (n: number): string => String(Number(n.toPrecision(15)));
 
 const toText = (v: CellValue): string => {
   switch (v.t) {
@@ -128,6 +128,9 @@ function round(x: number, digits: number): number {
 
 const AGGREGATES = new Set(['SUM', 'AVERAGE', 'MIN', 'MAX', 'COUNT']);
 
+/** Deepest formula-to-formula reference chain evaluated; a cell past it is #NUM! (keeps the JS stack safe). */
+export const MAX_EVAL_DEPTH = 1000;
+
 /** Evaluates every formula of a sheet; the map holds a value for each non-empty cell. */
 export function evaluateSheet(sheet: SheetSnapshot): Map<string, CellValue> {
   const rowIndex = new Map(sheet.rows.map((r, i) => [r.id, i]));
@@ -152,6 +155,7 @@ export function evaluateSheet(sheet: SheetSnapshot): Map<string, CellValue> {
     let v: CellValue;
     if (!cell || cell.src === '') v = EMPTY;
     else if (!cell.src.startsWith('=')) v = literalValue(cell.src);
+    else if (stack.length >= MAX_EVAL_DEPTH) v = err('#NUM!');
     else {
       let ast = asts.get(key);
       if (ast === undefined) {

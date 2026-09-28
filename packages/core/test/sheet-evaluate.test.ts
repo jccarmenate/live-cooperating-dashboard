@@ -4,6 +4,7 @@ import {
   cellKey,
   evaluateSheet,
   literalValue,
+  MAX_EVAL_DEPTH,
   type SheetSnapshot,
   toStored,
 } from '../src';
@@ -61,6 +62,10 @@ describe('evaluateSheet', () => {
     expect(valueAt({ A1: '="a"<TRUE' }, 'A1')).toEqual({ t: 'bool', v: true });
     expect(valueAt({ A1: '=B1=0' }, 'A1')).toEqual({ t: 'bool', v: true });
     expect(valueAt({ A1: '=0.1+0.2&""' }, 'A1')).toEqual({ t: 'str', v: '0.3' });
+    expect(valueAt({ A1: '12345678901', B1: '=A1&""' }, 'B1')).toEqual({
+      t: 'str',
+      v: '12345678901',
+    });
   });
 
   it('aggregates ranges, skipping text, booleans and empties', () => {
@@ -110,5 +115,27 @@ describe('evaluateSheet', () => {
     s.rows.splice(1, 0, { id: 'rX', order: 'a05' });
     s.cells[cellKey('rX', 'c1')] = { src: '4' };
     expect(evaluateSheet(s).get(cellKey('r2', 'c2'))).toEqual(n(7));
+  });
+
+  it('caps deep reference chains at MAX_EVAL_DEPTH with #NUM!', () => {
+    /** A single-column chain x0 = 1, x(i) = x(i-1) + 1; cells are keyed far end first, so evaluation starts there. */
+    const chain = (length: number): SheetSnapshot => {
+      const cells: SheetSnapshot['cells'] = {};
+      for (let i = length - 1; i >= 1; i--)
+        cells[cellKey(`x${i}`, 'c1')] = { src: `=[x${i - 1}.c1]+1` };
+      cells[cellKey('x0', 'c1')] = { src: '1' };
+      return {
+        rows: Array.from({ length }, (_, i) => ({ id: `x${i}`, order: `a${i}` })),
+        cols: [{ id: 'c1', order: 'a0', width: 120 }],
+        cells,
+      };
+    };
+    expect(MAX_EVAL_DEPTH).toBe(1000);
+    expect(evaluateSheet(chain(400)).get(cellKey('x399', 'c1'))).toEqual(n(400));
+    let values: Map<string, CellValue> | undefined;
+    expect(() => {
+      values = evaluateSheet(chain(1500));
+    }).not.toThrow();
+    expect(values?.get(cellKey('x1499', 'c1'))).toEqual(e('#NUM!'));
   });
 });
