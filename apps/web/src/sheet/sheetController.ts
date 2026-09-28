@@ -92,9 +92,21 @@ export function rangeOf(sheet: SheetSnapshot, a: CellPos, b: CellPos): SheetRang
 }
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
-/** Rough size of a SetCells batch as a Yjs update (UTF-8 JSON bytes plus per-entry overhead). */
-const batchBytes = (cells: SheetCellWrite[]) =>
-  new TextEncoder().encode(JSON.stringify(cells)).length + cells.length * 16;
+/** What a deletion (an empty source with no format) costs in the budget: it adds no content. */
+const DELETE_BYTES = 32;
+/**
+ * Rough size of a SetCells batch as a Yjs update: UTF-8 JSON bytes plus per-entry overhead for
+ * writes, and a small flat cost for deletions.
+ */
+const batchBytes = (cells: SheetCellWrite[]) => {
+  const kept = cells.filter((c) => c.src !== '' || c.fmt);
+  const deleted = cells.length - kept.length;
+  return (
+    new TextEncoder().encode(JSON.stringify(kept)).length +
+    kept.length * 16 +
+    deleted * DELETE_BYTES
+  );
+};
 /** Clipboard text as compared with the remembered copy (clipboards may add CRLF or a final newline). */
 const normalizeClip = (t: string) => t.replace(/\r\n?/g, '\n').replace(/\n$/, '');
 
@@ -168,11 +180,12 @@ export function createSheetController(opts: {
   const run = (...commands: Command[]): boolean =>
     opts.canEdit() && commands.length > 0 && opts.commit(...commands);
 
+  /** Writes cells (edit, clear, format, fill); paste checks its budget with its own wording. */
   const setCells = (cells: SheetCellWrite[]): boolean => {
     const pageId = page();
     if (!pageId || cells.length === 0) return false;
     if (batchBytes(cells) > MAX_SHEET_BATCH_BYTES) {
-      notify('Too much to paste at once');
+      notify('Too many cells at once');
       return false;
     }
     return run({ type: 'SetCells', pageId, cells });

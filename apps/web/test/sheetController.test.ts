@@ -351,6 +351,41 @@ describe('sheet controller', () => {
     expect(src('B2')).toBe('');
   });
 
+  it('counts deletions lightly in the budget; other refusals say "Too many cells at once"', () => {
+    const { doc, page, ctl, s, at, notify } = setup();
+    const grow = <T>(
+      list: readonly { order: string }[],
+      n: number,
+      make: (o: string, i: number) => T,
+    ) => keysBetween(list.at(-1)?.order ?? null, null, n).map(make);
+    applyCommand(doc, {
+      type: 'InsertRows',
+      pageId: page,
+      rows: grow(s().rows, 50, (order, i) => ({ id: `row${String(i).padStart(5, '0')}`, order })),
+    });
+    applyCommand(doc, {
+      type: 'InsertCols',
+      pageId: page,
+      cols: grow(s().cols, 48, (order, i) => ({ id: `col${String(i).padStart(5, '0')}`, order })),
+    });
+    expect([s().rows.length, s().cols.length]).toEqual([100, 60]);
+    for (const row of s().rows)
+      applyCommand(doc, {
+        type: 'SetCells',
+        pageId: page,
+        cells: s().cols.map((col) => ({ row: row.id, col: col.id, src: 'x' })),
+      });
+    expect(Object.keys(s().cells)).toHaveLength(6000);
+    ctl.selectAll();
+    ctl.toggleBold();
+    expect(notify).toHaveBeenCalledWith('Too many cells at once');
+    expect(notify).not.toHaveBeenCalledWith('Too much to paste at once');
+    ctl.select(at('A1'));
+    ctl.selectAll();
+    ctl.clear();
+    expect(s().cells).toEqual({});
+  });
+
   it('resets the selection when its row is deleted by anyone', () => {
     const { ctl, at } = setup();
     ctl.select(at('C3'));
