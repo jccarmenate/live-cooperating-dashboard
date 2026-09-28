@@ -140,6 +140,7 @@ export function SelectionLayer({ session }: { session: BoardSession }) {
         </g>
       )}
       {single &&
+        !single.locked &&
         handlesFor(single.type).map((h) => {
           const pt = handlePoint(single, h);
           return (

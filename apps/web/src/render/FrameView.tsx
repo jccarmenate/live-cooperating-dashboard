@@ -9,7 +9,7 @@ import {
 import { useStore } from 'zustand';
 import { useShallow } from 'zustand/react/shallow';
 import type { BoardSession } from '../board/session';
-import { TEXT_BOX, TEXT_STYLE } from './typography';
+import { TEXT_BOX, textStyle } from './typography';
 
 export function FrameBody({
   s,
@@ -25,6 +25,7 @@ export function FrameBody({
     useShallow((d) => columnCounts(d.shapes, s.id)),
   );
   const columns = frameColumns(s);
+  const { className, fontSize } = textStyle(s);
   return (
     <>
       <rect
@@ -57,7 +58,8 @@ export function FrameBody({
       />
       <foreignObject x={s.x} y={s.y} width={s.w} height={FRAME_TITLE_H} pointerEvents="none">
         <p
-          className={`truncate ${TEXT_BOX.frame} ${TEXT_STYLE.frame} ${editing ? 'invisible' : ''}`}
+          className={`truncate ${TEXT_BOX.frame} ${className} ${editing ? 'invisible' : ''}`}
+          style={{ fontSize }}
         >
           {s.text || 'Frame'}
         </p>

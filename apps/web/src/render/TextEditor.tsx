@@ -2,7 +2,7 @@ import { diffText, FRAME_TITLE_H, transformCaret, worldToScreen } from '@relay/c
 import { useEffect, useLayoutEffect, useRef } from 'react';
 import { useStore } from 'zustand';
 import type { BoardSession } from '../board/session';
-import { isCentered, TEXT_BOX, TEXT_STYLE } from './typography';
+import { isCentered, TEXT_BOX, textStyle } from './typography';
 import { useShape } from './useShape';
 
 export function TextEditor({ session }: { session: BoardSession }) {
@@ -52,6 +52,7 @@ export function TextEditor({ session }: { session: BoardSession }) {
 
   if (!editingId || !shape) return null;
   const pos = worldToScreen(camera, { x: shape.x, y: shape.y });
+  const text = textStyle(shape);
 
   const commitValue = (id: string, next: string) => {
     const d = diffText(lastText.current, next);
@@ -72,8 +73,11 @@ export function TextEditor({ session }: { session: BoardSession }) {
         ref={ref}
         data-testid="text-editor"
         aria-label="Edit text"
-        className={`size-full resize-none bg-transparent outline-none ${TEXT_BOX[shape.type]} ${TEXT_STYLE[shape.type]}`}
-        style={isCentered(shape.type) ? { paddingTop: Math.max(8, shape.h / 2 - 10) } : undefined}
+        className={`size-full resize-none bg-transparent outline-none ${TEXT_BOX[shape.type]} ${text.className}`}
+        style={{
+          fontSize: text.fontSize,
+          ...(isCentered(shape.type) ? { paddingTop: Math.max(8, shape.h / 2 - 10) } : {}),
+        }}
         onInput={(e) => commitValue(editingId, e.currentTarget.value)}
         onKeyDown={(e) => {
           e.stopPropagation();

@@ -1,9 +1,10 @@
-import { initials, PALETTE, type Shape } from '@relay/core';
+import { initials, PALETTE, type Shape, shapeBounds } from '@relay/core';
+import { Lock } from 'lucide-react';
 import { memo } from 'react';
 import { useStore } from 'zustand';
 import type { BoardSession } from '../board/session';
 import { FrameBody } from './FrameView';
-import { CODE_HEADER, TEXT_BOX, TEXT_STYLE } from './typography';
+import { CODE_HEADER, TEXT_BOX, textStyle } from './typography';
 import { useShape } from './useShape';
 import { VoteBadge } from './VoteBadge';
 
@@ -15,11 +16,13 @@ function Shadow({ s }: { s: Shape }) {
 }
 
 function CenteredLabel({ s, editing }: { s: Shape; editing: boolean }) {
+  const { className, fontSize } = textStyle(s);
   return (
     <foreignObject x={s.x} y={s.y} width={s.w} height={s.h} pointerEvents="none">
       <div className={`grid h-full place-items-center ${TEXT_BOX[s.type]}`}>
         <p
-          className={`whitespace-pre-wrap break-words ${TEXT_STYLE[s.type]} ${editing ? 'invisible' : ''}`}
+          className={`whitespace-pre-wrap break-words ${className} ${editing ? 'invisible' : ''}`}
+          style={{ fontSize }}
         >
           {s.text}
         </p>
@@ -30,6 +33,7 @@ function CenteredLabel({ s, editing }: { s: Shape; editing: boolean }) {
 
 function Body({ s, editing, session }: { s: Shape; editing: boolean; session: BoardSession }) {
   const hidden = editing ? 'invisible' : '';
+  const { className, fontSize } = textStyle(s);
   switch (s.type) {
     case 'frame':
       return <FrameBody s={s} editing={editing} session={session} />;
@@ -48,7 +52,10 @@ function Body({ s, editing, session }: { s: Shape; editing: boolean; session: Bo
           />
           <foreignObject x={s.x} y={s.y} width={s.w} height={s.h}>
             <div className={`flex h-full flex-col justify-between ${TEXT_BOX.sticky}`}>
-              <p className={`whitespace-pre-wrap break-words ${TEXT_STYLE.sticky} ${hidden}`}>
+              <p
+                className={`whitespace-pre-wrap break-words ${className} ${hidden}`}
+                style={{ fontSize }}
+              >
                 {s.text}
               </p>
               <p className="font-mono text-[9px] uppercase tracking-wider opacity-70">
@@ -62,7 +69,10 @@ function Body({ s, editing, session }: { s: Shape; editing: boolean; session: Bo
     case 'text':
       return (
         <foreignObject x={s.x} y={s.y} width={s.w} height={s.h}>
-          <p className={`whitespace-pre-wrap break-words ${TEXT_STYLE.text} ${hidden}`}>
+          <p
+            className={`whitespace-pre-wrap break-words ${className} ${hidden}`}
+            style={{ fontSize }}
+          >
             {s.text || (editing ? '' : 'Text')}
           </p>
         </foreignObject>
@@ -139,7 +149,8 @@ function Body({ s, editing, session }: { s: Shape; editing: boolean; session: Bo
           </text>
           <foreignObject x={s.x} y={s.y} width={s.w} height={s.h}>
             <pre
-              className={`h-full overflow-hidden whitespace-pre-wrap break-words ${TEXT_BOX.code} ${TEXT_STYLE.code} ${hidden}`}
+              className={`h-full overflow-hidden whitespace-pre-wrap break-words ${TEXT_BOX.code} ${className} ${hidden}`}
+              style={{ fontSize }}
             >
               {s.text}
             </pre>
@@ -165,6 +176,21 @@ function Body({ s, editing, session }: { s: Shape; editing: boolean; session: Bo
   }
 }
 
+/** A small ink tag on the top-right corner of a locked shape. */
+function LockBadge({ s }: { s: Shape }) {
+  const b = shapeBounds(s);
+  return (
+    <g
+      data-testid="lock-badge"
+      transform={`translate(${b.x + b.w - 10} ${b.y - 10})`}
+      pointerEvents="none"
+    >
+      <rect width={20} height={20} fill={PALETTE.ink} />
+      <Lock x={4} y={4} size={12} color={PALETTE.paper} strokeWidth={2.5} />
+    </g>
+  );
+}
+
 export const ShapeView = memo(function ShapeView({
   id,
   session,
@@ -176,8 +202,9 @@ export const ShapeView = memo(function ShapeView({
   const editing = useStore(session.controller.ui, (s) => s.editingId === id);
   if (!shape) return null;
   return (
-    <g data-shape-id={id} className="cursor-move">
+    <g data-shape-id={id} className={shape.locked ? 'cursor-default' : 'cursor-move'}>
       <Body s={shape} editing={editing} session={session} />
+      {shape.locked && <LockBadge s={shape} />}
     </g>
   );
 });
