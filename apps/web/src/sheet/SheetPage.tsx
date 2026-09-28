@@ -2,10 +2,13 @@ import { useEffect, useState } from 'react';
 import { useStore } from 'zustand';
 import type { BoardSession } from '../board/session';
 import { toast } from '../ui/toasts';
+import { CellEditor } from './CellEditor';
 import { FormatBar } from './FormatBar';
 import { FormulaBar } from './FormulaBar';
 import { SheetGrid } from './SheetGrid';
 import { createSheetController, type SheetController } from './sheetController';
+import { useSheetClipboard } from './useSheetClipboard';
+import { useSheetKeys } from './useSheetKeys';
 
 export function SheetPage({ session }: { session: BoardSession }) {
   const canEdit = useStore(session.conn.clock, (c) => c.role === 'edit');
@@ -46,6 +49,9 @@ export function SheetPage({ session }: { session: BoardSession }) {
     };
   }, [session]);
 
+  useSheetKeys(session, ctl);
+  useSheetClipboard(session, ctl);
+
   if (!ctl) return null;
   if (!hasSheet) {
     return (
@@ -61,7 +67,12 @@ export function SheetPage({ session }: { session: BoardSession }) {
     <div data-testid="sheet-page" className="flex h-full min-h-0 flex-col">
       {canEdit && <FormatBar session={session} ctl={ctl} />}
       <FormulaBar session={session} ctl={ctl} canEdit={canEdit} />
-      <SheetGrid session={session} ctl={ctl} canEdit={canEdit} />
+      <SheetGrid
+        session={session}
+        ctl={ctl}
+        canEdit={canEdit}
+        overlay={<CellEditor session={session} ctl={ctl} />}
+      />
     </div>
   );
 }
