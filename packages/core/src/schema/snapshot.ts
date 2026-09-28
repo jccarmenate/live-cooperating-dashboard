@@ -10,6 +10,7 @@ import {
   type Shape,
   type ShapeType,
   type Style,
+  TEXT_TYPES,
 } from './types';
 
 const isShapeType = (v: unknown): v is ShapeType =>
@@ -19,6 +20,15 @@ const num = (v: unknown, fallback = 0): number =>
   typeof v === 'number' && Number.isFinite(v) ? v : fallback;
 
 const str = (v: unknown): string | undefined => (typeof v === 'string' ? v : undefined);
+
+/** Anything with a keyed getter: a stored Y.Map, or a plain JSON object (clipboard). */
+export interface Source {
+  get(key: string): unknown;
+}
+
+const plainSource = (o: Record<string, unknown>): Source => ({
+  get: (key) => (Object.hasOwn(o, key) ? o[key] : undefined),
+});
 
 function readStyle(v: unknown, type: ShapeType): Style {
   const d = DEFAULT_STYLE[type];
@@ -31,7 +41,7 @@ function readStyle(v: unknown, type: ShapeType): Style {
 }
 
 /** Builds an immutable snapshot of one shape, or null if it is not a valid shape. */
-export function readShape(id: string, m: Y.Map<unknown>): Shape | null {
+export function readShape(id: string, m: Source): Shape | null {
   const type = m.get('type');
   if (!isShapeType(type)) return null;
   const shape: Shape = {
@@ -60,11 +70,20 @@ export function readShape(id: string, m: Y.Map<unknown>): Shape | null {
   if (lang) shape.lang = lang;
   const text = m.get('text');
   if (text instanceof Y.Text) shape.text = text.toString();
+  // Plain JSON (the clipboard) carries text as a string; a stored map must hold a Y.Text.
+  else if (!(m instanceof Y.Map) && typeof text === 'string' && TEXT_TYPES.has(type))
+    shape.text = text;
   const cols = m.get('columns');
-  if (cols instanceof Y.Array) {
+  const list =
+    cols instanceof Y.Array
+      ? cols.toArray()
+      : !(m instanceof Y.Map) && Array.isArray(cols)
+        ? cols
+        : null;
+  if (list) {
     const seen = new Set<string>();
     const result: { id: string; title: string }[] = [];
-    for (const c of cols.toArray()) {
+    for (const c of list) {
       if (result.length >= MAX_COLUMNS) break;
       if (!c || typeof c !== 'object') continue;
       const o = c as Record<string, unknown>;
@@ -99,7 +118,7 @@ function readEndpoint(v: unknown): Endpoint | null {
 }
 
 /** Immutable snapshot of one connector, or null if an endpoint is malformed. */
-export function readConnector(id: string, m: Y.Map<unknown>): Connector | null {
+export function readConnector(id: string, m: Source): Connector | null {
   const from = readEndpoint(m.get('from'));
   const to = readEndpoint(m.get('to'));
   if (!from || !to) return null;
@@ -125,4 +144,21 @@ export function readMeta(meta: Y.Map<unknown>): BoardMeta {
       ? breadcrumb.filter((b): b is string => typeof b === 'string')
       : [],
   };
+}
+
+const plainObject = (v: unknown): Record<string, unknown> | null =>
+  v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
+
+/** A shape from plain JSON (the clipboard), validated like a stored one; null if invalid. */
+export function parseShape(v: unknown): Shape | null {
+  const o = plainObject(v);
+  if (!o || typeof o.id !== 'string' || o.id.length === 0) return null;
+  return readShape(o.id, plainSource(o));
+}
+
+/** A connector from plain JSON (the clipboard); null if invalid. */
+export function parseConnector(v: unknown): Connector | null {
+  const o = plainObject(v);
+  if (!o || typeof o.id !== 'string' || o.id.length === 0) return null;
+  return readConnector(o.id, plainSource(o));
 }

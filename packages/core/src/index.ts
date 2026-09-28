@@ -1,3 +1,4 @@
+export * from './clipboard/clip';
 export * from './commands/apply';
 export * from './commands/origins';
 export * from './commands/types';
