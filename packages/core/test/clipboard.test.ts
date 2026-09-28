@@ -6,11 +6,14 @@ import {
   type Connector,
   copyPayload,
   DEFAULT_STYLE,
+  MAX_PASTE_BYTES,
   MAX_PASTE_SHAPES,
+  type NewShape,
   type PasteContext,
   parseClip,
   parseShape,
   pastePlan,
+  pasteUpdateSize,
   plainTextSticky,
   readShape,
   type Shape,
@@ -196,5 +199,31 @@ describe('plainTextSticky', () => {
     const s = plainTextSticky('x'.repeat(5000), { x: 300, y: 300 }, pasteCtx());
     expect(s).toMatchObject({ type: 'sticky', x: 210, y: 230, w: 180, h: 140 });
     expect(s.text?.length).toBe(2000);
+  });
+
+  it('never ends the capped text on a lone high surrogate', () => {
+    const split = plainTextSticky(`${'x'.repeat(1999)}\u{1F600}tail`, { x: 0, y: 0 }, pasteCtx());
+    expect(split.text).toBe('x'.repeat(1999));
+    const whole = plainTextSticky(`${'x'.repeat(1998)}\u{1F600}tail`, { x: 0, y: 0 }, pasteCtx());
+    expect(whole.text).toBe(`${'x'.repeat(1998)}\u{1F600}`);
+  });
+});
+
+describe('pasteUpdateSize', () => {
+  const stickies = (n: number, text: string): NewShape[] =>
+    Array.from({ length: n }, (_, i) => {
+      const { z: _z, ...rest } = shape(`s${i}`, { x: i * 10, text });
+      return rest;
+    });
+
+  it('keeps a small paste under the byte budget', () => {
+    const size = pasteUpdateSize({ shapes: stickies(3, 'hi'), connectors: [] });
+    expect(size).toBeGreaterThan(0);
+    expect(size).toBeLessThan(MAX_PASTE_BYTES);
+  });
+
+  it('puts 500 stickies with 400-char texts over the byte budget', () => {
+    const size = pasteUpdateSize({ shapes: stickies(500, 'y'.repeat(400)), connectors: [] });
+    expect(size).toBeGreaterThan(MAX_PASTE_BYTES);
   });
 });

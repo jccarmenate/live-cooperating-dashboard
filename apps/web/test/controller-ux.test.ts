@@ -201,6 +201,43 @@ describe('controller canvas actions', () => {
     expect(getRoots(doc).connectors.get('k')).toBeDefined();
   });
 
+  it('cutting only locked shapes keeps the connector between them unless it was selected', () => {
+    const { doc, controller } = setup();
+    add(doc, sticky('a'));
+    add(doc, sticky('b', { x: 400 }));
+    applyCommand(
+      doc,
+      {
+        type: 'Connect',
+        connector: {
+          id: 'k',
+          from: { shapeId: 'a', anchor: 'auto' },
+          to: { shapeId: 'b', anchor: 'auto' },
+          routing: 'straight',
+          head: 'arrow',
+          createdBy: 'u1',
+        },
+      },
+      LOCAL_ORIGIN,
+    );
+    applyCommand(doc, { type: 'SetLocked', ids: ['a', 'b'], locked: true }, LOCAL_ORIGIN);
+    controller.select(['a', 'b']);
+    expect(controller.cutSelection()?.startsWith(CLIP_PREFIX)).toBe(true);
+    expect(read(doc, 'a')).not.toBeNull();
+    expect(read(doc, 'b')).not.toBeNull();
+    expect(getRoots(doc).connectors.get('k')).toBeDefined();
+    controller.select(['a', 'b', 'k']);
+    controller.cutSelection();
+    expect(getRoots(doc).connectors.get('k')).toBeUndefined();
+  });
+
+  it('a Relay clip that fails to parse pastes nothing', () => {
+    const { docs, controller } = setup();
+    expect(controller.pasteText(`${CLIP_PREFIX}{not json`)).toBe(false);
+    expect(controller.pasteText(`${CLIP_PREFIX}{"shapes":[]}`)).toBe(false);
+    expect(Object.keys(docs.store.getState().shapes)).toHaveLength(0);
+  });
+
   it('duplicate copies the selection at +24 px without touching the clipboard', () => {
     const { doc, controller } = setup();
     add(doc, sticky('a'));
@@ -337,6 +374,40 @@ describe('controller canvas actions', () => {
     expect(controller.ui.getState().synced).toBe(true);
     controller.setHelp(true);
     expect(controller.ui.getState().help).toBe(true);
+  });
+
+  it('refuses a paste or duplicate whose update would be too large for the sync server', () => {
+    const doc = new Y.Doc();
+    const docs = createDocStore(doc);
+    const activity = createActivityStore(doc);
+    const notify = vi.fn();
+    let n = 0;
+    const controller = createBoardController({
+      doc,
+      docStore: docs.store,
+      setPage: docs.setPage,
+      activity: activity.store,
+      user,
+      newId: () => `id${++n}`,
+      now: () => 1000,
+      notify,
+    });
+    const long = 'y'.repeat(400);
+    const ids = Array.from({ length: 500 }, (_, i) => `s${i}`);
+    doc.transact(() => {
+      for (const [i, id] of ids.entries()) add(doc, sticky(id, { x: i * 10, text: long }));
+    }, LOCAL_ORIGIN);
+    controller.select(ids);
+    const text = controller.copySelection() as string;
+    expect(controller.pasteText(text)).toBe(false);
+    expect(notify).toHaveBeenLastCalledWith('Too much to paste at once');
+    expect(Object.keys(docs.store.getState().shapes)).toHaveLength(500);
+    expect(selection(controller)).toEqual(ids);
+    notify.mockClear();
+    controller.duplicate();
+    expect(notify).toHaveBeenLastCalledWith('Too much to paste at once');
+    expect(Object.keys(docs.store.getState().shapes)).toHaveLength(500);
+    expect(selection(controller)).toEqual(ids);
   });
 
   it('notifies after an undo or redo that did something', () => {

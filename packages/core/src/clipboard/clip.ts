@@ -1,3 +1,5 @@
+import * as Y from 'yjs';
+import { applyCommand } from '../commands/apply';
 import type { NewConnector, NewShape } from '../commands/types';
 import { isAttached } from '../geometry/connectors';
 import { childrenOf, dropTarget } from '../geometry/frames';
@@ -13,6 +15,12 @@ export const MAX_PASTE_SHAPES = 500;
 export const MAX_PASTE_CONNECTORS = 1000;
 export const MAX_PLAIN_PASTE = 2000;
 export const PASTE_OFFSET = 24;
+/**
+ * Largest single update a paste may produce. The sync server closes any message above
+ * 256 KiB, and the client would re-send the same diff on every reconnect; this leaves headroom
+ * for the message framing and the rest of the transaction.
+ */
+export const MAX_PASTE_BYTES = 192 * 1024;
 
 export type ClipShape = Omit<Shape, 'z' | 'pageId'>;
 export type ClipConnector = Omit<Connector, 'z' | 'pageId'>;
@@ -186,6 +194,28 @@ export function pastePlan(
   return { shapes, connectors };
 }
 
+/** The first `max` UTF-16 units of a text, without a trailing lone high surrogate. */
+function capText(text: string, max: number): string {
+  const cut = text.slice(0, max);
+  const last = cut.charCodeAt(cut.length - 1);
+  return cut.length === max && last >= 0xd800 && last <= 0xdbff ? cut.slice(0, -1) : cut;
+}
+
+/**
+ * Bytes of the update a paste would produce: the plan applied as one `PasteItems` to a fresh
+ * scratch doc and encoded. The shapes, texts and connectors are the same inserts the real
+ * transaction makes, so this is a faithful estimate of the message the sync server receives.
+ */
+export function pasteUpdateSize(plan: { shapes: NewShape[]; connectors: NewConnector[] }): number {
+  const scratch = new Y.Doc();
+  try {
+    applyCommand(scratch, { type: 'PasteItems', ...plan });
+    return Y.encodeStateAsUpdate(scratch).byteLength;
+  } finally {
+    scratch.destroy();
+  }
+}
+
 /** Text from another app pastes as a sticky centred on `at` (text capped at 2000 chars). */
 export function plainTextSticky(text: string, at: Point, ctx: PasteContext): NewShape {
   const size = DEFAULT_SIZE.sticky;
@@ -196,7 +226,7 @@ export function plainTextSticky(text: string, at: Point, ctx: PasteContext): New
     y: at.y - size.h / 2,
     ...size,
     style: DEFAULT_STYLE.sticky,
-    text: text.slice(0, MAX_PLAIN_PASTE),
+    text: capText(text, MAX_PLAIN_PASTE),
     createdBy: ctx.userId,
     authorName: ctx.userName,
     createdAt: ctx.now(),

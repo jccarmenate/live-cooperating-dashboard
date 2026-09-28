@@ -1,6 +1,7 @@
 import {
   applyCommand,
   type Camera,
+  CLIP_PREFIX,
   type ClipPayload,
   type Command,
   type CommentAnchor,
@@ -14,10 +15,12 @@ import {
   fitBounds,
   type Identity,
   initialToolState,
+  isAttached,
   isVoteOpen,
   LOCAL_ORIGIN,
   MAX_BOARD_TITLE,
   MAX_PAGE_TITLE,
+  MAX_PASTE_BYTES,
   type NewConnector,
   type NewShape,
   orderBetween,
@@ -27,6 +30,7 @@ import {
   type Preview,
   parseClip,
   pastePlan,
+  pasteUpdateSize,
   plainTextSticky,
   type Rect,
   type Routing,
@@ -335,15 +339,22 @@ export function createBoardController(opts: {
   });
   const pointerOrCentre = (): Point =>
     ui.getState().pointer ?? screenToWorld(ui.getState().camera, viewportCentre());
-  /** Creates a paste plan on the active page, selected, as one undo step. */
+  /**
+   * Creates a paste plan on the active page, selected, as one undo step. A plan whose single
+   * update would exceed the sync server's message limit is refused with a notice.
+   */
   const place = (plan: { shapes: NewShape[]; connectors: NewConnector[] }): boolean => {
     if (plan.shapes.length === 0 && plan.connectors.length === 0) return false;
     const pageId = activePage();
-    commitStep({
-      type: 'PasteItems',
+    const onPage = {
       shapes: plan.shapes.map((s) => ({ ...s, pageId })),
       connectors: plan.connectors.map((c) => ({ ...c, pageId })),
-    });
+    };
+    if (pasteUpdateSize(onPage) > MAX_PASTE_BYTES) {
+      opts.notify?.('Too much to paste at once');
+      return false;
+    }
+    commitStep({ type: 'PasteItems', ...onPage });
     setSelection([...plan.shapes.map((s) => s.id), ...plan.connectors.map((c) => c.id)]);
     return true;
   };
@@ -618,7 +629,8 @@ export function createBoardController(opts: {
         return !!s && !s.locked;
       };
       // Exactly what was cut: unlocked selected shapes, the unlocked children of unlocked
-      // selected frames, and the connectors the copy took (never one it dropped).
+      // selected frames, and the connectors the copy took (never one it dropped) that were
+      // selected or are attached to a cut shape.
       const ids = new Set<string>();
       for (const id of selectionNow()) {
         if (!unlocked(id)) continue;
@@ -626,7 +638,11 @@ export function createBoardController(opts: {
         if (shapes[id]?.type !== 'frame') continue;
         for (const child of childrenOf(shapes, id)) if (unlocked(child)) ids.add(child);
       }
-      for (const c of payload.connectors) ids.add(c.id);
+      const picked = new Set(selectionNow());
+      for (const c of payload.connectors) {
+        const ends = [c.from, c.to].filter(isAttached);
+        if (picked.has(c.id) || ends.some((e) => ids.has(e.shapeId))) ids.add(c.id);
+      }
       if (ids.size > 0) {
         commitStep({ type: 'DeleteShapes', ids: [...ids] });
         setSelection(selectionNow().filter((id) => !ids.has(id)));
@@ -638,10 +654,14 @@ export function createBoardController(opts: {
       if (ui.getState().tool.mode !== 'idle') return false;
       const ctx = pasteContext();
       const payload = parseClip(text);
+      // A Relay clip that fails to parse is not text to paste.
+      if (!payload && text.startsWith(CLIP_PREFIX)) return false;
       if (payload) {
         if (at) return place(pastePlan(payload, ctx, { at }));
-        repeat = repeat.text === text ? { text, n: repeat.n + 1 } : { text, n: 1 };
-        return place(pastePlan(payload, ctx, { offset: PASTE_OFFSET * repeat.n }));
+        const next = repeat.text === text ? { text, n: repeat.n + 1 } : { text, n: 1 };
+        const placed = place(pastePlan(payload, ctx, { offset: PASTE_OFFSET * next.n }));
+        if (placed) repeat = next;
+        return placed;
       }
       const body = text.trim();
       if (!body) return false;

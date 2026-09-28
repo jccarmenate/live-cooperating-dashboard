@@ -1,4 +1,4 @@
-import { type Point, voteKey } from '@relay/core';
+import { type Point, parseClip, voteKey } from '@relay/core';
 import { useCallback } from 'react';
 import { useStore } from 'zustand';
 import type { BoardSession } from '../board/session';
@@ -22,7 +22,9 @@ export function CanvasMenu({ session }: { session: BoardSession }) {
 
   const paste = async (at?: Point) => {
     const text = await readClip(controller.lastCopied());
-    if (text === null || !controller.pasteText(text, at)) toast('Nothing to paste — try Ctrl+V');
+    if (text !== null && controller.pasteText(text, at)) return;
+    // A valid clip that was refused has already said why (too much to paste at once).
+    if (text === null || parseClip(text) === null) toast('Nothing to paste — try Ctrl+V');
   };
   const items = canvasMenu(
     {
