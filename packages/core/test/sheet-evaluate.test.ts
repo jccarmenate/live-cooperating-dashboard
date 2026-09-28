@@ -117,25 +117,63 @@ describe('evaluateSheet', () => {
     expect(evaluateSheet(s).get(cellKey('r2', 'c2'))).toEqual(n(7));
   });
 
-  it('caps deep reference chains at MAX_EVAL_DEPTH with #NUM!', () => {
-    /** A single-column chain x0 = 1, x(i) = x(i-1) + 1; cells are keyed far end first, so evaluation starts there. */
-    const chain = (length: number): SheetSnapshot => {
-      const cells: SheetSnapshot['cells'] = {};
-      for (let i = length - 1; i >= 1; i--)
-        cells[cellKey(`x${i}`, 'c1')] = { src: `=[x${i - 1}.c1]+1` };
-      cells[cellKey('x0', 'c1')] = { src: '1' };
+  describe('deep reference chains', () => {
+    const PLUS = (prev: string) => `=${prev}+1`;
+    const NESTED = (prev: string) => `=IF(TRUE, ABS(ROUND(SUM(${prev}:${prev})+1, 0)), 0)`;
+    const x = (i: number) => cellKey(`x${i}`, 'c1');
+
+    /**
+     * A single-column chain of `length` rows x0..x(length-1). Upward: x0 = 1, x(i) refers to x(i-1).
+     * Downward: the last row is 1, x(i) refers to x(i+1). `reversed` inserts the cells far end first.
+     */
+    const chain = (
+      length: number,
+      dir: 'up' | 'down',
+      formula: (prev: string) => string,
+      reversed = false,
+    ): SheetSnapshot => {
+      const start = dir === 'up' ? 0 : length - 1;
+      const entries: [string, { src: string }][] = [];
+      for (let i = 0; i < length; i++) {
+        const prev = dir === 'up' ? i - 1 : i + 1;
+        entries.push([x(i), { src: i === start ? '1' : formula(`[x${prev}.c1]`) }]);
+      }
+      if (reversed) entries.reverse();
       return {
         rows: Array.from({ length }, (_, i) => ({ id: `x${i}`, order: `a${i}` })),
         cols: [{ id: 'c1', order: 'a0', width: 120 }],
-        cells,
+        cells: Object.fromEntries(entries),
       };
     };
-    expect(MAX_EVAL_DEPTH).toBe(1000);
-    expect(evaluateSheet(chain(400)).get(cellKey('x399', 'c1'))).toEqual(n(400));
-    let values: Map<string, CellValue> | undefined;
-    expect(() => {
-      values = evaluateSheet(chain(1500));
-    }).not.toThrow();
-    expect(values?.get(cellKey('x1499', 'c1'))).toEqual(e('#NUM!'));
+    const sorted = (m: Map<string, CellValue>) => [...m].sort(([a], [b]) => (a < b ? -1 : 1));
+
+    it('evaluates in row-major order, whatever the insertion order', () => {
+      expect(MAX_EVAL_DEPTH).toBe(1000);
+      const values = evaluateSheet(chain(1500, 'up', PLUS, true));
+      expect(values.get(x(1499))).toEqual(n(1500));
+    });
+
+    it('caps a downward chain past MAX_EVAL_DEPTH with #NUM!, deterministically', () => {
+      let values: Map<string, CellValue> | undefined;
+      expect(() => {
+        values = evaluateSheet(chain(1500, 'down', PLUS));
+      }).not.toThrow();
+      expect(values?.get(x(0))).toEqual(e('#NUM!'));
+      expect(values?.get(x(1499))).toEqual(n(1));
+      const reversed = evaluateSheet(chain(1500, 'down', PLUS, true));
+      expect(sorted(reversed)).toEqual(sorted(values as Map<string, CellValue>));
+    });
+
+    it('computes a 500-row upward chain of nested formulas', () => {
+      expect(evaluateSheet(chain(500, 'up', NESTED, true)).get(x(499))).toEqual(n(500));
+    });
+
+    it('survives a stack overflow from a deep nested downward chain', () => {
+      let values: Map<string, CellValue> | undefined;
+      expect(() => {
+        values = evaluateSheet(chain(1200, 'down', NESTED));
+      }).not.toThrow();
+      expect(values?.get(x(0))?.t).toBe('err');
+    });
   });
 });

@@ -1,5 +1,5 @@
 import type { IdRef } from './lexer';
-import { cellKey, type SheetSnapshot } from './model';
+import { cellKey, type SheetSnapshot, splitCellKey } from './model';
 import { type Ast, type BinOp, type CellError, parseFormula } from './parser';
 
 export type CellValue =
@@ -299,6 +299,31 @@ export function evaluateSheet(sheet: SheetSnapshot): Map<string, CellValue> {
     }
   }
 
-  for (const key of Object.keys(sheet.cells)) cellValue(key);
+  // Row-major in the snapshot's order, not Object.keys order: map iteration differs between
+  // replicas, and upward/leftward references get memoized first, which keeps the stack shallow.
+  // Keys outside the grid go last, by key, so the order is fully deterministic.
+  const position = (key: string): [number, number] => {
+    const [row, col] = splitCellKey(key) ?? ['', ''];
+    return [
+      rowIndex.get(row) ?? Number.MAX_SAFE_INTEGER,
+      colIndex.get(col) ?? Number.MAX_SAFE_INTEGER,
+    ];
+  };
+  const order = Object.keys(sheet.cells)
+    .map((key) => ({ key, pos: position(key) }))
+    .sort((a, b) => a.pos[0] - b.pos[0] || a.pos[1] - b.pos[1] || (a.key < b.key ? -1 : 1))
+    .map((o) => o.key);
+  for (const key of order) {
+    // Last resort: a stack overflow from deeply nested formulas must never crash the sheet.
+    // Cells left mid-evaluation are not memoized and get evaluated again later in this loop.
+    try {
+      cellValue(key);
+    } catch (e) {
+      if (!(e instanceof RangeError)) throw e;
+      stack.length = 0;
+      onStack.clear();
+      values.set(key, err('#NUM!'));
+    }
+  }
   return values;
 }
