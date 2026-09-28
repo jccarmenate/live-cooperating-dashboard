@@ -13,6 +13,8 @@ export interface Roots {
   pages: Y.Map<Y.Map<unknown>>;
   /** Deleted page ids, write-once: concurrent writes of `true` can never lose a delete. */
   pageTombstones: Y.Map<boolean>;
+  /** Sheet pages' grids, keyed by page id (created with the page). */
+  sheets: Y.Map<Y.Map<unknown>>;
 }
 
 export function getRoots(doc: Y.Doc): Roots {
@@ -25,6 +27,7 @@ export function getRoots(doc: Y.Doc): Roots {
     comments: doc.getMap<Y.Map<unknown>>('comments'),
     pages: doc.getMap<Y.Map<unknown>>('pages'),
     pageTombstones: doc.getMap<boolean>('pageTombstones'),
+    sheets: doc.getMap<Y.Map<unknown>>('sheets'),
   };
 }
 

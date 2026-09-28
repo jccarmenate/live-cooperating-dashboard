@@ -23,8 +23,8 @@ const STACK_EVENTS = ['stack-item-added', 'stack-item-popped', 'stack-cleared'] 
  * applied as ordinary Yjs transactions and sync to peers like any edit.
  */
 export function createUndo(doc: Y.Doc, opts: { captureTimeout?: number } = {}): Undo {
-  const { shapes, connectors } = getRoots(doc);
-  const manager = new Y.UndoManager([shapes, connectors], {
+  const { shapes, connectors, sheets } = getRoots(doc);
+  const manager = new Y.UndoManager([shapes, connectors, sheets], {
     trackedOrigins: new Set<unknown>([LOCAL_ORIGIN, AI_ORIGIN]),
     captureTimeout: opts.captureTimeout ?? 500,
   });

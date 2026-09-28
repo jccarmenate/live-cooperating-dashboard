@@ -6,6 +6,14 @@ import { MAIN_DEFAULTS, MAIN_PAGE, pageIdOf } from '../schema/pages';
 import { readVote, voteKey } from '../schema/session';
 import type { CommentEntry, FrameColumn } from '../schema/types';
 import { TEXT_TYPES } from '../schema/types';
+import {
+  COL_WIDTH_DEFAULT,
+  COL_WIDTH_MAX,
+  COL_WIDTH_MIN,
+  cellKey,
+  MAX_CELL_SRC,
+  splitCellKey,
+} from '../sheet/model';
 import type { Command } from './types';
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
@@ -101,8 +109,39 @@ function restack(
   });
 }
 
+interface SheetMaps {
+  rows: Y.Map<unknown>;
+  cols: Y.Map<unknown>;
+  cells: Y.Map<unknown>;
+}
+
+/** The maps of a page's sheet; null when the page has no (well-formed) sheet. Commands never create one. */
+function sheetMaps(sheets: Y.Map<Y.Map<unknown>>, pageId: string): SheetMaps | null {
+  const sheet: unknown = sheets.get(pageId);
+  if (!(sheet instanceof Y.Map)) return null;
+  const rows: unknown = sheet.get('rows');
+  const cols: unknown = sheet.get('cols');
+  const cells: unknown = sheet.get('cells');
+  return rows instanceof Y.Map && cols instanceof Y.Map && cells instanceof Y.Map
+    ? { rows, cols, cells }
+    : null;
+}
+
+const clampWidth = (w: number): number =>
+  Number.isFinite(w)
+    ? Math.min(COL_WIDTH_MAX, Math.max(COL_WIDTH_MIN, Math.round(w)))
+    : COL_WIDTH_DEFAULT;
+
+/** Deletes the cells whose row (part 0) or column (part 1) is in `ids`. */
+function deleteCellsOf(cells: Y.Map<unknown>, ids: ReadonlySet<string>, part: 0 | 1): void {
+  for (const key of [...cells.keys()]) {
+    const parts = splitCellKey(key);
+    if (parts && ids.has(parts[part])) cells.delete(key);
+  }
+}
+
 function apply(doc: Y.Doc, cmd: Command): void {
-  const { shapes, connectors, session, votes, comments, pages, pageTombstones, meta } =
+  const { shapes, connectors, session, votes, comments, pages, pageTombstones, meta, sheets } =
     getRoots(doc);
   switch (cmd.type) {
     case 'CreateShape': {
@@ -316,6 +355,25 @@ function apply(doc: Y.Doc, cmd: Command): void {
       const m = new Y.Map<unknown>();
       for (const [k, v] of Object.entries(cmd.page)) if (k !== 'id') m.set(k, v);
       pages.set(cmd.page.id, m);
+      if (cmd.page.type === 'sheet' && cmd.sheet && !sheets.has(cmd.page.id)) {
+        const sheet = new Y.Map<unknown>();
+        sheets.set(cmd.page.id, sheet);
+        const rows = new Y.Map<unknown>();
+        const cols = new Y.Map<unknown>();
+        sheet.set('rows', rows);
+        sheet.set('cols', cols);
+        sheet.set('cells', new Y.Map<unknown>());
+        for (const r of cmd.sheet.rows) {
+          const rm = new Y.Map<unknown>();
+          rows.set(r.id, rm);
+          rm.set('order', r.order);
+        }
+        for (const c of cmd.sheet.cols) {
+          const cm = new Y.Map<unknown>();
+          cols.set(c.id, cm);
+          cm.set('order', c.order);
+        }
+      }
       return;
     }
     case 'RenamePage': {
@@ -330,6 +388,7 @@ function apply(doc: Y.Doc, cmd: Command): void {
       // Main always exists (implicitly or not); any other page must be held here as a map.
       if (cmd.id !== MAIN_PAGE && !((pages.get(cmd.id) as unknown) instanceof Y.Map)) return;
       if (!pageTombstones.has(cmd.id)) pageTombstones.set(cmd.id, true);
+      if (sheets.has(cmd.id)) sheets.delete(cmd.id);
       const onPage = (item: Y.Map<unknown>) => pageIdOf(item.get('pageId')) === cmd.id;
       const removed = new Set<string>();
       for (const [id, s] of [...shapes.entries()]) {
@@ -344,6 +403,73 @@ function apply(doc: Y.Doc, cmd: Command): void {
         }
       }
       for (const [id, c] of [...comments.entries()]) if (onPage(c)) comments.delete(id);
+      return;
+    }
+    case 'SetCells': {
+      const s = sheetMaps(sheets, cmd.pageId);
+      if (!s) return;
+      for (const c of cmd.cells) {
+        if (!(s.rows.get(c.row) instanceof Y.Map) || !(s.cols.get(c.col) instanceof Y.Map))
+          continue;
+        const key = cellKey(c.row, c.col);
+        const src = c.src.slice(0, MAX_CELL_SRC);
+        if (!src && !c.fmt) {
+          if (s.cells.has(key)) s.cells.delete(key);
+        } else {
+          s.cells.set(key, c.fmt ? { src, fmt: c.fmt } : { src });
+        }
+      }
+      return;
+    }
+    case 'InsertRows': {
+      const s = sheetMaps(sheets, cmd.pageId);
+      if (!s) return;
+      for (const r of cmd.rows) {
+        if (s.rows.has(r.id)) continue;
+        const m = new Y.Map<unknown>();
+        s.rows.set(r.id, m);
+        m.set('order', r.order);
+      }
+      return;
+    }
+    case 'InsertCols': {
+      const s = sheetMaps(sheets, cmd.pageId);
+      if (!s) return;
+      for (const c of cmd.cols) {
+        if (s.cols.has(c.id)) continue;
+        const m = new Y.Map<unknown>();
+        s.cols.set(c.id, m);
+        m.set('order', c.order);
+        if (c.width !== undefined) m.set('width', clampWidth(c.width));
+      }
+      return;
+    }
+    case 'DeleteRows': {
+      const s = sheetMaps(sheets, cmd.pageId);
+      if (!s) return;
+      const ids = new Set(cmd.ids);
+      for (const id of ids) if (s.rows.has(id)) s.rows.delete(id);
+      deleteCellsOf(s.cells, ids, 0);
+      return;
+    }
+    case 'DeleteCols': {
+      const s = sheetMaps(sheets, cmd.pageId);
+      if (!s) return;
+      const ids = new Set(cmd.ids);
+      for (const id of ids) if (s.cols.has(id)) s.cols.delete(id);
+      deleteCellsOf(s.cells, ids, 1);
+      return;
+    }
+    case 'MoveRow':
+    case 'MoveCol': {
+      const s = sheetMaps(sheets, cmd.pageId);
+      const m: unknown = (cmd.type === 'MoveRow' ? s?.rows : s?.cols)?.get(cmd.id);
+      if (m instanceof Y.Map) m.set('order', cmd.order);
+      return;
+    }
+    case 'SetColWidth': {
+      const m: unknown = sheetMaps(sheets, cmd.pageId)?.cols.get(cmd.id);
+      if (m instanceof Y.Map) m.set('width', clampWidth(cmd.width));
       return;
     }
     case 'RenameBoard':

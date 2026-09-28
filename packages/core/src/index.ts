@@ -18,6 +18,7 @@ export * from './schema/pages';
 export * from './schema/session';
 export * from './schema/snapshot';
 export * from './schema/types';
+export * from './sheet/model';
 export * from './sync/messages';
 export * from './text/diff';
 export * from './tools/machine';
