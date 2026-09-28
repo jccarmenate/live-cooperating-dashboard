@@ -148,4 +148,13 @@ test('a hash link to a missing page keeps the user put and corrects the URL', as
   await expect(tabs.nth(0)).toHaveText(/Board 2/);
   await expect(selected).toHaveText(/^Board$/);
   await expect(page).toHaveURL(url);
+
+  // Now on the second tab: following a dead link still keeps the user there.
+  await expect(tabs.nth(1)).toHaveAttribute('aria-selected', 'true');
+  await page.evaluate((k) => {
+    window.location.hash = `#k=${k}&p=nonexistent`;
+  }, editKey);
+  await expect(page).toHaveURL(url);
+  await expect(tabs.nth(1)).toHaveAttribute('aria-selected', 'true');
+  await expect(selected).toHaveText(/^Board$/);
 });
