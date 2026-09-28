@@ -1,12 +1,7 @@
 import { useEffect } from 'react';
 import type { BoardSession } from '../board/session';
+import { onBoardPage } from './pageKind';
 import { isTyping } from './typing';
-
-/** Board shortcuts and clipboard handlers act only on board pages. */
-const onBoardPage = (session: BoardSession): boolean => {
-  const { activePage, pages } = session.doc.getState();
-  return pages.find((p) => p.id === activePage)?.type === 'board';
-};
 
 /**
  * Ctrl/⌘+C, X and V on the board use the browser's clipboard events: they carry the data

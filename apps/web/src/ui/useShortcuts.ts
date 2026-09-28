@@ -1,13 +1,8 @@
 import { useEffect } from 'react';
 import type { BoardSession } from '../board/session';
+import { onBoardPage } from './pageKind';
 import { gateByRole, keyDownAction, keyUpAction, type ShortcutAction } from './shortcuts';
 import { isTyping } from './typing';
-
-/** Board shortcuts and clipboard handlers act only on board pages. */
-const onBoardPage = (session: BoardSession): boolean => {
-  const { activePage, pages } = session.doc.getState();
-  return pages.find((p) => p.id === activePage)?.type === 'board';
-};
 
 export function useShortcuts(session: BoardSession) {
   useEffect(() => {

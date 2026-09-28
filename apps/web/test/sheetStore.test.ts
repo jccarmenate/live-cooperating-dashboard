@@ -52,7 +52,7 @@ describe('sheet store', () => {
   });
 
   it('commit applies commands as one undo step and refuses mid-gesture', () => {
-    const { doc, controller, sheets } = setup();
+    const { controller, sheets } = setup();
     const id = controller.createPage('sheet');
     controller.setPage(id);
     const s = sheets.store.getState().sheet;
@@ -77,6 +77,5 @@ describe('sheet store', () => {
     expect(controller.commit({ type: 'SetColWidth', pageId: id, id: col, width: 300 })).toBe(false);
     expect(sheets.store.getState().sheet?.cols[0]?.width).toBe(120);
     controller.dispatch({ type: 'cancel' });
-    expect(doc).toBeDefined();
   });
 });
