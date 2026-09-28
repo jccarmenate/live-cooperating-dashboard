@@ -197,6 +197,8 @@ export function createBoardController(opts: {
   now?: () => number;
   serverNow?: () => number;
   cameraStorage?: CameraStorage;
+  /** Shows a transient notice (toasts in the app). */
+  notify?: (message: string) => void;
 }): BoardController {
   const newId = opts.newId ?? (() => crypto.randomUUID());
   const now = opts.now ?? Date.now;
@@ -282,8 +284,8 @@ export function createBoardController(opts: {
     if (ui.getState().editingId) stopEditing();
     if (ui.getState().editingColumn) ui.setState({ editingColumn: null });
     ui.setState({ overlay: null, preview: null });
-    if (direction === 'undo') undoStack.undo();
-    else undoStack.redo();
+    const done = direction === 'undo' ? undoStack.undo() : undoStack.redo();
+    if (done) opts.notify?.(direction === 'undo' ? 'Undone' : 'Redone');
   };
 
   // The initial fit happens once: after the first sync, once the canvas is measured, and
@@ -349,6 +351,8 @@ export function createBoardController(opts: {
   // times in a row it was pasted, so repeated pastes step down and right.
   let clip: string | null = null;
   let repeat = { text: '', n: 0 };
+  // Pages this user deleted: losing the active page to one of them needs no notice.
+  const deletedHere = new Set<string>();
   /** Copies the selection into the in-app clipboard; returns what was copied. */
   const copy = (): ClipPayload | null => {
     const { shapes, connectors } = opts.docStore.getState();
@@ -365,6 +369,12 @@ export function createBoardController(opts: {
     // fresh: no gesture, editor or popover carries over, undo cannot reach the old page,
     // and the camera is that page's stored one (or a fit once the canvas allows it).
     if (doc.activePage !== prev.activePage) {
+      const wasDeleted =
+        prev.pages.some((p) => p.id === prev.activePage) &&
+        !doc.pages.some((p) => p.id === prev.activePage);
+      if (wasDeleted && !deletedHere.has(prev.activePage)) {
+        opts.notify?.('The page you were on was deleted');
+      }
       throttledCommit.cancel();
       undoStack.clear();
       const stored = opts.cameraStorage?.load(doc.activePage) ?? null;
@@ -540,14 +550,16 @@ export function createBoardController(opts: {
     createPage(type) {
       const pages = opts.docStore.getState().pages;
       const id = newId();
-      const sameType = pages.filter((p) => p.type === type).length;
       const label = type === 'board' ? 'Board' : type === 'sheet' ? 'Sheet' : 'Calendar';
+      const taken = new Set(pages.map((p) => p.title));
+      let n = pages.filter((p) => p.type === type).length + 1;
+      while (taken.has(`${label} ${n}`)) n++;
       commitPage({
         type: 'CreatePage',
         page: {
           id,
           type,
-          title: `${label} ${sameType + 1}`.slice(0, MAX_PAGE_TITLE),
+          title: `${label} ${n}`.slice(0, MAX_PAGE_TITLE),
           order: orderBetween(pages.at(-1)?.order ?? null, null),
           createdBy: opts.user.id,
           createdAt: now(),
@@ -571,6 +583,7 @@ export function createBoardController(opts: {
     deletePage(id) {
       const pages = opts.docStore.getState().pages;
       if (pages.length <= 1 || !pages.some((p) => p.id === id)) return false;
+      deletedHere.add(id);
       commitPage({ type: 'DeletePage', id });
       return true;
     },

@@ -12,8 +12,9 @@ import { type ActivityState, createActivityStore } from '../store/activityStore'
 import { createDocStore, type DocState } from '../store/docStore';
 import { createPresenceStore } from '../store/presenceStore';
 import { connectRoom, type RoomConnection } from '../sync/connection';
-import { hashFor, pageFromHash } from '../sync/key';
+import { hashFor, hashTarget, pageFromHash } from '../sync/key';
 import { createPresencePublisher, type PresencePublisher } from '../sync/presence';
+import { toast } from '../ui/toasts';
 import { type BoardController, type CameraStorage, createBoardController } from './controller';
 
 export interface BoardSession {
@@ -80,6 +81,7 @@ export function createBoardSession(
     user,
     serverNow: conn.serverNow,
     cameraStorage: cameraStorage(roomId),
+    notify: toast,
   });
 
   const unsubscribe = controller.ui.subscribe((state, prev) => {
@@ -143,6 +145,14 @@ export function createBoardSession(
     correctHash(true);
   }
 
+  // Editing the fragment (or following an in-app #p= link) switches pages; replaceState never fires this.
+  const onHashChange = () => {
+    const target = hashTarget(window.location.hash, key, docStore.store.getState().activePage);
+    if (target === 'reload') window.location.reload();
+    else if (target) controller.setPage(target.page);
+  };
+  window.addEventListener('hashchange', onHashChange);
+
   return {
     roomId,
     key,
@@ -155,6 +165,7 @@ export function createBoardSession(
     controller,
     setPage: controller.setPage,
     destroy() {
+      window.removeEventListener('hashchange', onHashChange);
       unsubscribe();
       unsubscribePage();
       conn.provider.off('sync', onSync);

@@ -26,3 +26,17 @@ export function hashFor(key: string | null, page: string): string {
   parts.push(`p=${encodeURIComponent(page)}`);
   return `#${parts.join('&')}`;
 }
+
+/**
+ * What a changed URL fragment asks for: another page of this room, a reload (the key changed,
+ * so the capability did), or nothing.
+ */
+export function hashTarget(
+  hash: string,
+  key: string | null,
+  activePage: string,
+): { page: string } | 'reload' | null {
+  if (keyFromHash(hash) !== key) return 'reload';
+  const page = pageFromHash(hash);
+  return page && page !== activePage ? { page } : null;
+}

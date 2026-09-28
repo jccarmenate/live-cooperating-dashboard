@@ -12,6 +12,12 @@ export default function Home() {
         <p className="mt-4 font-mono text-sm leading-relaxed">
           A shared canvas where cursors, shapes and edits sync instantly between users.
         </p>
+        <ul className="mt-5 grid gap-2 font-mono text-xs leading-relaxed">
+          <li>▸ Stickies, shapes, connectors and frames — edited together, live.</li>
+          <li>▸ Pages per room, comments pinned to the canvas, timed dot voting.</li>
+          <li>▸ Right-click anything, copy between boards, press ? for every shortcut.</li>
+          <li>▸ No accounts: share an edit link or a read-only view link.</li>
+        </ul>
         <div className="mt-8 flex flex-wrap items-start gap-3">
           <Link
             href="/r/demo"

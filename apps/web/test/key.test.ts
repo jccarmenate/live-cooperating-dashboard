@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { hashFor, keyFromHash, pageFromHash } from '../src/sync/key';
+import { hashFor, hashTarget, keyFromHash, pageFromHash } from '../src/sync/key';
 
 describe('keyFromHash', () => {
   it('extracts k from the fragment', () => {
@@ -26,5 +26,19 @@ describe('page in the hash', () => {
     expect(keyFromHash('#k=%E0')).toBeNull();
     expect(pageFromHash('#k=%E0&p=p2')).toBe('p2');
     expect(keyFromHash('#k=abc&p=%E0')).toBe('abc');
+  });
+});
+
+describe('hashTarget', () => {
+  it('asks for another page of the same room', () => {
+    expect(hashTarget('#k=abc&p=p2', 'abc', 'main')).toEqual({ page: 'p2' });
+  });
+  it('ignores the page already showing or a hash without a page', () => {
+    expect(hashTarget('#k=abc&p=main', 'abc', 'main')).toBeNull();
+    expect(hashTarget('#k=abc', 'abc', 'main')).toBeNull();
+  });
+  it('asks for a reload when the key changes', () => {
+    expect(hashTarget('#k=other&p=main', 'abc', 'main')).toBe('reload');
+    expect(hashTarget('#p=main', 'abc', 'main')).toBe('reload');
   });
 });

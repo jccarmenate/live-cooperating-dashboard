@@ -338,4 +338,64 @@ describe('controller canvas actions', () => {
     controller.setHelp(true);
     expect(controller.ui.getState().help).toBe(true);
   });
+
+  it('notifies after an undo or redo that did something', () => {
+    const doc = new Y.Doc();
+    const docs = createDocStore(doc);
+    const activity = createActivityStore(doc);
+    const notify = vi.fn();
+    const controller = createBoardController({
+      doc,
+      docStore: docs.store,
+      setPage: docs.setPage,
+      activity: activity.store,
+      user,
+      notify,
+    });
+    controller.undo();
+    expect(notify).not.toHaveBeenCalled();
+    controller.createAt('rect', { x: 0, y: 0 });
+    controller.undo();
+    expect(notify).toHaveBeenLastCalledWith('Undone');
+    controller.redo();
+    expect(notify).toHaveBeenLastCalledWith('Redone');
+  });
+
+  it('notifies when a remote delete moves the user, not when they deleted the page', () => {
+    const doc = new Y.Doc();
+    const docs = createDocStore(doc);
+    const activity = createActivityStore(doc);
+    const notify = vi.fn();
+    let n = 0;
+    const controller = createBoardController({
+      doc,
+      docStore: docs.store,
+      setPage: docs.setPage,
+      activity: activity.store,
+      user,
+      newId: () => `p${++n}`,
+      notify,
+    });
+    const a = controller.createPage('board');
+    controller.setPage(a);
+    controller.deletePage(a);
+    expect(notify).not.toHaveBeenCalledWith('The page you were on was deleted');
+    const b = controller.createPage('board');
+    controller.setPage(b);
+    applyCommand(doc, { type: 'DeletePage', id: b }, 'remote');
+    expect(notify).toHaveBeenCalledWith('The page you were on was deleted');
+  });
+
+  it('never repeats an existing page title', () => {
+    const { docs, controller } = setup();
+    const two = controller.createPage('board');
+    controller.createPage('board');
+    controller.deletePage(two);
+    controller.createPage('board');
+    expect(docs.store.getState().pages.map((p) => p.title)).toEqual([
+      'Board',
+      'Board 3',
+      'Board 4',
+    ]);
+  });
 });

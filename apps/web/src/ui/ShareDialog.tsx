@@ -16,11 +16,15 @@ function LinkRow({
   /** No such link will ever exist here (vs. null while still connecting). */
   unavailable?: boolean;
 }) {
+  const inputId = `share-${testId}-input`;
   return (
-    <label className="mt-3 block">
-      <span className="font-mono text-[10px] uppercase text-ink/60">{label}</span>
+    <div className="mt-3">
+      <label htmlFor={inputId} className="font-mono text-[10px] uppercase text-ink/60">
+        {label}
+      </label>
       <div className="mt-1 flex gap-2">
         <input
+          id={inputId}
           readOnly
           data-testid={`share-${testId}-link`}
           value={link ?? (unavailable ? 'Not available' : 'Connecting…')}
@@ -30,6 +34,7 @@ function LinkRow({
         <button
           type="button"
           data-testid={`share-copy-${testId}`}
+          aria-label={`Copy ${label.toLowerCase()} link`}
           disabled={!link}
           className="border-2 border-ink px-3 font-mono text-xs font-bold uppercase hover:bg-sun disabled:opacity-40"
           onClick={async () => {
@@ -45,7 +50,7 @@ function LinkRow({
           Copy
         </button>
       </div>
-    </label>
+    </div>
   );
 }
 

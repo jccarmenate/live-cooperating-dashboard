@@ -20,3 +20,10 @@ html,
 body {
   height: 100%;
 }
+
+@layer base {
+  :where(button, a, input, textarea, select, [tabindex]:not([tabindex="-1"])):focus-visible {
+    outline: 2px solid var(--color-cobalt);
+    outline-offset: 2px;
+  }
+}
