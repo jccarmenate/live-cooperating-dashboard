@@ -1,8 +1,11 @@
 import { initials, onlineUsers } from '@relay/core';
+import { useState } from 'react';
 import { useStore } from 'zustand';
 import type { BoardSession } from '../board/session';
 import type { ConnStatus } from '../sync/connection';
+import { BoardTitle } from './BoardTitle';
 import { onlineUsersSignature } from './onlineUsersSignature';
+import { ShareDialog } from './ShareDialog';
 import { VoteControl } from './VoteControl';
 
 const STATUS_LABEL: Record<ConnStatus, string> = {
@@ -30,6 +33,7 @@ export function Header({ session }: { session: BoardSession }) {
     (a) => Object.values(a.comments).filter((c) => c.pageId === page && !c.resolved).length,
   );
   const panelOpen = useStore(session.controller.ui, (s) => s.commentsPanel);
+  const [sharing, setSharing] = useState(false);
   // Position-encoded key (not the bare array index) so duplicate breadcrumb segments
   // (e.g. two boards both named "Untitled") don't collide — satisfies lint/suspicious/noArrayIndexKey.
   const breadcrumb = meta.breadcrumb.reduce<{ text: string; key: string }[]>((acc, text) => {
@@ -56,7 +60,7 @@ export function Header({ session }: { session: BoardSession }) {
               {text} /{' '}
             </span>
           ))}
-          <span className="font-semibold">{meta.title}</span>
+          <BoardTitle session={session} />
         </nav>
       </div>
       <div className="flex items-center gap-2">
@@ -69,6 +73,14 @@ export function Header({ session }: { session: BoardSession }) {
           onClick={() => session.controller.toggleCommentsPanel()}
         >
           {`Comments · ${openThreads}`}
+        </button>
+        <button
+          type="button"
+          data-testid="share-open"
+          className="border-2 border-ink bg-cobalt px-2 py-0.5 font-mono text-[11px] font-bold uppercase text-white hover:brightness-110"
+          onClick={() => setSharing(true)}
+        >
+          Share
         </button>
         <div className="flex -space-x-1">
           {users.slice(0, 5).map((u) => (
@@ -99,6 +111,7 @@ export function Header({ session }: { session: BoardSession }) {
           {STATUS_LABEL[status]}
         </span>
       </div>
+      {sharing && <ShareDialog session={session} onClose={() => setSharing(false)} />}
     </header>
   );
 }
