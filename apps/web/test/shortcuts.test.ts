@@ -133,6 +133,7 @@ describe('canvas UX shortcuts', () => {
       where: 'front',
     });
     expect(keyDownAction(key('+', { code: 'BracketRight', ctrlKey: true }), false)).toBeNull();
+    expect(keyDownAction(key('+', { code: 'BracketRight', metaKey: true }), false)).toBeNull();
     expect(keyDownAction(key('+', { code: 'BracketRight', altKey: true }), false)).toBeNull();
     expect(keyDownAction(key('+', { code: 'BracketRight' }), true)).toBeNull();
   });

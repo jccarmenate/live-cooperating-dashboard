@@ -121,3 +121,31 @@ test('clicking the canvas commits and blurs the title; board keys work again', a
   await expect(page.getByTestId('tool-rect')).toHaveAttribute('aria-pressed', 'true');
   await expect(page.getByTestId('board-title')).toHaveText('Renamed');
 });
+
+test('a hash link to a missing page keeps the user put and corrects the URL', async ({
+  page,
+  request,
+}) => {
+  const { roomId, editKey } = await newRoom(request);
+  await openBoard(page, `/r/${roomId}#k=${editKey}`);
+  const tabs = page.getByTestId('page-tab');
+  const selected = page.locator('[data-testid="page-tab"][aria-selected="true"]');
+  await page.getByTestId('page-add').click();
+  await page.getByTestId('page-add-board').click();
+  await expect(tabs).toHaveCount(2);
+  await tabs.nth(0).click();
+  await expect(selected).toHaveText(/^Board$/);
+  const url = page.url();
+
+  await page.evaluate((k) => {
+    window.location.hash = `#k=${k}&p=nonexistent`;
+  }, editKey);
+  await expect(page).toHaveURL(url);
+  await expect(selected).toHaveText(/^Board$/);
+
+  // The fallback is pinned: moving another page first does not move the user.
+  await tabs.nth(1).dragTo(tabs.nth(0));
+  await expect(tabs.nth(0)).toHaveText(/Board 2/);
+  await expect(selected).toHaveText(/^Board$/);
+  await expect(page).toHaveURL(url);
+});

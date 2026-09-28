@@ -149,7 +149,16 @@ export function createBoardSession(
   const onHashChange = () => {
     const target = hashTarget(window.location.hash, key, docStore.store.getState().activePage);
     if (target === 'reload') window.location.reload();
-    else if (target) controller.setPage(target.page);
+    else if (target) {
+      controller.setPage(target.page);
+      // After the first sync a missing page never arrives: pin the fallback (a later reorder
+      // or delete of the first page must not move the user) and drop the dead #p= from the URL.
+      // Before it, the named page may still arrive and keeps waiting.
+      if (pinned) {
+        docStore.pinActive();
+        correctHash();
+      }
+    }
   };
   window.addEventListener('hashchange', onHashChange);
 
