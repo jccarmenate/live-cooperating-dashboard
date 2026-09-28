@@ -1,5 +1,5 @@
 import { initials, onlineUsers } from '@relay/core';
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { useStore } from 'zustand';
 import type { BoardSession } from '../board/session';
 import type { ConnStatus } from '../sync/connection';
@@ -34,6 +34,8 @@ export function Header({ session }: { session: BoardSession }) {
   );
   const panelOpen = useStore(session.controller.ui, (s) => s.commentsPanel);
   const [sharing, setSharing] = useState(false);
+  // Stable, so the Dialog's key listener is not re-subscribed on every presence render.
+  const closeShare = useCallback(() => setSharing(false), []);
   // Position-encoded key (not the bare array index) so duplicate breadcrumb segments
   // (e.g. two boards both named "Untitled") don't collide — satisfies lint/suspicious/noArrayIndexKey.
   const breadcrumb = meta.breadcrumb.reduce<{ text: string; key: string }[]>((acc, text) => {
@@ -111,7 +113,7 @@ export function Header({ session }: { session: BoardSession }) {
           {STATUS_LABEL[status]}
         </span>
       </div>
-      {sharing && <ShareDialog session={session} onClose={() => setSharing(false)} />}
+      {sharing && <ShareDialog session={session} onClose={closeShare} />}
     </header>
   );
 }

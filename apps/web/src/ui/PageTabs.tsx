@@ -98,6 +98,8 @@ export function PageTabs({ session }: { session: BoardSession }) {
                   className="h-8 w-32 border-2 border-b-0 border-ink bg-white px-2 font-mono text-xs outline-none"
                   onKeyDown={(e) => {
                     e.stopPropagation();
+                    // Enter that confirms an IME composition is not a commit.
+                    if (e.nativeEvent.isComposing) return;
                     if (e.key === 'Enter') finishRename(p, e.currentTarget.value);
                     else if (e.key === 'Escape') finishRename(p, null);
                   }}

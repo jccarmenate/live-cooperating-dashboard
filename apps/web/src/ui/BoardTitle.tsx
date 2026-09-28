@@ -35,6 +35,8 @@ export function BoardTitle({ session }: { session: BoardSession }) {
         className="w-48 border-2 border-ink px-1 font-mono text-xs font-semibold outline-none"
         onKeyDown={(e) => {
           e.stopPropagation();
+          // Enter that confirms an IME composition is not a commit.
+          if (e.nativeEvent.isComposing) return;
           if (e.key === 'Enter') finishEdit(e.currentTarget.value);
           else if (e.key === 'Escape') finishEdit(null);
         }}

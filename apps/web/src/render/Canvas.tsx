@@ -168,6 +168,19 @@ export function Canvas({ session }: { session: BoardSession }) {
         if (e.button === 1) e.preventDefault();
       }}
       onPointerDown={(e) => {
+        // The preventDefault calls below stop the browser from moving focus, so focus left in
+        // the header or the page tabs (board title, tab rename, a button) would keep catching
+        // board keys. Blur it; a pending title or tab rename commits through its own blur.
+        // Overlays inside the board area (text, column and comment editors) keep their own
+        // focus rules below.
+        const active = document.activeElement;
+        if (
+          active instanceof HTMLElement &&
+          active !== document.body &&
+          !e.currentTarget.parentElement?.contains(active)
+        ) {
+          active.blur();
+        }
         if (e.button === 1 || (e.button === 0 && controller.ui.getState().spaceHeld)) {
           e.preventDefault();
           e.currentTarget.setPointerCapture(e.pointerId);

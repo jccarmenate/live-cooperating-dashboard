@@ -1,7 +1,7 @@
 import { useStore } from 'zustand';
 import type { BoardSession } from '../board/session';
-import { hashFor } from '../sync/key';
 import { Dialog } from './Dialog';
+import { shareLinks } from './shareLinks';
 import { toast } from './toasts';
 
 function LinkRow({ label, link, testId }: { label: string; link: string | null; testId: string }) {
@@ -42,20 +42,21 @@ export function ShareDialog({ session, onClose }: { session: BoardSession; onClo
   const page = useStore(session.doc, (d) => d.activePage);
   const role = useStore(session.conn.clock, (c) => c.role);
   const viewKey = useStore(session.conn.clock, (c) => c.viewKey);
-  const base = `${window.location.origin}/r/${session.roomId}`;
-  const editLink = role === 'edit' ? `${base}${hashFor(session.key, page)}` : null;
-  // Until the server's hello names the role, our own key may be an edit key: never offer it
-  // as the view link.
-  let viewLink: string | null = null;
-  if (role === 'edit' && viewKey) viewLink = `${base}${hashFor(viewKey, page)}`;
-  else if (role === 'view') viewLink = `${base}${hashFor(session.key, page)}`;
+  const links = shareLinks({
+    origin: window.location.origin,
+    roomId: session.roomId,
+    key: session.key,
+    role,
+    viewKey,
+    page,
+  });
   return (
     <Dialog title="Share board" onClose={onClose}>
       <p className="font-mono text-xs text-ink/70">
         Anyone with a link can open this board. No accounts.
       </p>
-      {role === 'edit' && <LinkRow label="Can edit" link={editLink} testId="edit" />}
-      <LinkRow label="Can view" link={viewLink} testId="view" />
+      {role === 'edit' && <LinkRow label="Can edit" link={links.edit} testId="edit" />}
+      <LinkRow label="Can view" link={links.view} testId="view" />
     </Dialog>
   );
 }

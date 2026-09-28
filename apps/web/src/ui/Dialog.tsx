@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect } from 'react';
+import { type ReactNode, useEffect, useRef } from 'react';
 
 export function Dialog({
   title,
@@ -9,6 +9,12 @@ export function Dialog({
   onClose(): void;
   children: ReactNode;
 }) {
+  const panel = useRef<HTMLDivElement>(null);
+  // Focus moves into the dialog so board shortcuts (Delete, tool letters) cannot act behind it.
+  useEffect(() => {
+    panel.current?.focus();
+  }, []);
+  // Escape still closes the dialog when focus has left the panel (e.g. a click on the backdrop).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
@@ -24,10 +30,18 @@ export function Dialog({
       }}
     >
       <div
+        ref={panel}
         role="dialog"
         aria-modal="true"
         aria-label={title}
+        tabIndex={-1}
         data-testid="dialog"
+        // Keys pressed inside the dialog never reach the window's board shortcuts; Escape is
+        // handled here because the window listener above no longer sees it.
+        onKeyDown={(e) => {
+          e.stopPropagation();
+          if (e.key === 'Escape') onClose();
+        }}
         className="w-full max-w-md border-[3px] border-ink bg-white p-5 shadow-hard"
       >
         <h2 className="font-display text-lg uppercase">{title}</h2>
