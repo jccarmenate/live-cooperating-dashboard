@@ -4,10 +4,12 @@ export function Dialog({
   title,
   onClose,
   children,
+  wide = false,
 }: {
   title: string;
   onClose(): void;
   children: ReactNode;
+  wide?: boolean;
 }) {
   const panel = useRef<HTMLDivElement>(null);
   // Focus moves into the dialog so board shortcuts (Delete, tool letters) cannot act behind it.
@@ -43,7 +45,7 @@ export function Dialog({
           e.stopPropagation();
           if (e.key === 'Escape') onClose();
         }}
-        className="w-full max-w-md border-[3px] border-ink bg-white p-5 shadow-hard"
+        className={`w-full ${wide ? 'max-w-2xl' : 'max-w-md'} border-[3px] border-ink bg-white p-5 shadow-hard`}
       >
         <h2 className="font-display text-lg uppercase">{title}</h2>
         <div className="mt-3">{children}</div>

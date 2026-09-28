@@ -57,6 +57,17 @@ export function Toolbar({ session }: { session: BoardSession }) {
           </button>
         ),
       )}
+      <span className="my-0.5 h-px bg-ink/20" aria-hidden />
+      <button
+        type="button"
+        data-testid="help-button"
+        aria-label="Keyboard shortcuts (?)"
+        title="Keyboard shortcuts (?)"
+        onClick={() => session.controller.setHelp(true)}
+        className="grid size-9 place-items-center border-2 border-ink bg-white font-display text-sm hover:bg-paper"
+      >
+        ?
+      </button>
     </nav>
   );
 }

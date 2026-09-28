@@ -6,6 +6,7 @@ import { Canvas } from '../render/Canvas';
 import { ColumnTitleEditor } from '../render/ColumnTitleEditor';
 import { CommentComposer } from '../render/CommentComposer';
 import { CommentLayer } from '../render/CommentLayer';
+import { EmptyHint } from '../render/EmptyHint';
 import { Minimap } from '../render/Minimap';
 import { RemoteCursors } from '../render/RemoteCursors';
 import { TextEditor } from '../render/TextEditor';
@@ -13,6 +14,7 @@ import { keyFromHash, pageFromHash } from '../sync/key';
 import { CanvasMenu } from '../ui/CanvasMenu';
 import { CommentsPanel } from '../ui/CommentsPanel';
 import { Header } from '../ui/Header';
+import { HelpDialog } from '../ui/HelpDialog';
 import { PageTabs } from '../ui/PageTabs';
 import { PropertiesBar } from '../ui/PropertiesBar';
 import { StatusBanner } from '../ui/StatusBanner';
@@ -36,6 +38,7 @@ function BoardView({ session }: { session: BoardSession }) {
       {type === 'board' ? (
         <div className="relative flex-1 overflow-hidden">
           <Canvas session={session} />
+          <EmptyHint session={session} />
           <RemoteCursors session={session} />
           <CommentLayer session={session} />
           <TextEditor session={session} />
@@ -47,6 +50,7 @@ function BoardView({ session }: { session: BoardSession }) {
           <Minimap session={session} />
           <CommentsPanel session={session} />
           <CanvasMenu session={session} />
+          <HelpDialog session={session} />
           <StatusBanner session={session} />
         </div>
       ) : (
