@@ -11,12 +11,25 @@ const KINDS: { kind: AlgorithmKind; label: string }[] = [
   { kind: 'components', label: 'Connected components' },
 ];
 
-function describe(result: AlgorithmResult, name: (id: string) => string): string {
+/**
+ * The result as text. Names come from the snapshot taken when it ran (a later selection or
+ * move must not rename or renumber them); nodes deleted since are left out.
+ */
+function describe(
+  result: AlgorithmResult,
+  names: Readonly<Record<string, string>>,
+  present: (id: string) => boolean,
+): string {
+  const list = (ids: string[]) =>
+    ids
+      .filter(present)
+      .map((id) => names[id] ?? '?')
+      .join(' → ');
   switch (result.kind) {
     case 'traversal':
-      return `Visit order: ${result.order.map(name).join(' → ')}`;
+      return `Visit order: ${list(result.order)}`;
     case 'path':
-      return `${result.nodes.map(name).join(' → ')} · cost ${result.cost}`;
+      return `${list(result.nodes)} · cost ${result.cost}`;
     case 'mst':
       return `${result.edges.length} edge${result.edges.length === 1 ? '' : 's'} · total weight ${result.total}`;
     case 'components':
@@ -31,6 +44,7 @@ export function AlgorithmsPanel({ session }: { session: BoardSession }) {
   const open = useStore(controller.ui, (s) => s.algorithmsPanel);
   const selection = useStore(controller.ui, (s) => s.tool.selection);
   const result = useStore(controller.ui, (s) => s.graphResult);
+  const resultNames = useStore(controller.ui, (s) => s.graphNames);
   const shapes = useStore(session.doc, (d) => d.shapes);
   const connectors = useStore(session.doc, (d) => d.connectors);
   const [kind, setKind] = useState<AlgorithmKind>('bfs');
@@ -39,11 +53,12 @@ export function AlgorithmsPanel({ session }: { session: BoardSession }) {
   if (!open) return null;
 
   const graph = readGraph(selection, shapes, connectors);
-  const names = new Map(graph.nodes.map((n) => [n.id, n.name]));
-  const name = (id: string) => names.get(id) ?? '?';
+  // readGraph falls back to the whole page when no selected id is a shape (connectors only).
+  const onSelection = selection.some((id) => shapes[id] !== undefined);
   const startId = graph.nodes.some((n) => n.id === start) ? start : (graph.nodes[0]?.id ?? '');
   const endId = graph.nodes.some((n) => n.id === end) ? end : (graph.nodes.at(-1)?.id ?? '');
-  const field = 'mt-1 w-full border-2 border-ink/40 px-2 py-1 font-mono text-xs';
+  const field =
+    'mt-1 w-full border-2 border-ink/40 px-2 py-1 font-mono text-xs text-ink normal-case';
 
   return (
     <aside
@@ -63,8 +78,8 @@ export function AlgorithmsPanel({ session }: { session: BoardSession }) {
         </button>
       </div>
       <p className="font-mono text-[10px] text-ink/60">
-        {selection.length > 0 ? 'On the selection' : 'On the whole page'} · {graph.nodes.length}{' '}
-        nodes · {graph.edges.length} edges
+        {onSelection ? 'On the selection' : 'On the whole page'} · {graph.nodes.length} nodes ·{' '}
+        {graph.edges.length} edges
       </p>
       <label className="font-mono text-[10px] uppercase text-ink/60">
         Algorithm
@@ -138,7 +153,7 @@ export function AlgorithmsPanel({ session }: { session: BoardSession }) {
           data-testid="algo-result"
           className={`font-mono text-xs ${result.kind === 'error' ? 'text-flame' : ''}`}
         >
-          {describe(result, name)}
+          {describe(result, resultNames, (id) => shapes[id] !== undefined)}
         </p>
       )}
     </aside>

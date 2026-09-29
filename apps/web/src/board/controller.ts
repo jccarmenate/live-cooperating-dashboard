@@ -108,6 +108,8 @@ export interface BoardUiState {
   algorithmsPanel: boolean;
   /** The last algorithm's result, shown as a local overlay (never written to the document). */
   graphResult: AlgorithmResult | null;
+  /** Node names as they were when `graphResult` was computed (the result text uses them). */
+  graphNames: Record<string, string>;
   /** The document finished its first sync. */
   synced: boolean;
 }
@@ -224,6 +226,12 @@ export interface BoardController {
   destroy(): void;
 }
 
+/** No algorithm result shown (the overlay and its name snapshot go together). */
+const noGraphResult = (): Pick<BoardUiState, 'graphResult' | 'graphNames'> => ({
+  graphResult: null,
+  graphNames: {},
+});
+
 /** Undo steps are delimited explicitly (gesture end, text-session end), not by time. */
 const UNDO_CAPTURE_TIMEOUT = 60_000;
 
@@ -265,7 +273,7 @@ export function createBoardController(opts: {
     graphMenu: false,
     graphDialog: false,
     algorithmsPanel: false,
-    graphResult: null,
+    ...noGraphResult(),
     synced: false,
   }));
   const undoStack = createUndo(opts.doc, { captureTimeout: UNDO_CAPTURE_TIMEOUT });
@@ -451,7 +459,7 @@ export function createBoardController(opts: {
         menu: null,
         graphMenu: false,
         graphDialog: false,
-        graphResult: null,
+        ...noGraphResult(),
         camera: stored ?? { x: 0, y: 0, zoom: 1 },
       });
       tryFit();
@@ -477,8 +485,9 @@ export function createBoardController(opts: {
     if (event.type === 'pointerDown') fitPending = false;
     // A canvas press closes any open thread popover or composer (the comment tool reopens one).
     if (event.type === 'pointerDown') ui.setState({ openThread: null, composer: null });
-    // Escape clears the algorithm overlay.
-    if (event.type === 'cancel' && ui.getState().graphResult) ui.setState({ graphResult: null });
+    // Escape at rest clears the algorithm overlay; a cancel mid-gesture only ends the gesture.
+    if (event.type === 'cancel' && ui.getState().tool.mode === 'idle' && ui.getState().graphResult)
+      ui.setState(noGraphResult());
     const { state, effects } = step(ui.getState().tool, event, {
       shapes: opts.docStore.getState().shapes,
       connectors: opts.docStore.getState().connectors,
@@ -622,8 +631,11 @@ export function createBoardController(opts: {
     },
     toggleCommentsPanel() {
       const open = !ui.getState().commentsPanel;
+      // Opening Comments closes the Algorithms panel, and with it the result overlay.
       ui.setState(
-        open ? { commentsPanel: true, algorithmsPanel: false } : { commentsPanel: false },
+        open
+          ? { commentsPanel: true, algorithmsPanel: false, ...noGraphResult() }
+          : { commentsPanel: false },
       );
     },
     setPage(id) {
@@ -821,26 +833,36 @@ export function createBoardController(opts: {
       return created;
     },
     setAlgorithmsPanel(open) {
+      // Closing the panel also removes its result overlay.
       ui.setState(
-        open ? { algorithmsPanel: true, commentsPanel: false } : { algorithmsPanel: false },
+        open
+          ? { algorithmsPanel: true, commentsPanel: false }
+          : { algorithmsPanel: false, ...noGraphResult() },
       );
     },
     runAlgorithm(kind, start, end) {
       // The projected shapes and connectors are the active page's only.
       const { shapes, connectors } = opts.docStore.getState();
       let result: AlgorithmResult;
+      let graphNames: Record<string, string> = {};
       try {
         const graph = readGraph(ui.getState().tool.selection, shapes, connectors);
+        graphNames = Object.fromEntries(graph.nodes.map((n) => [n.id, n.name]));
         result = runGraphAlgorithm(graph, kind, start, end);
-      } catch {
+      } catch (e) {
         // The recursive DFS can overflow the stack on a page of thousands of chained shapes.
-        result = { kind: 'error', message: 'The graph is too large for this algorithm' };
+        if (e instanceof RangeError) {
+          result = { kind: 'error', message: 'The graph is too large for this algorithm' };
+        } else {
+          console.error(e);
+          result = { kind: 'error', message: 'Could not run the algorithm' };
+        }
       }
-      ui.setState({ graphResult: result });
+      ui.setState({ graphResult: result, graphNames });
       return result;
     },
     clearGraphResult() {
-      ui.setState({ graphResult: null });
+      ui.setState(noGraphResult());
     },
     destroy() {
       throttledCommit.cancel();

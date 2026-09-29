@@ -217,6 +217,62 @@ describe('algorithms', () => {
     expect(controller.ui.getState().graphResult).toBeNull();
   });
 
+  it('snapshots the node names of the run, so a later selection change keeps them', () => {
+    const { doc, controller } = setup();
+    twoNodes(doc);
+    controller.runAlgorithm('bfs', 'a');
+    expect(controller.ui.getState().graphNames).toEqual({ a: 'A', b: 'B' });
+    controller.select(['b']);
+    expect(controller.ui.getState().graphNames).toEqual({ a: 'A', b: 'B' });
+    expect(controller.ui.getState().graphResult).toEqual({
+      kind: 'traversal',
+      order: ['a', 'b'],
+      edges: ['k'],
+    });
+  });
+
+  it('a cancel mid-gesture ends the gesture but keeps the result', () => {
+    const { doc, controller } = setup();
+    twoNodes(doc);
+    controller.runAlgorithm('bfs', 'a');
+    controller.dispatch({
+      type: 'pointerDown',
+      p: { world: { x: 28, y: 28 }, shift: false, hitId: 'a' },
+    });
+    expect(controller.ui.getState().tool.mode).not.toBe('idle');
+    controller.dispatch({ type: 'cancel' });
+    expect(controller.ui.getState().tool.mode).toBe('idle');
+    expect(controller.ui.getState().graphResult).not.toBeNull();
+  });
+
+  it('clearGraphResult removes the result and its names', () => {
+    const { doc, controller } = setup();
+    twoNodes(doc);
+    controller.runAlgorithm('bfs', 'a');
+    controller.clearGraphResult();
+    expect(controller.ui.getState()).toMatchObject({ graphResult: null, graphNames: {} });
+  });
+
+  it('closing the panel, directly or by opening Comments, clears the result', () => {
+    const { doc, controller } = setup();
+    twoNodes(doc);
+    controller.setAlgorithmsPanel(true);
+    controller.runAlgorithm('bfs', 'a');
+    controller.setAlgorithmsPanel(true);
+    expect(controller.ui.getState().graphResult).not.toBeNull();
+    controller.setAlgorithmsPanel(false);
+    expect(controller.ui.getState()).toMatchObject({ graphResult: null, graphNames: {} });
+
+    controller.setAlgorithmsPanel(true);
+    controller.runAlgorithm('bfs', 'a');
+    controller.toggleCommentsPanel();
+    expect(controller.ui.getState()).toMatchObject({
+      algorithmsPanel: false,
+      graphResult: null,
+      graphNames: {},
+    });
+  });
+
   it('maps an algorithm that throws (a DFS deeper than the stack) to an error result', () => {
     const { docs, controller } = setup();
     // A projected chain far deeper than the call stack: the recursive DFS overflows on it.

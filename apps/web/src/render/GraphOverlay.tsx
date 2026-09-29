@@ -1,8 +1,19 @@
-import { connectorPath, isAttached, PALETTE, type Point, shapeBounds } from '@relay/core';
+import {
+  connectorPath,
+  isAttached,
+  PALETTE,
+  type Point,
+  PRESENCE_COLORS,
+  shapeBounds,
+} from '@relay/core';
 import { useStore } from 'zustand';
 import type { BoardSession } from '../board/session';
 
-const GROUP_COLORS = [PALETTE.cobalt, PALETTE.flame, PALETTE.sun, PALETTE.ink];
+// Component rings: the palette colours that read on paper (paper and white do not), then the
+// presence colours, so the first 8 components never share a colour.
+const GROUP_COLORS: string[] = [
+  ...new Set<string>([PALETTE.cobalt, PALETTE.flame, PALETTE.sun, PALETTE.ink, ...PRESENCE_COLORS]),
+];
 const toPoints = (points: Point[]) => points.map((p) => `${p.x},${p.y}`).join(' ');
 
 /** The last algorithm's result: highlighted nodes and edges, visit numbers, component colours. Local only. */

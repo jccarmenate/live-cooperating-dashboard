@@ -231,11 +231,13 @@ export function Canvas({ session }: { session: BoardSession }) {
       }}
       onPointerCancel={(e) => {
         if (endPan(e)) return;
-        controller.dispatch({ type: 'cancel' });
+        if (controller.ui.getState().tool.mode !== 'idle') controller.dispatch({ type: 'cancel' });
       }}
       onLostPointerCapture={(e) => {
         if (endPan(e)) return;
-        controller.dispatch({ type: 'cancel' });
+        // Capture is also lost after every pointerUp: at rest a cancel changes nothing in the
+        // tool, and must not reach the controller as an Escape (it clears algorithm results).
+        if (controller.ui.getState().tool.mode !== 'idle') controller.dispatch({ type: 'cancel' });
       }}
       onPointerLeave={() => {
         publisher.setCursor(null);

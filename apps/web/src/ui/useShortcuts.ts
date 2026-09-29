@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import type { BoardSession } from '../board/session';
 import { onBoardPage } from './pageKind';
 import { gateByRole, keyDownAction, keyUpAction, type ShortcutAction } from './shortcuts';
-import { isTyping } from './typing';
+import { leavesKeyAlone } from './typing';
 
 export function useShortcuts(session: BoardSession) {
   useEffect(() => {
@@ -54,7 +54,10 @@ export function useShortcuts(session: BoardSession) {
     // The role is read at keydown time, so a late `hello` (or a role change) applies immediately.
     const onKeyDown = (e: KeyboardEvent) => {
       if (!onBoardPage(session)) return;
-      run(gateByRole(keyDownAction(e, isTyping(e.target)), conn.clock.getState().role), e);
+      run(
+        gateByRole(keyDownAction(e, leavesKeyAlone(e.target, e.key)), conn.clock.getState().role),
+        e,
+      );
     };
     const onKeyUp = (e: KeyboardEvent) => run(keyUpAction(e), e);
     const onBlur = () => controller.setSpaceHeld(false);
