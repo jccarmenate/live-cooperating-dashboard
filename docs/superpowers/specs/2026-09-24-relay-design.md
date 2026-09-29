@@ -981,7 +981,7 @@ back to it.
     of a series by key. An exception value that is neither shape is
     ignored.
   - RSVP `status` must be one of the three values and `name` is capped at 40
-    characters; `link` ids are non-empty strings of at most 64 characters;
+    characters; at most 200 answers per event are read; `link` ids are non-empty strings of at most 64 characters;
     `uid` is capped at 200.
 - **`.ics` export** (everyone, including viewers): a `VCALENDAR` with
   `PRODID:-//Relay//Calendar//EN`, one `VEVENT` per event with `UID` (the

@@ -7,6 +7,7 @@ import {
   formatDate,
   formatWall,
   fromWallMinutes,
+  MAX_YEAR,
   parseDate,
   parseWall,
   safeZone,
@@ -18,12 +19,15 @@ export const MAX_EXCEPTIONS = 200;
 export const MAX_OCCURRENCES = 1000;
 export const MAX_EVENT_TITLE = 120;
 export const MAX_EVENT_NOTES = 2000;
+export const MAX_RSVP = 200;
 export const MAX_RSVP_NAME = 40;
 export const MAX_UID = 200;
 export const MAX_TIMED_DAYS = 14;
 export const MAX_ALLDAY_DAYS = 366;
 export const MIN_EVENT_MINUTES = 15;
 const MAX_LINK_ID = 64;
+/** The last representable wall minute, so a clamped timed end always reads back. */
+const LAST_WALL_MINUTE = wallMinutes({ y: MAX_YEAR, m: 12, d: 31, hh: 23, mm: 59 });
 
 /** Event colours: the board palette colours that read on paper. The first is the default. */
 export const EVENT_COLORS: readonly string[] = [
@@ -112,7 +116,8 @@ export function readWhen(v: unknown): When | null {
     const s = parseDate(o.start);
     if (!s) return null;
     const e = parseDate(o.end);
-    let end = e && dayNumber(e) >= dayNumber(s) ? e : s;
+    if (!e) return null;
+    let end = dayNumber(e) >= dayNumber(s) ? e : s;
     if (dayNumber(end) - dayNumber(s) > MAX_ALLDAY_DAYS - 1) end = addDays(s, MAX_ALLDAY_DAYS - 1);
     return { allDay: true, start: formatDate(s), end: formatDate(end) };
   }
@@ -120,10 +125,11 @@ export function readWhen(v: unknown): When | null {
     const s = parseWall(o.start);
     if (!s) return null;
     const e = parseWall(o.end);
+    if (!e) return null;
     const sm = wallMinutes(s);
-    let em = e ? wallMinutes(e) : sm + 60;
+    let em = wallMinutes(e);
     if (em < sm) em = sm + 60;
-    em = Math.min(em, sm + MAX_TIMED_DAYS * 1440);
+    em = Math.min(em, sm + MAX_TIMED_DAYS * 1440, LAST_WALL_MINUTE);
     return {
       allDay: false,
       start: formatWall(s),
@@ -173,7 +179,7 @@ export function readException(v: unknown): Exception | null {
   if (!when) return null;
   const ex: Exception = { when };
   const title = str(o.title)?.slice(0, MAX_EVENT_TITLE);
-  if (title) ex.title = title;
+  if (title?.trim()) ex.title = title;
   const notes = str(o.notes)?.slice(0, MAX_EVENT_NOTES);
   if (notes !== undefined) ex.notes = notes;
   const color = readColor(o.color);
@@ -224,12 +230,16 @@ function readEvent(id: string, m: Y.Map<unknown>): CalendarEvent | null {
   }
   const rsvp: unknown = m.get('rsvp');
   if (rsvp instanceof Y.Map) {
-    for (const [userId, raw] of rsvp.entries()) {
+    let read = 0;
+    for (const userId of [...rsvp.keys()].sort()) {
+      if (read >= MAX_RSVP) break;
+      const raw: unknown = rsvp.get(userId);
       if (!isLinkId(userId) || !raw || typeof raw !== 'object') continue;
       const o = raw as Record<string, unknown>;
       const status = RSVP_STATUSES.find((s) => s === o.status);
       if (!status) continue;
       ev.rsvp[userId] = { status, name: (str(o.name) ?? '').slice(0, MAX_RSVP_NAME) };
+      read++;
     }
   }
   return ev;

@@ -1,13 +1,19 @@
 import { describe, expect, it } from 'vitest';
 import * as Y from 'yjs';
 import {
+  addDays,
   applyCommand,
   createUndo,
   EVENT_COLORS,
+  formatDate,
   getRoots,
   LOCAL_ORIGIN,
   MAX_EVENT_TITLE,
+  MAX_EXCEPTIONS,
+  MAX_RSVP,
+  parseDate,
   readCalendar,
+  readException,
   readRule,
   readWhen,
   SESSION_ORIGIN,
@@ -87,6 +93,37 @@ describe('reading untrusted calendar data', () => {
     expect(readWhen('2026-09-28')).toBeNull();
   });
 
+  it('drops a when whose end is missing or malformed', () => {
+    expect(readWhen({ allDay: true, start: '2026-09-28', end: 'x' })).toBeNull();
+    expect(readWhen({ allDay: true, start: '2026-09-28' })).toBeNull();
+    expect(readWhen({ allDay: false, start: '2026-09-28T10:00', tz: 'UTC' })).toBeNull();
+    expect(
+      readWhen({ allDay: false, start: '2026-09-28T10:00', end: '2026-09-28T25:00', tz: 'UTC' }),
+    ).toBeNull();
+  });
+
+  it('never reads a timed end past the last representable minute', () => {
+    const w = readWhen({
+      allDay: false,
+      start: '2200-12-31T23:30',
+      end: '2200-12-31T23:00',
+      tz: 'UTC',
+    });
+    expect(w?.end).toBe('2200-12-31T23:59');
+    expect(readWhen(w)).toEqual(w);
+  });
+
+  it('reads exceptions: cancelled wins, off-palette colours and blank titles dropped', () => {
+    const when = { allDay: true, start: '2026-10-02', end: '2026-10-02' };
+    expect(readException({ cancelled: true, when, title: 'Moved' })).toEqual({ cancelled: true });
+    expect(readException({ when, color: 'red', title: '   ' })).toEqual({ when });
+    expect(readException({ when, color: EVENT_COLORS[2], title: 'Moved' })).toEqual({
+      when,
+      color: EVENT_COLORS[2],
+      title: 'Moved',
+    });
+  });
+
   it('clamps rules and drops unknown frequencies', () => {
     expect(
       readRule({ freq: 'weekly', interval: 500, byDay: [3, 1, 1, 9, 'x'], count: 5000 }),
@@ -143,6 +180,50 @@ describe('reading untrusted calendar data', () => {
     expect(e1?.rsvp).toEqual({ u1: { status: 'yes', name: 'N'.repeat(40) } });
     expect(e2?.title).toBe('Untitled');
     expect(e2?.color).toBe(EVENT_COLORS[1]);
+  });
+
+  it('keeps a valid link and a short uid', () => {
+    const { doc, events } = calendarDoc();
+    putEvent(events, 'e1', {
+      title: 'Linked',
+      when: { allDay: true, start: '2026-09-28', end: '2026-09-28' },
+      link: { pageId: 'main', shapeId: 's1' },
+      uid: 'abc@example.com',
+    });
+    const [e1] = readCalendar(getRoots(doc).calendars.get('cal'))?.events ?? [];
+    expect(e1?.link).toEqual({ pageId: 'main', shapeId: 's1' });
+    expect(e1?.uid).toBe('abc@example.com');
+  });
+
+  it('reads the first 200 exceptions by key and the first 200 valid RSVPs by user id', () => {
+    const { doc, events } = calendarDoc();
+    const first = parseDate('2026-01-01');
+    if (!first) throw new Error('bad date');
+    doc.transact(() => {
+      const m = putEvent(events, 'e1', {
+        title: 'Daily',
+        when: { allDay: true, start: '2026-01-01', end: '2026-01-01' },
+        rule: { freq: 'daily', interval: 1 },
+      });
+      const ex = m.get('exceptions') as Y.Map<unknown>;
+      for (let i = MAX_EXCEPTIONS + 9; i >= 0; i--) {
+        ex.set(formatDate(addDays(first, i)), { cancelled: true });
+      }
+      const rsvp = m.get('rsvp') as Y.Map<unknown>;
+      rsvp.set('u000', { status: 'perhaps', name: 'Invalid' });
+      for (let i = MAX_RSVP + 9; i >= 1; i--) {
+        rsvp.set(`u${String(i).padStart(3, '0')}`, { status: 'yes', name: 'N' });
+      }
+    });
+    const [e1] = readCalendar(getRoots(doc).calendars.get('cal'))?.events ?? [];
+    const exKeys = Object.keys(e1?.exceptions ?? {});
+    expect(exKeys).toHaveLength(MAX_EXCEPTIONS);
+    expect(exKeys[0]).toBe('2026-01-01');
+    expect(exKeys.at(-1)).toBe(formatDate(addDays(first, MAX_EXCEPTIONS - 1)));
+    const rsvpKeys = Object.keys(e1?.rsvp ?? {}).sort();
+    expect(rsvpKeys).toHaveLength(MAX_RSVP);
+    expect(rsvpKeys[0]).toBe('u001');
+    expect(rsvpKeys.at(-1)).toBe('u200');
   });
 
   it('reads only the first 500 events by id, and a malformed calendar as null', () => {
