@@ -142,8 +142,18 @@ function deleteCellsOf(cells: Y.Map<unknown>, ids: ReadonlySet<string>, part: 0 
 }
 
 function apply(doc: Y.Doc, cmd: Command): void {
-  const { shapes, connectors, session, votes, comments, pages, pageTombstones, meta, sheets } =
-    getRoots(doc);
+  const {
+    shapes,
+    connectors,
+    session,
+    votes,
+    comments,
+    pages,
+    pageTombstones,
+    meta,
+    sheets,
+    calendars,
+  } = getRoots(doc);
   switch (cmd.type) {
     case 'CreateShape': {
       const { text, z, columns, ...fields } = cmd.shape;
@@ -385,6 +395,11 @@ function apply(doc: Y.Doc, cmd: Command): void {
           cm.set('order', c.order);
         }
       }
+      if (cmd.page.type === 'calendar' && !calendars.has(cmd.page.id)) {
+        const calendar = new Y.Map<unknown>();
+        calendars.set(cmd.page.id, calendar);
+        calendar.set('events', new Y.Map<unknown>());
+      }
       return;
     }
     case 'RenamePage': {
@@ -400,6 +415,7 @@ function apply(doc: Y.Doc, cmd: Command): void {
       if (cmd.id !== MAIN_PAGE && !((pages.get(cmd.id) as unknown) instanceof Y.Map)) return;
       if (!pageTombstones.has(cmd.id)) pageTombstones.set(cmd.id, true);
       if (sheets.has(cmd.id)) sheets.delete(cmd.id);
+      if (calendars.has(cmd.id)) calendars.delete(cmd.id);
       const onPage = (item: Y.Map<unknown>) => pageIdOf(item.get('pageId')) === cmd.id;
       const removed = new Set<string>();
       for (const [id, s] of [...shapes.entries()]) {
