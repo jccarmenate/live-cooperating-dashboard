@@ -12,10 +12,12 @@ import {
   parseDate,
   parseWall,
   safeZone,
+  todayIn,
   toInstant,
   toWall,
   wallMinutes,
   weekday,
+  zoneOffset,
 } from '../src';
 
 const ZONES = [
@@ -41,6 +43,8 @@ describe('dates and wall times', () => {
     expect(formatDate({ y: 2026, m: 3, d: 8 })).toBe('2026-03-08');
     expect(parseWall('2026-03-08T23:59')).toEqual({ y: 2026, m: 3, d: 8, hh: 23, mm: 59 });
     expect(parseWall('2026-03-08T24:00')).toBeNull();
+    expect(parseWall('2026-01-01T12:60')).toBeNull();
+    expect(parseDate('2201-01-01')).toBeNull();
     expect(formatWall({ y: 2026, m: 3, d: 8, hh: 9, mm: 5 })).toBe('2026-03-08T09:05');
   });
 
@@ -65,6 +69,43 @@ describe('zones', () => {
     expect(isValidZone('')).toBe(false);
     expect(isValidZone(42)).toBe(false);
     expect(safeZone('Romance Standard Time')).toBe('UTC');
+    expect(isValidZone('+05:30')).toBe(false);
+    expect(isValidZone('x'.repeat(65))).toBe(false);
+    expect(isValidZone('Etc/GMT+5')).toBe(true);
+  });
+
+  it('canonicalises zone names', () => {
+    expect(safeZone('europe/madrid')).toBe('Europe/Madrid');
+    expect(safeZone('Europe/Madrid')).toBe('Europe/Madrid');
+    expect(safeZone('UTC')).toBe('UTC');
+  });
+
+  it('reads offsets and today in a zone', () => {
+    expect(zoneOffset(Date.UTC(2026, 6, 1, 12, 0), 'Europe/Madrid')).toBe(120);
+    // 23:30 UTC on 28 September is already the 29th in Kolkata (+05:30), still the 28th in Havana.
+    const t = Date.UTC(2026, 8, 28, 23, 30);
+    expect(todayIn(t, 'Asia/Kolkata')).toBe('2026-09-29');
+    expect(todayIn(t, 'America/Havana')).toBe('2026-09-28');
+  });
+
+  it('never throws on a non-finite instant', () => {
+    expect(zoneOffset(Number.NaN, 'Europe/Madrid')).toBe(0);
+    expect(zoneOffset(Number.POSITIVE_INFINITY, 'Europe/Madrid')).toBe(0);
+    expect(() => toWall(Number.NaN, 'Europe/Madrid')).not.toThrow();
+    expect(() =>
+      toInstant({ y: Number.NaN, m: 1, d: 1, hh: 0, mm: 0 }, 'Europe/Madrid'),
+    ).not.toThrow();
+  });
+
+  it('keeps converting valid zones after a flood of junk and many real zones', () => {
+    for (let i = 0; i < 300; i++) isValidZone(`Junk/Zone${i}`);
+    for (const tz of Intl.supportedValuesOf('timeZone')) zoneOffset(0, tz); // forces eviction
+    for (let i = 0; i < 300; i++) safeZone(`Junk/Zone${i}`);
+    expect(isValidZone('Europe/Madrid')).toBe(true);
+    expect(toInstant({ y: 2026, m: 7, d: 1, hh: 9, mm: 0 }, 'Europe/Madrid')).toBe(
+      Date.UTC(2026, 6, 1, 7, 0),
+    );
+    expect(isValidZone('Junk/Zone7')).toBe(false);
   });
 
   it('converts a plain wall time both ways', () => {

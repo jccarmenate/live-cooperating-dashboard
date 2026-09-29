@@ -77,9 +77,13 @@ export function fromWallMinutes(n: number): Wall {
   return { ...fromDayNumber(day), hh: Math.floor(rest / 60), mm: rest % 60 };
 }
 
-// One formatter per zone. Zone names can come from peers, so the cache is bounded.
+// One formatter per zone, in a small LRU. Zone names can come from peers, so the cache is
+// bounded, a rejected name is never cached, and names that cannot be IANA zones never reach
+// Intl or the map.
 const MAX_CACHED_ZONES = 200;
-const formatters = new Map<string, Intl.DateTimeFormat | null>();
+const MAX_ZONE_LENGTH = 64;
+const ZONE_RE = /^(UTC|[A-Za-z][A-Za-z0-9_+-]*(\/[A-Za-z0-9_+-]+)*)$/;
+const formatters = new Map<string, Intl.DateTimeFormat>();
 
 function makeFormatter(tz: string): Intl.DateTimeFormat | null {
   try {
@@ -98,21 +102,37 @@ function makeFormatter(tz: string): Intl.DateTimeFormat | null {
   }
 }
 
-function formatter(tz: string): Intl.DateTimeFormat | null {
+function formatter(tz: unknown): Intl.DateTimeFormat | null {
+  if (typeof tz !== 'string' || tz.length === 0 || tz.length > MAX_ZONE_LENGTH) return null;
+  if (!ZONE_RE.test(tz)) return null;
   const cached = formatters.get(tz);
-  if (cached !== undefined) return cached;
+  if (cached !== undefined) {
+    // Refresh recency.
+    formatters.delete(tz);
+    formatters.set(tz, cached);
+    return cached;
+  }
   const f = makeFormatter(tz);
-  if (formatters.size < MAX_CACHED_ZONES) formatters.set(tz, f);
+  if (!f) return null;
+  if (formatters.size >= MAX_CACHED_ZONES) {
+    const oldest = formatters.keys().next().value;
+    if (oldest !== undefined) formatters.delete(oldest);
+  }
+  formatters.set(tz, f);
   return f;
 }
 
-export const isValidZone = (tz: unknown): tz is string =>
-  typeof tz === 'string' && tz.length > 0 && tz.length <= 64 && formatter(tz) !== null;
+export const isValidZone = (tz: unknown): tz is string => formatter(tz) !== null;
 
-export const safeZone = (tz: unknown): string => (isValidZone(tz) ? tz : 'UTC');
+/** `tz` in its canonical IANA spelling (`europe/madrid` → `Europe/Madrid`), or `'UTC'`. */
+export const safeZone = (tz: unknown): string => formatter(tz)?.resolvedOptions().timeZone ?? 'UTC';
 
-/** Offset of `tz` from UTC at instant `ms`, in minutes (east positive). */
+/**
+ * Offset of `tz` from UTC at instant `ms`, in minutes (east positive). An unknown zone reads
+ * as UTC; a non-finite `ms` gives 0.
+ */
 export function zoneOffset(ms: number, tz: string): number {
+  if (!Number.isFinite(ms)) return 0;
   const f = formatter(tz) ?? formatter('UTC');
   if (!f) return 0;
   const parts = f.formatToParts(new Date(ms));
@@ -128,6 +148,10 @@ export function zoneOffset(ms: number, tz: string): number {
   return Math.round((asUtc - Math.floor(ms / 1000) * 1000) / 60_000);
 }
 
+/**
+ * The wall time at instant `ms` in `tz`. Historical offsets with seconds (LMT) are rounded to
+ * whole minutes.
+ */
 export function toWall(ms: number, tz: string): Wall {
   const t = new Date(ms + zoneOffset(ms, tz) * 60_000);
   return {
@@ -142,7 +166,7 @@ export function toWall(ms: number, tz: string): Wall {
 /**
  * The instant a wall time names in `tz`. A wall time that happens twice (fall-back overlap)
  * takes the earlier instant; one that does not exist (spring-forward gap) moves forward by
- * the length of the gap.
+ * the length of the gap. Historical offsets with seconds (LMT) are rounded to whole minutes.
  */
 export function toInstant(w: Wall, tz: string): number {
   const guess = Date.UTC(w.y, w.m - 1, w.d, w.hh, w.mm);
