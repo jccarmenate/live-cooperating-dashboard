@@ -1,4 +1,5 @@
 export * from './calendar/budget';
+export * from './calendar/ics';
 export * from './calendar/model';
 export * from './calendar/recurrence';
 export * from './calendar/time';
