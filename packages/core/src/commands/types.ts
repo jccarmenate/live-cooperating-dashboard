@@ -1,3 +1,4 @@
+import type { EventFields, Exception, RsvpStatus, Rule, When } from '../calendar/model';
 import type {
   CommentAnchor,
   CommentEntry,
@@ -18,6 +19,21 @@ export interface SheetCellWrite {
   col: string;
   src: string;
   fmt?: CellFormat;
+}
+
+export interface EventPatch {
+  title?: string;
+  notes?: string;
+  color?: string;
+  when?: When;
+  /** null removes the rule (the event stops repeating). */
+  rule?: Rule | null;
+}
+
+export interface ImportedEventWrite {
+  id: string;
+  fields: EventFields;
+  exceptions: Record<string, Exception>;
 }
 
 export type Command =
@@ -78,4 +94,24 @@ export type Command =
   | { type: 'DeleteCols'; pageId: string; ids: string[] }
   | { type: 'MoveRow'; pageId: string; id: string; order: string }
   | { type: 'MoveCol'; pageId: string; id: string; order: string }
-  | { type: 'SetColWidth'; pageId: string; id: string; width: number };
+  | { type: 'SetColWidth'; pageId: string; id: string; width: number }
+  | { type: 'CreateEvent'; pageId: string; id: string; fields: EventFields }
+  | {
+      type: 'UpdateEvent';
+      pageId: string;
+      id: string;
+      patch: EventPatch;
+      clearExceptions?: boolean;
+    }
+  | { type: 'DeleteEvent'; pageId: string; id: string }
+  | { type: 'SetOccurrence'; pageId: string; id: string; key: string; value: Exception }
+  | { type: 'ClearOccurrence'; pageId: string; id: string; key: string }
+  | { type: 'ImportEvents'; pageId: string; events: ImportedEventWrite[] }
+  | {
+      type: 'SetRsvp';
+      pageId: string;
+      id: string;
+      userId: string;
+      status: RsvpStatus | null;
+      name: string;
+    };
