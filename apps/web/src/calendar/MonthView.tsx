@@ -1,4 +1,12 @@
-import { dayNumber, type Occurrence, parseDate, todayIn, toWall } from '@relay/core';
+import {
+  dayNumber,
+  formatDate,
+  fromDayNumber,
+  type Occurrence,
+  parseDate,
+  todayIn,
+  toWall,
+} from '@relay/core';
 import { useMemo, useRef, useState } from 'react';
 import { useStore } from 'zustand';
 import type { BoardSession } from '../board/session';
@@ -16,13 +24,44 @@ import {
 const LINE = 20;
 const HEAD = 22;
 
-/** Pointer gestures on an event: a click selects, a drag onto another day moves it. */
+/**
+ * The day under a point. Bars are not inside a day cell and stay put during a drag, so the
+ * topmost element may have no day: the elements below it are looked through.
+ */
+function dateAt(x: number, y: number): string | null {
+  for (const el of document.elementsFromPoint(x, y)) {
+    const date = el.closest<HTMLElement>('[data-date]')?.dataset.date;
+    if (date) return date;
+  }
+  return null;
+}
+
+/**
+ * Pointer gestures on an event: a click selects; a drag onto another day moves it by the days
+ * between the day it was grabbed on and the day it was dropped on (a multi-day bar grabbed in
+ * its middle keeps its offset under the pointer).
+ */
 export function useEventDrag(ctl: CalendarController, canEdit: boolean) {
-  const drag = useRef<{ ref: OccRef; x: number; y: number; moved: boolean } | null>(null);
-  const onPointerDown = (ref: OccRef) => (e: React.PointerEvent) => {
+  const drag = useRef<{
+    ref: OccRef;
+    /** The occurrence's first day (viewer's zone), as a day number. */
+    first: number;
+    grabbed: string | null;
+    x: number;
+    y: number;
+    moved: boolean;
+  } | null>(null);
+  const onPointerDown = (o: Occurrence) => (e: React.PointerEvent) => {
     if (e.button !== 0) return;
     e.stopPropagation();
-    drag.current = { ref, x: e.clientX, y: e.clientY, moved: false };
+    drag.current = {
+      ref: { eventId: o.eventId, key: o.key },
+      first: occurrenceDays(o, ctl.zone).first,
+      grabbed: dateAt(e.clientX, e.clientY),
+      x: e.clientX,
+      y: e.clientY,
+      moved: false,
+    };
     e.currentTarget.setPointerCapture(e.pointerId);
   };
   const onPointerMove = (e: React.PointerEvent) => {
@@ -38,11 +77,11 @@ export function useEventDrag(ctl: CalendarController, canEdit: boolean) {
       return;
     }
     if (!canEdit) return;
-    const target = document
-      .elementFromPoint(e.clientX, e.clientY)
-      ?.closest<HTMLElement>('[data-date]');
-    const date = target?.dataset.date;
-    if (date) ctl.move(d.ref, { date });
+    const from = parseDate(d.grabbed ?? '');
+    const to = parseDate(dateAt(e.clientX, e.clientY) ?? '');
+    if (!from || !to) return;
+    const delta = dayNumber(to) - dayNumber(from);
+    if (delta !== 0) ctl.move(d.ref, { date: formatDate(fromDayNumber(d.first + delta)) });
   };
   return { onPointerDown, onPointerMove, onPointerUp };
 }
@@ -74,7 +113,7 @@ export function MonthView({
     'data-key': o.key,
     'data-selected': isSel(o) ? 'true' : undefined,
     title: o.title,
-    onPointerDown: drag.onPointerDown({ eventId: o.eventId, key: o.key }),
+    onPointerDown: drag.onPointerDown(o),
     onPointerMove: drag.onPointerMove,
     onPointerUp: drag.onPointerUp,
     onDoubleClick: () => ctl.openEditor({ eventId: o.eventId, key: o.key }),
@@ -154,6 +193,7 @@ export function MonthView({
               // opening upwards in the lower rows and leftwards in the last columns.
               <div
                 data-testid="cal-day-popover"
+                data-date={popover ?? undefined}
                 className="absolute z-20 max-h-72 w-56 overflow-y-auto border-2 border-ink bg-white p-2 shadow-hard"
                 style={{
                   ...(row < 3 ? { top: 0 } : { bottom: 0 }),

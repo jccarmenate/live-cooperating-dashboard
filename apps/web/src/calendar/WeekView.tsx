@@ -103,7 +103,7 @@ export function WeekView({
             data-event-id={s.occ.eventId}
             data-key={s.occ.key}
             data-selected={isSel(s.occ) ? 'true' : undefined}
-            onPointerDown={allDayDrag.onPointerDown({ eventId: s.occ.eventId, key: s.occ.key })}
+            onPointerDown={allDayDrag.onPointerDown(s.occ)}
             onPointerMove={allDayDrag.onPointerMove}
             onPointerUp={allDayDrag.onPointerUp}
             onDoubleClick={() => ctl.openEditor({ eventId: s.occ.eventId, key: s.occ.key })}
