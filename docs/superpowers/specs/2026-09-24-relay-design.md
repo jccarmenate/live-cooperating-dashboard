@@ -230,6 +230,27 @@ sheets      Y.Map<pageId, Y.Map>      (sheet pages only; created with the page)
               cols        Y.Map<colId, Y.Map { order, width? }>
               cells       Y.Map<"<rowId>|<colId>", { src, fmt? }>   (atomic JSON;
                           fmt: { bold?, align?, num? })
+calendars   Y.Map<pageId, Y.Map>      (calendar pages only; created with the page)
+              events      Y.Map<eventId, Y.Map>
+                            title       string, ≤ 120 characters
+                            notes?      string, ≤ 2000 characters
+                            color       palette colour
+                            when        atomic JSON:
+                                        { allDay: true, start: 'YYYY-MM-DD', end: 'YYYY-MM-DD' }
+                                        (end inclusive) |
+                                        { allDay: false, start: 'YYYY-MM-DDTHH:mm',
+                                          end: 'YYYY-MM-DDTHH:mm', tz: IANA zone }
+                                        (wall time in the creator's zone)
+                            rule?       atomic JSON { freq: 'daily'|'weekly'|'monthly'|'yearly',
+                                        interval: 1–99, byDay?: (0–6)[], until?: 'YYYY-MM-DD',
+                                        count?: 1–999 }
+                            exceptions  Y.Map<'YYYY-MM-DD' (original date), { cancelled: true } |
+                                        { when, title?, notes?, color? }>   (atomic JSON values)
+                            rsvp        Y.Map<userId, { status: 'yes'|'maybe'|'no', name }>
+                            link?       atomic JSON { pageId, shapeId }   (the source sticky)
+                            uid?        string, ≤ 200 characters (imported .ics UID)
+                            createdBy   user id
+                            createdAt   epoch ms
 ```
 
 Lines are shapes (`type: 'line'`) with endpoints encoded in `x, y, w, h`
@@ -279,6 +300,7 @@ geometry is derived from the shapes they attach to.
   page: string | null;                       // page id this user is looking at
   sheet?: { anchor: [string, string]; focus: [string, string]; editing: boolean } | null;
                                              // [rowId, colId] selection on a sheet page
+  calEvent?: string | null;                  // event id open in the editor on a calendar page
   ai?: { status: 'thinking'; target: string };
 }
 ```
@@ -315,11 +337,13 @@ All mutations are values of a typed union — `CreateShape`, `MoveShapes`,
 `PasteItems`, `StartVote`, `EndVote`,
 `CastVote`, `RetractVote`, `AddComment`, `ReplyComment`, `ResolveComment`,
 the sheet commands (`SetCells`, `InsertRows`, `InsertCols`, `DeleteRows`,
-`DeleteCols`, `MoveRow`, `MoveCol`, `SetColWidth`),
+`DeleteCols`, `MoveRow`, `MoveCol`, `SetColWidth`), the calendar commands
+(`CreateEvent`, `UpdateEvent`, `DeleteEvent`, `SetOccurrence`,
+`ClearOccurrence`, `ImportEvents`, `SetRsvp`),
 `ApplyAiProposal`, … — applied by `applyCommand(doc, cmd)` inside
 `doc.transact(fn, origin)`. UI code never touches Yjs types directly.
 
-`Y.UndoManager` tracks the `shapes`, `connectors` and `sheets` roots and
+`Y.UndoManager` tracks the `shapes`, `connectors`, `sheets` and `calendars` roots and
 the `LOCAL` and `AI` origins only, so each user undoes
 only their own changes. Votes and comments are applied with a third origin,
 `SESSION`, that the undo manager does not track: `Ctrl+Z` undoes board
@@ -503,7 +527,8 @@ handlers) are off, and the grid's own keys apply (see Sheets).
   takes (and removes) the frame's unlocked children too.
 - **Context menu (right-click):** on a selection — Cut, Copy, Paste,
   Duplicate, Delete, Bring to front, Send to back, a row of fill swatches,
-  Lock / Unlock, Comment here, Vote (a sticky during an open vote); on a
+  Lock / Unlock, Comment here, Vote (a sticky during an open vote), Add to
+  calendar… (a single sticky, editors, since P5); on a
   connector also Straight / Elbow and Arrow on / off; on empty canvas —
   Paste here, New sticky / rectangle / frame here, Select all, Zoom to
   fit. Viewers get only Copy and Zoom to fit. Right-clicking an unselected
@@ -555,7 +580,7 @@ handlers) are off, and the grid's own keys apply (see Sheets).
 ### Pages
 
 A room holds several pages of three kinds — `board` (the canvas described
-above), `sheet` (spreadsheet, phase P3) and `calendar` (phase P4) — in one
+above), `sheet` (spreadsheet, phase P3) and `calendar` (phase P5) — in one
 `Y.Doc`, so one link, one connection and one set of capabilities cover them
 all and switching pages is instant. The document size cap is shared by all
 pages.
@@ -576,7 +601,7 @@ pages.
   title }`, `MovePage { id, order }` (fractional key between neighbours),
   `DeletePage { id }` (writes `pageTombstones[id] = true`; rename, move and
   create ignore tombstoned ids; plus deletion of the page's shapes,
-  connectors, comments and sheet in the same transaction; a `DeletePage` of an id
+  connectors, comments, sheet and calendar in the same transaction; a `DeletePage` of an id
   this replica never held as a page writes no tombstone and deletes
   nothing), and `RenameBoard { title }` for `meta.title`. Page commands
   and `RenameBoard` are applied
@@ -607,8 +632,8 @@ pages.
 - **Tabs:** a strip under the header lists the visible pages. Click
   switches, double-click renames (Enter commits, Escape cancels, empty keeps
   the old title), dragging reorders, right-click opens a context menu
-  (Rename, Delete). "+" opens a menu of page types; `calendar` is shown
-  disabled ("soon") until P5 enables it (`sheet` is enabled since P3). A page of a type this
+  (Rename, Delete). "+" opens a menu of page types: board, sheet (since P3)
+  and calendar (since P5). A page of a type this
   client does not know renders an "unsupported page" notice. Viewers can
   switch pages but get no "+", no rename, no reorder and no delete.
 - **Share and title:** the header's SHARE button opens a dialog with the
@@ -816,6 +841,218 @@ the user can move and edit a generated graph like anything else.
     result is deterministic.
 - **Roles:** viewers can open the Algorithms panel (it writes nothing) but
   not "New graph…" or label editing.
+
+### Calendar (F4·P5)
+
+A `calendar` page is a shared calendar with a month view and a week view.
+Events can repeat, each user sees times in their own time zone, people
+answer whether they will attend, and a calendar can be exported to and
+imported from `.ics`. A sticky on a board can become an event that links
+back to it.
+
+- **Model** (`calendars[pageId].events`, see the Yjs Document):
+  - **One `when` value.** Start, end and zone are one atomic value, so two
+    people moving the same event at once cannot combine one's start with
+    the other's end. `title`, `notes` and `color` are separate keys, so
+    concurrent edits of different fields merge.
+  - **Wall time plus zone.** A timed event stores its start and end as wall
+    time in the zone of the user who created it (`DTSTART;TZID=` in
+    `.ics`). A weekly 09:00 meeting in Madrid stays at 09:00 in Madrid
+    across daylight-saving changes, and each viewer sees it converted to
+    their own zone. An all-day event is a range of dates with no time; it
+    shows on the same dates for everyone.
+  - **Exceptions** are keyed by the occurrence's original date (the date of
+    its start in the event's zone), so changes to different occurrences
+    never conflict. They are nested maps, so a write that races the event's
+    deletion is dropped.
+  - **RSVP** is keyed by user id, so each user only writes their own answer.
+    An answer applies to the whole series.
+  - **Ids:** event ids are 8-character random base-36 strings.
+- **Time zones** (pure functions in `packages/core`, built on
+  `Intl.DateTimeFormat`, no dependency):
+  - `toInstant(wall, zone)` and `toWall(instant, zone)` convert between wall
+    time and epoch ms. Formatters are cached per zone.
+  - **Gaps and overlaps:** a wall time that does not exist (the spring-
+    forward gap) moves forward by the length of the gap; a wall time that
+    happens twice (the fall-back overlap) takes the earlier instant.
+  - **Viewer zone:** `Intl.DateTimeFormat().resolvedOptions().timeZone`. A
+    new event takes the creator's zone. The page header reads "Times in
+    <zone>".
+  - **Unknown zones:** a zone `Intl` rejects reads as `UTC`.
+  - **Formatting:** dates and times use the `en-GB` locale (24-hour clock),
+    matching the English UI. Weeks start on Monday.
+- **Recurrence** (`expand(event, from, to)` in `packages/core`):
+  - **Rules**, all counted in wall time in the event's zone:
+    - daily: every `interval` days;
+    - weekly: every `interval` weeks, on the `byDay` weekdays (0 = Monday …
+      6 = Sunday), or on the start's weekday when `byDay` is absent or
+      empty;
+    - monthly: the start's day of the month every `interval` months;
+      months without that day (the 31st) are skipped;
+    - yearly: the start's month and day every `interval` years; 29 February
+      only in leap years.
+  - **End:** `until` is inclusive (a date in the event's zone); `count`
+    counts occurrences from the start, cancelled ones included (as in RFC
+    5545). A rule with both keeps the earlier end. An `until` before the
+    start reads as the start date (one occurrence).
+  - **Output:** the occurrences whose time overlaps `[from, to)`, each with
+    its key (original date), its effective `when` (after the exception),
+    and its effective title, notes and colour. Cancelled occurrences are
+    left out. An occurrence's duration is the first occurrence's duration in
+    elapsed time. An exception whose key is not an occurrence of the rule is
+    ignored.
+  - **Performance:** a rule without `count` jumps straight to the window
+    instead of walking from the start. At most 1000 occurrences are
+    produced per call; past that the view shows "Showing the first 1000
+    events".
+- **Views:**
+  - **Header:** ‹ Today ›, a Month / Week switch, the period title
+    ("September 2026", or "22 – 28 Sep 2026"), a "New event" button (editors)
+    and "Times in <zone>". Export `.ics` (everyone) and Import `.ics`
+    (editors) sit in a "…" menu.
+  - **Month:** a 6 × 7 grid of days from the Monday on or before the 1st;
+    today is highlighted and days outside the month are dimmed. All-day and
+    multi-day events are bars spanning their days, packed into lanes;
+    timed events are chips ("09:00 Standup") on each local day they cover.
+    A day shows at most 3 lines; "+N more" opens a popover listing the
+    whole day.
+  - **Week:** 7 day columns, an all-day row on top and a 24-hour grid
+    (48 px per hour) that opens scrolled to 08:00. Timed events are placed
+    by the viewer's local time; overlapping events share the column width
+    side by side (greedy column packing per overlap cluster); an event that
+    crosses midnight is split at the day boundary. A red line marks now.
+  - **Presence:** each user publishes `calEvent`, the id of the event open
+    in their editor; an event shows up to 3 dots in the colours of peers
+    who have it open. Page-tab dots work as on other pages.
+  - **Selection:** clicking an event selects it (local state); double-click
+    or Enter opens the editor.
+- **Editing** (editors only):
+  - **Create:** clicking an empty day in the month view, or "New event", or
+    `N`, opens the editor for a new event (all-day on that day, or today).
+    Dragging on empty time in the week view creates a timed event over the
+    dragged range. New timed events default to one hour.
+  - **Move and resize:** dragging an event moves it (to another day in the
+    month view, keeping its time of day; to another day and time in the
+    week view). Dragging the bottom edge of a timed event in the week view
+    changes its end. Week-view drags snap to 15 minutes; an event lasts at
+    least 15 minutes.
+  - **Editor dialog:** title, all-day switch, start and end date (and time),
+    repeat (never / daily / weekly with weekday toggles / monthly / yearly,
+    an interval, and an end: never, on a date, or after N times), colour
+    (the board palette), notes, the RSVP block, "Open on board" when the
+    event has a link, and Delete. Times are entered in the viewer's zone and
+    stored as wall time in the event's zone; when the zones differ, the
+    dialog also shows the event's own time and zone.
+  - **Occurrences of a series:** saving, moving, resizing or deleting one
+    occurrence asks "Only this event" or "All events". "Only this event"
+    writes an exception (`SetOccurrence`; a delete writes `{ cancelled:
+    true }`). "All events" changes the series (`UpdateEvent`, or
+    `DeleteEvent`). When a whole-series change alters the start date, the
+    time of day or the rule, the series' exceptions are cleared in the same
+    transaction, because their keys would no longer match; the dialog warns
+    first when there are any.
+  - **Limits:** 500 events per calendar page (a series counts once;
+    creating at the cap shows the toast "This calendar is full (500
+    events)"); 200 exceptions per series ("Too many changes to this
+    series"); a timed event lasts at most 14 days and an all-day event at
+    most 366 days; the editor enforces the text caps.
+- **Commands** (all `LOCAL`, so undoable, except `SetRsvp`):
+  - `CreateEvent { pageId, id, fields }`, `UpdateEvent { pageId, id, patch,
+    clearExceptions? }`, `DeleteEvent { pageId, id }`.
+  - `SetOccurrence { pageId, id, key, value }` and `ClearOccurrence {
+    pageId, id, key }`.
+  - `ImportEvents { pageId, events }`: a whole import in one transaction.
+  - `SetRsvp { pageId, id, userId, status | null, name }` uses the `SESSION`
+    origin, like votes, so `Ctrl+Z` never undoes an answer; `null` removes
+    it.
+  - A command on a missing calendar or event does nothing. Each create,
+    edit, move, resize, delete and import is one undo step; switching pages
+    still clears the undo and redo stacks.
+- **Normalize on read** (peer data is untrusted):
+  - `title` and `notes` are capped; a missing title reads as "Untitled";
+    a colour outside the palette reads as the first palette colour.
+  - `when` must match the date or date-time pattern, name a valid calendar
+    date, and end on or after its start (an all-day `end` before `start`
+    reads as `start`; a timed `end` before `start` reads as start + 1 h); a
+    `when` that fails is dropped with its event.
+  - `rule` values are clamped to their ranges; an unknown `freq` drops the
+    rule (a single event).
+  - Only the first 500 events by id are read, and the first 200 exceptions
+    of a series by key. An exception value that is neither shape is
+    ignored.
+  - RSVP `status` must be one of the three values and `name` is capped at 40
+    characters; `link` ids are non-empty strings of at most 64 characters;
+    `uid` is capped at 200.
+- **`.ics` export** (everyone, including viewers): a `VCALENDAR` with
+  `PRODID:-//Relay//Calendar//EN`, one `VEVENT` per event with `UID` (the
+  imported `uid`, or `<eventId>@relay`), `DTSTAMP`, `SUMMARY`,
+  `DESCRIPTION`, `DTSTART`/`DTEND` (`;TZID=<IANA zone>` for timed events,
+  `;VALUE=DATE` with an exclusive end for all-day ones), `RRULE`, and
+  `EXDATE` for cancelled occurrences; each changed occurrence is a further
+  `VEVENT` with the same `UID` and a `RECURRENCE-ID`. Text is escaped,
+  lines are folded at 75 octets and end in CRLF. IANA zone names are used
+  without `VTIMEZONE` blocks, which Google Calendar, Apple Calendar and
+  Outlook accept. The file is named after the page title.
+- **`.ics` import** (editors): a file of at most 1 MB.
+  - **Read:** unfolded lines and unescaped text; `VEVENT`s only (other
+    components are skipped); `DTSTART` with `TZID`, UTC (`Z`), floating or
+    `VALUE=DATE`; `DTEND` or `DURATION` (or one hour / one day when both
+    are missing); `SUMMARY`; `DESCRIPTION`; `RRULE` with `FREQ`,
+    `INTERVAL`, `BYDAY` (plain weekdays), `UNTIL` and `COUNT`; `EXDATE`;
+    and `RECURRENCE-ID` overrides of a series in the same file.
+  - **Zones:** UTC and floating times become the importer's zone; a `TZID`
+    that is not an IANA zone reads as UTC with a warning.
+  - **Warnings, not failures:** a rule with parts outside that subset
+    imports only its first occurrence; an override without its series is
+    skipped; each is reported with its line number.
+  - **Duplicates:** imported events keep their `UID` in `uid`; an event
+    whose `uid` already exists on the page, or repeats in the file, is
+    skipped.
+  - **Result:** one `ImportEvents` step (one undo step), refused with a
+    toast when it would exceed the 192 KiB budget or the 500-event cap. A
+    summary dialog lists "Imported N events" and the warnings.
+- **Add to calendar** (board pages, editors): "Add to calendar…" in a single
+  sticky's context menu opens a dialog to pick a calendar page (or "New
+  calendar page", which creates one titled "Calendar" at the end of the
+  tabs), a date (default today) and all-day (default) or a start and end
+  time. The title is the sticky's first line (capped at 120; "Untitled"
+  when empty). The event stores `link { pageId, shapeId }` and a toast
+  reads "Added to <calendar title>". In the editor, "Open on board"
+  switches to that page, selects the sticky and centres the camera on it;
+  when the sticky or its page is gone it reads "Sticky deleted" and is
+  disabled. The event itself stays.
+- **Keyboard** (calendar pages only, ignored while typing): `T` today, `M`
+  month, `W` week, `←`/`→` previous/next period, `N` new event, `Enter`
+  open the selected event, `Delete`/`Backspace` delete it (asking "Only
+  this event / All events" for an occurrence of a series), `Escape`
+  deselect or close, `Ctrl+Z`/`Ctrl+Y` undo and redo.
+- **Page lifecycle:** `CreatePage` of type `calendar` creates
+  `calendars[pageId]` with an empty `events` map in the same transaction;
+  `DeletePage` deletes it. A calendar page without its map reads as the
+  "unsupported page" notice.
+- **Roles:** viewers can move between periods and views, open events
+  read-only and export `.ics`. They cannot create, edit, move, delete,
+  import or answer RSVP (the RSVP buttons are hidden; the counts show).
+- **Testing:**
+  - core (Vitest + fast-check):
+    - zone conversion, including a southern-hemisphere zone and
+      `America/Havana`, whose spring change at midnight means 00:00 does
+      not exist that day;
+    - recurrence properties, e.g. "expanding window by window equals
+      expanding the whole range" and "a DST change never moves the wall
+      time";
+    - `.ics` export → import round trips;
+    - parser warnings;
+    - commands on a real `Y.Doc`;
+    - normalization of malformed data;
+    - three-replica convergence.
+  - web: pure layout functions (month lanes, week overlap columns), the
+    calendar controller (create/move/resize with 15-minute snapping, the
+    series question), and the keys.
+  - e2e: two users in different zones (Playwright `timezoneId`
+    `Europe/Madrid` and `America/Havana`) see one event at different local
+    times; a weekly event changed "Only this event"; live RSVP; a read-only
+    viewer; `.ics` export and import; sticky → calendar → "Open on board".
 
 ### Comments
 
@@ -1026,7 +1263,7 @@ workflow.
 | F1 — MVP | One room, grid, rect/sticky/text, move, cursors, presence, DO persistence | 30 |
 | F2 — Editing | Ellipse, lines, connectors, selection + marquee, resize, undo/redo, frames with columns, code block | 50 |
 | F3 — Navigation & session | F3a: pan/zoom, zoom controls, coordinates, camera persistence, interactive minimap with peer viewports, remote selections and "typing…", frame adoption and F2b polish. F3b: server time, voting + timer, comments | 40 |
-| F4 — Workspace | P1: pages (tabs, per-page content and presence, share dialog, editable title, toasts). P2: canvas UX (context menus, system clipboard, properties bar, z-order, style, lock, help, empty state, polish). P3: spreadsheet page with basic formulas. P4: graphs (generator for graph families and edge lists, connector labels, visual algorithms), Shapes flyout, no live-demo link on the landing page. P5: calendar page (month and week) | — |
+| F4 — Workspace | P1: pages (tabs, per-page content and presence, share dialog, editable title, toasts). P2: canvas UX (context menus, system clipboard, properties bar, z-order, style, lock, help, empty state, polish). P3: spreadsheet page with basic formulas. P4: graphs (generator for graph families and edge lists, connector labels, visual algorithms), Shapes flyout, no live-demo link on the landing page. P5: calendar page (month and week views, recurrence with per-occurrence exceptions, per-viewer time zones, RSVP, .ics export and import, "Add to calendar…" from a sticky) | — |
 | F5 — Ship | Offline, capability links, demo room + cron, E2E, deploy, bilingual README, mermaid, GIF | 40 |
 | F6 — AI | Clustering pipeline, proposal UI, evaluation | 15 |
 | **Total** | | **~185** |
