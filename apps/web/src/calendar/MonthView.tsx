@@ -138,13 +138,14 @@ export function MonthView({
                 date={openDate}
                 row={row}
                 col={popIndex % 7}
+                ctl={ctl}
                 onClose={() => setPopover(null)}
               >
                 {dayItems(popIndex).map((o) => (
                   <div
                     key={`${o.eventId}:${o.key}`}
                     {...eventProps(o)}
-                    className="touch-none truncate font-mono text-[11px]"
+                    className="touch-pan-y truncate font-mono text-[11px]"
                     style={{ borderLeft: `4px solid ${o.color}`, paddingLeft: 4 }}
                   >
                     {o.title}
@@ -180,19 +181,22 @@ export function MonthView({
 
 /**
  * The "+N more" list, outside the day cell (which clips its content): anchored to the cell's
- * column, opening upwards in the lower rows and leftwards in the last columns. Escape and a
- * press outside close it.
+ * column, opening upwards in the lower rows and leftwards in the last columns. Escape, a press
+ * outside and an editor opening close it. Its items pan vertically on touch (a touch scroll of
+ * the list cancels an item drag); a mouse still drags them.
  */
 function DayPopover({
   date,
   row,
   col,
+  ctl,
   onClose,
   children,
 }: {
   date: string;
   row: number;
   col: number;
+  ctl: CalendarController;
   onClose: () => void;
   children: React.ReactNode;
 }) {
@@ -200,22 +204,31 @@ function DayPopover({
   const close = useRef(onClose);
   close.current = onClose;
   useEffect(() => {
-    // Capture phase: Escape closes the popover without also clearing the selection.
+    // Capture phase: Escape closes the popover without also clearing the selection. An open
+    // dialog (the editor or a series question) keeps its own Escape.
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
+      const { editor, question } = ctl.ui.getState();
+      if (editor || question) return;
+      if (e.target instanceof Element && e.target.closest('[role="dialog"]')) return;
       e.stopPropagation();
       close.current();
     };
     const onDown = (e: PointerEvent) => {
       if (!(e.target instanceof Node) || !box.current?.contains(e.target)) close.current();
     };
+    // An editor opened from one of the items (or anywhere else) covers the list: close it.
+    const unsubscribe = ctl.ui.subscribe((s, prev) => {
+      if (s.editor && !prev.editor) close.current();
+    });
     window.addEventListener('keydown', onKey, true);
     window.addEventListener('pointerdown', onDown, true);
     return () => {
+      unsubscribe();
       window.removeEventListener('keydown', onKey, true);
       window.removeEventListener('pointerdown', onDown, true);
     };
-  }, []);
+  }, [ctl]);
   return (
     <div
       ref={box}

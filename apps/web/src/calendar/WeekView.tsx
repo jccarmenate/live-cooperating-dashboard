@@ -152,13 +152,16 @@ export function WeekView({
               length: b.height,
               top: b.top,
             };
-    } else {
-      if (!canEdit) return;
-      // A start at the bottom edge still leaves room for the shortest event.
-      const m = Math.min(minutesAt(e.clientY, col), DAY_MIN - SNAP_MIN);
-      gesture.current = { kind: 'create', pointerId: e.pointerId, col, date, from: m, to: m };
-      show(gesture.current);
+      // Captured by the box itself: its events still bubble to these delegated handlers,
+      // and the click and double-click that follow target the box (double-click opens it).
+      evEl.setPointerCapture(e.pointerId);
+      return;
     }
+    if (!canEdit) return;
+    // A start at the bottom edge still leaves room for the shortest event.
+    const m = Math.min(minutesAt(e.clientY, col), DAY_MIN - SNAP_MIN);
+    gesture.current = { kind: 'create', pointerId: e.pointerId, col, date, from: m, to: m };
+    show(gesture.current);
     e.currentTarget.setPointerCapture(e.pointerId);
   };
 
