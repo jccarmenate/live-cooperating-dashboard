@@ -1,5 +1,6 @@
 export * from './calendar/budget';
 export * from './calendar/model';
+export * from './calendar/recurrence';
 export * from './calendar/time';
 export * from './clipboard/clip';
 export * from './commands/apply';
