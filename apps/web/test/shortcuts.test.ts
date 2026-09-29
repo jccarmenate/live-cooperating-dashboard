@@ -187,3 +187,11 @@ describe('canvas UX shortcuts', () => {
     expect(gateByRole(action, 'edit')).toEqual(action);
   });
 });
+
+describe('graph menu key', () => {
+  it('G opens the graph menu for everyone', () => {
+    const g = { key: 'g', ctrlKey: false, metaKey: false, shiftKey: false, altKey: false };
+    expect(keyDownAction(g, false)).toEqual({ type: 'graphMenu' });
+    expect(gateByRole({ type: 'graphMenu' }, 'view')).toEqual({ type: 'graphMenu' });
+  });
+});

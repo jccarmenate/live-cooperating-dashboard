@@ -45,6 +45,10 @@ export function useShortcuts(session: BoardSession) {
           e.preventDefault();
           controller.setHelp(true);
           break;
+        case 'graphMenu':
+          e.preventDefault();
+          controller.setGraphMenu(!controller.ui.getState().graphMenu);
+          break;
       }
     };
     // The role is read at keydown time, so a late `hello` (or a role change) applies immediately.

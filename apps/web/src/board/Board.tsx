@@ -17,6 +17,7 @@ import { CanvasMenu } from '../ui/CanvasMenu';
 import { CommentsPanel } from '../ui/CommentsPanel';
 import { Header } from '../ui/Header';
 import { HelpDialog } from '../ui/HelpDialog';
+import { NewGraphDialog } from '../ui/NewGraphDialog';
 import { PageTabs } from '../ui/PageTabs';
 import { PropertiesBar } from '../ui/PropertiesBar';
 import { StatusBanner } from '../ui/StatusBanner';
@@ -54,6 +55,7 @@ function BoardView({ session }: { session: BoardSession }) {
           <CommentsPanel session={session} />
           <CanvasMenu session={session} />
           <HelpDialog session={session} />
+          <NewGraphDialog session={session} />
           <StatusBanner session={session} />
         </div>
       ) : type === 'sheet' ? (

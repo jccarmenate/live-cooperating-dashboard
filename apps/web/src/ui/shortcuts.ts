@@ -20,7 +20,8 @@ export type ShortcutAction =
   | { type: 'selectAll' }
   | { type: 'z'; where: 'front' | 'back' }
   | { type: 'zoomToFit' }
-  | { type: 'help' };
+  | { type: 'help' }
+  | { type: 'graphMenu' };
 
 export const TOOL_KEYS: Record<string, ToolId> = {
   v: 'select',
@@ -61,6 +62,7 @@ export function keyDownAction(e: KeyInput, typing: boolean): ShortcutAction | nu
   }
   if (e.key === ' ') return { type: 'space', held: true };
   if (e.key === '?') return { type: 'help' };
+  if (key === 'g') return { type: 'graphMenu' };
   if (e.shiftKey && e.code === 'Digit1') return { type: 'zoomToFit' };
   if (e.key === ']') return { type: 'z', where: 'front' };
   if (e.key === '[') return { type: 'z', where: 'back' };

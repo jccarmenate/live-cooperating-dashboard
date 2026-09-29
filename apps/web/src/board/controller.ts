@@ -13,6 +13,8 @@ import {
   DEFAULT_SIZE,
   type Effect,
   fitBounds,
+  type GraphDraft,
+  graphPlan,
   type Identity,
   initialSheet,
   initialToolState,
@@ -94,6 +96,12 @@ export interface BoardUiState {
   menu: CanvasMenuState | null;
   /** The keyboard shortcuts dialog is open. */
   help: boolean;
+  /** The toolbar's Graph menu is open. */
+  graphMenu: boolean;
+  /** The New graph dialog is open. */
+  graphDialog: boolean;
+  /** The graph algorithms panel is open. */
+  algorithmsPanel: boolean;
   /** The document finished its first sync. */
   synced: boolean;
 }
@@ -196,6 +204,14 @@ export interface BoardController {
   /** Fits the active page's content into the viewport. */
   zoomToFit(): void;
   setHelp(open: boolean): void;
+  /** The toolbar's Graph menu. */
+  setGraphMenu(open: boolean): void;
+  /** The New graph dialog (opening it closes the menu). */
+  setGraphDialog(open: boolean): void;
+  /** Lays out a graph around the viewport centre and creates it (one undo step, selected); false if refused. */
+  createGraph(draft: GraphDraft): boolean;
+  /** The graph algorithms panel. */
+  setAlgorithmsPanel(open: boolean): void;
   destroy(): void;
 }
 
@@ -237,6 +253,9 @@ export function createBoardController(opts: {
     commentsPanel: false,
     menu: null,
     help: false,
+    graphMenu: false,
+    graphDialog: false,
+    algorithmsPanel: false,
     synced: false,
   }));
   const undoStack = createUndo(opts.doc, { captureTimeout: UNDO_CAPTURE_TIMEOUT });
@@ -420,6 +439,8 @@ export function createBoardController(opts: {
         composer: null,
         openThread: null,
         menu: null,
+        graphMenu: false,
+        graphDialog: false,
         camera: stored ?? { x: 0, y: 0, zoom: 1 },
       });
       tryFit();
@@ -767,6 +788,24 @@ export function createBoardController(opts: {
     },
     setHelp(open) {
       ui.setState({ help: open });
+    },
+    setGraphMenu(open) {
+      ui.setState({ graphMenu: open });
+    },
+    setGraphDialog(open) {
+      ui.setState({ graphDialog: open, graphMenu: false });
+    },
+    createGraph(draft) {
+      if (ui.getState().tool.mode !== 'idle') return false;
+      const centre = screenToWorld(ui.getState().camera, viewportCentre());
+      const created = place(
+        graphPlan(draft, centre, { newId, userId: opts.user.id, userName: opts.user.name, now }),
+      );
+      if (created) ui.setState({ graphDialog: false });
+      return created;
+    },
+    setAlgorithmsPanel(open) {
+      ui.setState({ algorithmsPanel: open });
     },
     destroy() {
       throttledCommit.cancel();

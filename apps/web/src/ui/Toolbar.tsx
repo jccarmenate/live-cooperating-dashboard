@@ -6,6 +6,7 @@ import {
   Frame,
   MessageCircle,
   MousePointer2,
+  Network,
   Slash,
   Square,
   StickyNote,
@@ -133,6 +134,76 @@ function ShapesButton({ session, active }: { session: BoardSession; active: Tool
   );
 }
 
+/** The Graph menu: New graph (editors) and Algorithms (everyone). */
+function GraphButton({ session, canEdit }: { session: BoardSession; canEdit: boolean }) {
+  const { controller } = session;
+  const open = useStore(controller.ui, (s) => s.graphMenu);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: PointerEvent) => {
+      if (!ref.current?.contains(e.target as Node)) controller.setGraphMenu(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') controller.setGraphMenu(false);
+    };
+    window.addEventListener('pointerdown', onDown, true);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('pointerdown', onDown, true);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [open, controller]);
+  const item =
+    'block w-full px-3 py-1.5 text-left font-mono text-xs hover:bg-sun disabled:cursor-not-allowed disabled:text-ink/40 disabled:hover:bg-transparent';
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        data-testid="tool-graph"
+        aria-label="Graph (G)"
+        title="Graph (G)"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => controller.setGraphMenu(!open)}
+        className={buttonClass(open)}
+      >
+        <Network className="size-4" />
+      </button>
+      {open && (
+        <div
+          role="menu"
+          data-testid="graph-menu"
+          className="absolute left-full top-0 z-30 ml-2 min-w-40 border-[3px] border-ink bg-white py-1 shadow-hard"
+        >
+          <button
+            type="button"
+            role="menuitem"
+            data-testid="graph-new"
+            disabled={!canEdit}
+            className={item}
+            onClick={() => controller.setGraphDialog(true)}
+          >
+            New graph…
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            data-testid="graph-algorithms"
+            className={item}
+            onClick={() => {
+              controller.setGraphMenu(false);
+              controller.setAlgorithmsPanel(true);
+            }}
+          >
+            Algorithms…
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function Toolbar({ session }: { session: BoardSession }) {
   const active = useStore(session.controller.ui, (s) => s.tool.tool);
   const role = useStore(session.conn.clock, (c) => c.role);
@@ -159,6 +230,7 @@ export function Toolbar({ session }: { session: BoardSession }) {
           onPick={() => pick(tool.id)}
         />
       ))}
+      <GraphButton session={session} canEdit={role === 'edit'} />
       <span className="my-0.5 h-px bg-ink/20" aria-hidden />
       <button
         type="button"

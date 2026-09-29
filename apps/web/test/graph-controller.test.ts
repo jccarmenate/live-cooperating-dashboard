@@ -1,10 +1,13 @@
 import {
   applyCommand,
   DEFAULT_STYLE,
+  familyGraph,
+  type GraphDraft,
   getRoots,
   LOCAL_ORIGIN,
   MAX_CONNECTOR_LABEL,
   type NewShape,
+  parseEdgeList,
   readConnector,
 } from '@relay/core';
 import { describe, expect, it, vi } from 'vitest';
@@ -130,5 +133,48 @@ describe('labelUnchanged', () => {
     expect(labelUnchanged('', 'x')).toBe(false);
     const long = 'x'.repeat(MAX_CONNECTOR_LABEL);
     expect(labelUnchanged(long, `${long}yz`)).toBe(true);
+  });
+});
+
+describe('creating graphs', () => {
+  it('creates a family as ellipses and connectors, selected, in one undo step', () => {
+    const { doc, docs, controller } = setup();
+    controller.setViewportSize(800, 600);
+    const d = familyGraph(
+      'complete',
+      { n: 4, m: 1, k: 1, depth: 0, p: 0 },
+      {
+        directed: false,
+        weighted: false,
+        names: 'letters',
+      },
+    ) as GraphDraft;
+    expect(controller.createGraph(d)).toBe(true);
+    const state = docs.store.getState();
+    expect(
+      Object.values(state.shapes)
+        .map((s) => s.text)
+        .sort(),
+    ).toEqual(['A', 'B', 'C', 'D']);
+    expect(Object.keys(state.connectors)).toHaveLength(6);
+    expect(controller.ui.getState().tool.selection).toHaveLength(10);
+    controller.undo();
+    expect(getRoots(doc).shapes.size).toBe(0);
+  });
+
+  it('keeps edge-list labels and directions', () => {
+    const { docs, controller } = setup();
+    controller.setViewportSize(800, 600);
+    controller.createGraph(parseEdgeList('A->B:5').draft as GraphDraft);
+    const [c] = Object.values(docs.store.getState().connectors);
+    expect(c).toMatchObject({ head: 'arrow', label: '5' });
+  });
+
+  it('menu and dialog flags', () => {
+    const { controller } = setup();
+    controller.setGraphMenu(true);
+    expect(controller.ui.getState().graphMenu).toBe(true);
+    controller.setGraphDialog(true);
+    expect(controller.ui.getState()).toMatchObject({ graphMenu: false, graphDialog: true });
   });
 });
