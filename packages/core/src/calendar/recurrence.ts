@@ -24,7 +24,7 @@ import {
   type Ymd,
 } from './time';
 
-export interface Window {
+export interface ExpandWindow {
   from: number;
   to: number;
   /** The viewer's zone: all-day dates are placed in it. */
@@ -75,11 +75,56 @@ const DAY_MS = 86_400_000;
  * zone (offsets stay under ±24 h, and a DST gap moves a time by hours), so a when whose dates
  * are more than two days from the window's UTC days cannot overlap it.
  */
-function nearWindow(w: When, win: Window): boolean {
+function nearWindow(w: When, win: ExpandWindow): boolean {
   return (
     dayNumber(startDate(w)) <= Math.floor(win.to / DAY_MS) + 2 &&
     dayNumber(endDate(w)) >= Math.floor(win.from / DAY_MS) - 2
   );
+}
+
+/**
+ * A series' occurrences before exceptions, with what they share (the first occurrence's time
+ * of day and duration) worked out once. `startOn` is the cheap part (one conversion) that the
+ * expansion needs to decide whether to go on; `on` builds the rest.
+ */
+interface Series {
+  /** The instant the occurrence on `date` starts. Ascending in `date`. */
+  startOn(date: Ymd): number;
+  /** The occurrence on `date`, with its when and its instants (`start` is `startOn(date)`). */
+  on(date: Ymd, start: number): { when: When; start: number; end: number };
+}
+
+/** `zone` places all-day dates; timed occurrences use the series' own zone. */
+function seriesOf(base: When, zone: string): Series {
+  if (base.allDay) {
+    const span = dayNumber(dateOf(base.end)) - dayNumber(dateOf(base.start));
+    return {
+      startOn: (date) => toInstant({ ...date, hh: 0, mm: 0 }, zone),
+      on: (date, start) => ({
+        when: { allDay: true, start: formatDate(date), end: formatDate(addDays(date, span)) },
+        start,
+        end: toInstant({ ...addDays(date, span + 1), hh: 0, mm: 0 }, zone),
+      }),
+    };
+  }
+  const { tz } = base;
+  const s = wallOf(base.start);
+  const duration = toInstant(wallOf(base.end), tz) - toInstant(s, tz);
+  return {
+    startOn: (date) => toInstant({ ...date, hh: s.hh, mm: s.mm }, tz),
+    // The start instant already fixes the date.
+    on: (_date, start) => {
+      const endWall = toWall(start + duration, tz);
+      return {
+        when: { allDay: false, start: formatWall(toWall(start, tz)), end: formatWall(endWall), tz },
+        // `start` reads back as itself: it is the earliest instant with its wall time (or just
+        // past a gap). The end wall time may be ambiguous, and whenRange takes the earlier
+        // instant, so the end is read back the same way.
+        start,
+        end: toInstant(endWall, tz),
+      };
+    },
+  };
 }
 
 /** The series' occurrence on `date` (before exceptions), with the first occurrence's duration. */
@@ -88,15 +133,8 @@ export function occurrenceWhen(base: When, date: Ymd): When {
     const span = dayNumber(dateOf(base.end)) - dayNumber(dateOf(base.start));
     return { allDay: true, start: formatDate(date), end: formatDate(addDays(date, span)) };
   }
-  const s = wallOf(base.start);
-  const duration = toInstant(wallOf(base.end), base.tz) - toInstant(s, base.tz);
-  const start = toInstant({ ...date, hh: s.hh, mm: s.mm }, base.tz);
-  return {
-    allDay: false,
-    start: formatWall(toWall(start, base.tz)),
-    end: formatWall(toWall(start + duration, base.tz)),
-    tz: base.tz,
-  };
+  const series = seriesOf(base, base.tz);
+  return series.on(date, series.startOn(date)).when;
 }
 
 /**
@@ -106,7 +144,11 @@ export function occurrenceWhen(base: When, date: Ymd): When {
  */
 function* ruleDates(start: Ymd, rule: Rule, fromDay: number): Generator<Ymd> {
   const s = dayNumber(start);
-  const until = Math.min(rule.until ? dayNumber(dateOf(rule.until)) : LAST_DAY, LAST_DAY);
+  // An until before the start reads as the start date: the series has its first occurrence.
+  const until = Math.max(
+    s,
+    Math.min(rule.until ? dayNumber(dateOf(rule.until)) : LAST_DAY, LAST_DAY),
+  );
   const jump = rule.count === undefined;
   const i = rule.interval;
   switch (rule.freq) {
@@ -174,26 +216,23 @@ export function isOccurrence(ev: CalendarEvent, date: Ymd): boolean {
   return false;
 }
 
-const overlaps = (r: { start: number; end: number }, win: Window): boolean =>
+const overlaps = (r: { start: number; end: number }, win: ExpandWindow): boolean =>
   r.start < win.to && (r.end > win.from || (r.end === r.start && r.start >= win.from));
 
 function occurrence(
   ev: CalendarEvent,
   key: string,
-  date: Ymd,
-  ex: Exception | undefined,
-  win: Window,
+  base: { when: When; start: number; end: number },
+  ex: Extract<Exception, { when: When }> | undefined,
+  win: ExpandWindow,
 ): Occurrence | null {
-  if (ex && 'cancelled' in ex) return null;
-  const when = ex?.when ?? occurrenceWhen(ev.when, date);
-  const r = whenRange(when, win.zone);
-  if (!overlaps(r, win)) return null;
+  if (!overlaps(base, win)) return null;
   return {
     eventId: ev.id,
     key,
-    when,
-    start: r.start,
-    end: r.end,
+    when: base.when,
+    start: base.start,
+    end: base.end,
     title: ex?.title ?? ev.title,
     notes: ex?.notes ?? ev.notes,
     color: ex?.color ?? ev.color,
@@ -202,38 +241,114 @@ function occurrence(
   };
 }
 
+/** The occurrence an exception makes (null when it cancels, or misses the window). */
+function changedOccurrence(
+  ev: CalendarEvent,
+  key: string,
+  ex: Exception,
+  win: ExpandWindow,
+): Occurrence | null {
+  if ('cancelled' in ex) return null;
+  return occurrence(ev, key, { when: ex.when, ...whenRange(ex.when, win.zone) }, ex, win);
+}
+
 const byStart = (a: Occurrence, b: Occurrence): number =>
   a.start - b.start ||
   (a.eventId < b.eventId ? -1 : a.eventId > b.eventId ? 1 : 0) ||
   (a.key < b.key ? -1 : a.key > b.key ? 1 : 0);
 
-/** The event's occurrences overlapping the window, sorted by start (at most `limit`). */
-export function expand(ev: CalendarEvent, win: Window, limit = MAX_OCCURRENCES): Occurrence[] {
+/** Keeps the `limit` earliest occurrences (by `byStart`) of everything added to it. */
+interface Earliest {
+  /** Once full, an occurrence starting after this can no longer get in. */
+  cutoff(): number;
+  add(o: Occurrence): void;
+  sorted(): Occurrence[];
+}
+
+function earliest(limit: number): Earliest {
+  // A max-heap by `byStart`: the root is the latest occurrence kept.
+  const heap: Occurrence[] = [];
+  const at = (i: number): Occurrence => heap[i] as Occurrence;
+  const swap = (i: number, j: number): void => {
+    const t = at(i);
+    heap[i] = at(j);
+    heap[j] = t;
+  };
+  return {
+    cutoff: () =>
+      heap.length < limit ? Number.POSITIVE_INFINITY : (heap[0]?.start ?? Number.NEGATIVE_INFINITY),
+    add(o) {
+      if (heap.length < limit) {
+        heap.push(o);
+        for (let i = heap.length - 1; i > 0; ) {
+          const parent = (i - 1) >> 1;
+          if (byStart(at(i), at(parent)) <= 0) break;
+          swap(i, parent);
+          i = parent;
+        }
+        return;
+      }
+      if (heap.length === 0 || byStart(o, at(0)) >= 0) return;
+      heap[0] = o;
+      for (let i = 0; ; ) {
+        const l = 2 * i + 1;
+        const r = l + 1;
+        let top = i;
+        if (l < heap.length && byStart(at(l), at(top)) > 0) top = l;
+        if (r < heap.length && byStart(at(r), at(top)) > 0) top = r;
+        if (top === i) break;
+        swap(i, top);
+        i = top;
+      }
+    },
+    sorted: () => [...heap].sort(byStart),
+  };
+}
+
+/**
+ * Adds the event's occurrences overlapping the window to `sink`. The rule's dates ascend and
+ * so do their unchanged starts, so the walk stops at the first start past the sink's cutoff;
+ * the dates it never reached are still checked for exceptions that move them earlier.
+ */
+function collect(ev: CalendarEvent, win: ExpandWindow, sink: Earliest): void {
   const start = startDate(ev.when);
   if (!ev.rule) {
-    const o = occurrence(ev, formatDate(start), start, undefined, win);
-    return o ? [o] : [];
+    const o = occurrence(
+      ev,
+      formatDate(start),
+      { when: ev.when, ...whenRange(ev.when, win.zone) },
+      undefined,
+      win,
+    );
+    if (o) sink.add(o);
+    return;
   }
+  const series = seriesOf(ev.when, win.zone);
   const first = whenRange(ev.when, win.zone);
   const span = Math.max(0, first.end - first.start);
   const frame = ev.when.allDay ? win.zone : ev.when.tz;
   const fromDay = dayNumber(toWall(win.from - span, frame)) - 1;
   const toDay = dayNumber(toWall(win.to, frame)) + 1;
-  const out: Occurrence[] = [];
   const handled = new Set<string>();
   let index = 0;
   for (const date of ruleDates(start, ev.rule, fromDay)) {
     if (ev.rule.count !== undefined && index >= ev.rule.count) break;
     index++;
     const n = dayNumber(date);
-    if (n > toDay || out.length >= limit) break;
+    if (n > toDay) break;
     if (n < fromDay) continue;
+    const at = series.startOn(date);
+    if (at > sink.cutoff()) break;
     const key = formatDate(date);
     handled.add(key);
-    const o = occurrence(ev, key, date, ev.exceptions[key], win);
-    if (o) out.push(o);
+    const ex = ev.exceptions[key];
+    const o = ex
+      ? changedOccurrence(ev, key, ex, win)
+      : occurrence(ev, key, series.on(date, at), undefined, win);
+    if (o) sink.add(o);
   }
-  // An exception can move its occurrence into the window from a date outside it.
+  // An exception can move its occurrence into the window from a date outside it (or from a
+  // date past where the walk stopped).
   let counted: Set<number> | undefined;
   for (const [key, ex] of Object.entries(ev.exceptions)) {
     if (handled.has(key) || 'cancelled' in ex || !nearWindow(ex.when, win)) continue;
@@ -247,10 +362,9 @@ export function expand(ev: CalendarEvent, win: Window, limit = MAX_OCCURRENCES):
       counted ??= countedDays(start, ev.rule, ev.rule.count);
       if (!counted.has(dayNumber(date))) continue;
     }
-    const o = occurrence(ev, key, date, ex, win);
-    if (o) out.push(o);
+    const o = changedOccurrence(ev, key, ex, win);
+    if (o) sink.add(o);
   }
-  return out.sort(byStart).slice(0, limit);
 }
 
 /** The day numbers of a counted series' first `count` dates. */
@@ -264,11 +378,29 @@ function countedDays(start: Ymd, rule: Rule, count: number): Set<number> {
   return days;
 }
 
-/** Every event's occurrences in the window, at most MAX_OCCURRENCES, sorted by start. */
+/** The event's occurrences overlapping the window, sorted by start (the first `limit`). */
+export function expand(
+  ev: CalendarEvent,
+  win: ExpandWindow,
+  limit = MAX_OCCURRENCES,
+): Occurrence[] {
+  const sink = earliest(limit);
+  collect(ev, win, sink);
+  return sink.sorted();
+}
+
+/**
+ * Every event's occurrences in the window, sorted by start, then event id, then key: the
+ * first `limit`, and whether there were more. Only the `limit + 1` earliest are ever kept, and
+ * each event's walk stops once it cannot add to them.
+ */
 export function expandAll(
   cal: CalendarSnapshot,
-  win: Window,
+  win: ExpandWindow,
+  limit = MAX_OCCURRENCES,
 ): { occurrences: Occurrence[]; truncated: boolean } {
-  const all = cal.events.flatMap((ev) => expand(ev, win, MAX_OCCURRENCES + 1)).sort(byStart);
-  return { occurrences: all.slice(0, MAX_OCCURRENCES), truncated: all.length > MAX_OCCURRENCES };
+  const sink = earliest(limit + 1);
+  for (const ev of cal.events) collect(ev, win, sink);
+  const all = sink.sorted();
+  return { occurrences: all.slice(0, limit), truncated: all.length > limit };
 }
