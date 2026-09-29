@@ -6,6 +6,7 @@ import { Canvas } from '../render/Canvas';
 import { ColumnTitleEditor } from '../render/ColumnTitleEditor';
 import { CommentComposer } from '../render/CommentComposer';
 import { CommentLayer } from '../render/CommentLayer';
+import { ConnectorLabelEditor } from '../render/ConnectorLabelEditor';
 import { EmptyHint } from '../render/EmptyHint';
 import { Minimap } from '../render/Minimap';
 import { RemoteCursors } from '../render/RemoteCursors';
@@ -43,6 +44,7 @@ function BoardView({ session }: { session: BoardSession }) {
           <RemoteCursors session={session} />
           <CommentLayer session={session} />
           <TextEditor session={session} />
+          <ConnectorLabelEditor session={session} />
           <ColumnTitleEditor session={session} />
           <CommentComposer session={session} />
           <Toolbar session={session} />

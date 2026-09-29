@@ -1,4 +1,11 @@
-import { arrowGeometry, connectorPath, isAttached, PALETTE, type Point } from '@relay/core';
+import {
+  arrowGeometry,
+  connectorPath,
+  isAttached,
+  PALETTE,
+  type Point,
+  pathMidpoint,
+} from '@relay/core';
 import { memo } from 'react';
 import { useStore } from 'zustand';
 import type { BoardSession } from '../board/session';
@@ -20,6 +27,7 @@ export const ConnectorView = memo(function ConnectorView({
   const fromShape = useShape(session, fromId);
   const toShape = useShape(session, toId);
   const selected = useStore(session.controller.ui, (s) => s.tool.selection.includes(id));
+  const editing = useStore(session.controller.ui, (s) => s.editingConnector === id);
   if (!connector) return null;
 
   const lookup = {
@@ -51,6 +59,35 @@ export const ConnectorView = memo(function ConnectorView({
         strokeWidth={14}
         pointerEvents="stroke"
       />
+      {connector.label &&
+        !editing &&
+        (() => {
+          const mid = pathMidpoint(path);
+          const w = connector.label.length * 6.6 + 12;
+          return (
+            <g data-testid="connector-label" pointerEvents="none">
+              <rect
+                x={mid.x - w / 2}
+                y={mid.y - 10}
+                width={w}
+                height={20}
+                fill={PALETTE.white}
+                stroke={color}
+                strokeWidth={1.5}
+              />
+              <text
+                x={mid.x}
+                y={mid.y + 4}
+                textAnchor="middle"
+                fontSize={11}
+                className="font-mono"
+                fill={PALETTE.ink}
+              >
+                {connector.label}
+              </text>
+            </g>
+          );
+        })()}
     </g>
   );
 });

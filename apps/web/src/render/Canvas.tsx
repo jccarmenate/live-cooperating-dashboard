@@ -201,7 +201,9 @@ export function Canvas({ session }: { session: BoardSession }) {
           controller.stopEditing();
           (document.activeElement as HTMLElement | null)?.blur();
         }
-        if (controller.ui.getState().editingColumn) {
+        // The column title and connector label inputs commit through their own blur.
+        const { editingColumn, editingConnector } = controller.ui.getState();
+        if (editingColumn || editingConnector) {
           (document.activeElement as HTMLElement | null)?.blur();
         }
         controller.dispatch({ type: 'pointerDown', p });
@@ -242,7 +244,13 @@ export function Canvas({ session }: { session: BoardSession }) {
         // A pan never dispatches tool events: with Space held, Space's auto-repeat
         // would otherwise type spaces into the editor this just opened.
         if (controller.ui.getState().spaceHeld) return;
-        controller.dispatch({ type: 'doubleClick', p: info(e) });
+        const p = info(e);
+        // A double-click on a connector (not on a shape) edits its label; editors only.
+        if (!p.hitId && p.connectorId && session.conn.clock.getState().role === 'edit') {
+          controller.editConnectorLabel(p.connectorId);
+          return;
+        }
+        controller.dispatch({ type: 'doubleClick', p });
       }}
       onContextMenu={(e) => {
         e.preventDefault();

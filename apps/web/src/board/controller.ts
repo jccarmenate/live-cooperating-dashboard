@@ -77,6 +77,8 @@ export interface BoardUiState {
   overlay: Record<string, Rect> | null;
   editingId: string | null;
   editingColumn: { frameId: string; columnId: string } | null;
+  /** Connector whose label is being edited. */
+  editingConnector: string | null;
   camera: Camera;
   /** Canvas size in screen pixels; null until the canvas has been measured. */
   viewport: { w: number; h: number } | null;
@@ -115,6 +117,10 @@ export interface BoardController {
   stopEditing(): void;
   renameColumn(frameId: string, columnId: string, title: string): void;
   stopEditingColumn(): void;
+  /** Opens (id) or closes (null) the inline label editor of a connector. */
+  editConnectorLabel(id: string | null): void;
+  /** Sets or clears (empty) a connector's label as one undo step, and closes the editor. */
+  setConnectorLabel(id: string, label: string): void;
   undo(): void;
   redo(): void;
   /** Applies commands as one undo step (LOCAL origin); false (nothing applied) mid-gesture. */
@@ -218,6 +224,7 @@ export function createBoardController(opts: {
     overlay: null,
     editingId: null,
     editingColumn: null,
+    editingConnector: null,
     camera: stored ?? { x: 0, y: 0, zoom: 1 },
     viewport: null,
     pointer: null,
@@ -406,6 +413,7 @@ export function createBoardController(opts: {
         overlay: null,
         editingId: null,
         editingColumn: null,
+        editingConnector: null,
         composer: null,
         openThread: null,
         menu: null,
@@ -423,6 +431,9 @@ export function createBoardController(opts: {
     ) {
       ui.setState({ editingColumn: null });
     }
+    const { editingConnector } = ui.getState();
+    if (editingConnector && !doc.connectors[editingConnector])
+      ui.setState({ editingConnector: null });
   });
 
   const dispatch = (event: ToolEvent) => {
@@ -487,6 +498,13 @@ export function createBoardController(opts: {
     },
     stopEditingColumn() {
       ui.setState({ editingColumn: null });
+    },
+    editConnectorLabel(id) {
+      ui.setState({ editingConnector: id });
+    },
+    setConnectorLabel(id, label) {
+      ui.setState({ editingConnector: null });
+      commitStep({ type: 'SetConnectorLabel', id, label });
     },
     undo: () => travel('undo'),
     redo: () => travel('redo'),
