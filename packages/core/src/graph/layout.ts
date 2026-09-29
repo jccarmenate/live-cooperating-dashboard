@@ -5,6 +5,17 @@ export const NODE_SIZE = 56;
 export const NODE_GAP = 40;
 const STEP = NODE_SIZE + NODE_GAP;
 const ROW = STEP + 14;
+/** Force layout: ideal edge length. */
+const FORCE_K = 130;
+/**
+ * Force layout: stiffness of the linear pull toward the origin. It balances the repulsion of n
+ * nodes at a radius of about k·√n, so even 100 isolated nodes settle within ~2400 px.
+ */
+const GRAVITY = 1;
+/** Force layout: the first step budget is k·√n / FORCE_T_DIV, cooling by 1.5% per iteration. */
+const FORCE_T_DIV = 10;
+/** Overlap removal: passes before falling back to the uniform scale-up. */
+const SEPARATE_PASSES = 200;
 
 /** Radius that keeps `count` nodes on a ring at least STEP apart. */
 const ringRadius = (count: number): number =>
@@ -93,14 +104,49 @@ function spread(pts: Point[]): Point[] {
   return pts.map((p) => ({ x: p.x * s, y: p.y * s }));
 }
 
-/** Deterministic Fruchterman–Reingold, seeded on a circle. */
+/** Pushes apart, a little at a time, only the pairs of centres closer than STEP. */
+function separate(pts: Point[]): Point[] {
+  const n = pts.length;
+  for (let pass = 0; pass < SEPARATE_PASSES; pass++) {
+    let moved = false;
+    for (let i = 0; i < n; i++)
+      for (let j = i + 1; j < n; j++) {
+        const a = pts[i] as Point;
+        const b = pts[j] as Point;
+        const dx = b.x - a.x;
+        const dy = b.y - a.y;
+        const dist = Math.hypot(dx, dy);
+        if (dist >= STEP) continue;
+        moved = true;
+        // Coincident centres split along a fixed, pair-specific direction (no randomness).
+        const angle = i * 2.399963 + j;
+        const ux = dist < 1e-6 ? Math.cos(angle) : dx / dist;
+        const uy = dist < 1e-6 ? Math.sin(angle) : dy / dist;
+        const push = (STEP + 0.5 - dist) / 2;
+        a.x -= ux * push;
+        a.y -= uy * push;
+        b.x += ux * push;
+        b.y += uy * push;
+      }
+    if (!moved) return pts;
+  }
+  // Still crowded after the cap: fall back to the uniform scale-up, which always clears STEP.
+  return spread(pts);
+}
+
+/**
+ * Deterministic Fruchterman–Reingold, seeded on a circle. A linear pull toward the origin keeps
+ * isolated nodes and separate components from drifting away, and the step budget scales with
+ * the natural size of the layout (k·√n) rather than a fixed number of pixels.
+ */
 function force(d: GraphDraft): Point[] {
   const n = d.names.length;
   const pts = circle(n);
-  const k = 130;
-  let t = 60;
+  const k = FORCE_K;
+  let t = (k * Math.sqrt(n)) / FORCE_T_DIV;
+  const floor = t / 100;
   for (let it = 0; it < 300; it++) {
-    const disp = pts.map(() => ({ x: 0, y: 0 }));
+    const disp = pts.map((p) => ({ x: -GRAVITY * p.x, y: -GRAVITY * p.y }));
     for (let i = 0; i < n; i++)
       for (let j = i + 1; j < n; j++) {
         const a = pts[i] as Point;
@@ -139,9 +185,9 @@ function force(d: GraphDraft): Point[] {
         p.y += (v.y / len) * Math.min(len, t);
       }
     }
-    t = Math.max(1, t * 0.985);
+    t = Math.max(floor, t * 0.985);
   }
-  return spread(pts);
+  return separate(pts);
 }
 
 function centred(pts: Point[]): Point[] {

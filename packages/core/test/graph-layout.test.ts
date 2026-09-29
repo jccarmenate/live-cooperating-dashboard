@@ -76,6 +76,65 @@ describe('graph layout', () => {
     expect((tree[1] as Point).y).toBeGreaterThan((tree[0] as Point).y);
     expect((tree[1] as Point).y).toBe((tree[2] as Point).y);
   });
+
+  it('puts a wheel hub in the middle', () => {
+    const wheel = layoutGraph(fam('wheel', { n: 12 }));
+    expect(wheel[0]).toEqual({ x: expect.closeTo(0, 6), y: expect.closeTo(0, 6) });
+  });
+});
+
+describe('force layout stays bounded at the limits', () => {
+  // A fixed Park–Miller sequence (products stay below 2^53), so the edge list is the same every run.
+  const lcg = (seed: number) => () => {
+    seed = (seed * 48271) % 2147483647;
+    return seed;
+  };
+  const dense = (): string => {
+    const next = lcg(1);
+    const items = Array.from({ length: 100 }, (_, i) => `v${i}`);
+    while (items.length < 600) {
+      const a = next() % 100;
+      const b = next() % 100;
+      if (a !== b) items.push(`v${a}-v${b}`);
+    }
+    return items.join(',');
+  };
+  const lists: [string, string, number, number][] = [
+    ['100 nodes / 500 edges', dense(), 100, 500],
+    [
+      // Before the fix this one was 20640 × 23473: one squeezed pair inflated the uniform rescale.
+      '100 nodes / 500 strided edges',
+      Array.from({ length: 500 }, (_, i) => `v${i % 100}-v${(i * 7 + 1) % 100}`).join(','),
+      100,
+      500,
+    ],
+    ['50 disjoint pairs', Array.from({ length: 50 }, (_, i) => `a${i}-b${i}`).join(','), 100, 50],
+    [
+      '40 isolated nodes plus one edge',
+      `${Array.from({ length: 40 }, (_, i) => `v${i}`).join(',')},x-y`,
+      42,
+      1,
+    ],
+    ['100-node path', Array.from({ length: 99 }, (_, i) => `v${i}-v${i + 1}`).join(','), 100, 99],
+  ];
+
+  for (const [name, text, nodes, edges] of lists) {
+    it(`${name}: fits in 4000px and keeps nodes at least ${NODE_SIZE + NODE_GAP}px apart`, () => {
+      const d = parseEdgeList(text).draft as GraphDraft;
+      expect(d.layout).toBe('force');
+      expect(d.names).toHaveLength(nodes);
+      expect(d.edges).toHaveLength(edges);
+      const pts = layoutGraph(d);
+      const xs = pts.map((p) => p.x);
+      const ys = pts.map((p) => p.y);
+      const size = Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys));
+      expect(size).toBeLessThanOrEqual(4000);
+      expect(minGap(pts)).toBeGreaterThanOrEqual(NODE_SIZE + NODE_GAP - 1e-6);
+      const c = centre(pts);
+      expect(Math.abs(c.x)).toBeLessThan(1e-6);
+      expect(Math.abs(c.y)).toBeLessThan(1e-6);
+    });
+  }
 });
 
 describe('graphPlan', () => {
