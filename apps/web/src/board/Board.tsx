@@ -13,6 +13,7 @@ import { RemoteCursors } from '../render/RemoteCursors';
 import { TextEditor } from '../render/TextEditor';
 import { SheetPage } from '../sheet/SheetPage';
 import { keyFromHash, pageFromHash } from '../sync/key';
+import { AlgorithmsPanel } from '../ui/AlgorithmsPanel';
 import { CanvasMenu } from '../ui/CanvasMenu';
 import { CommentsPanel } from '../ui/CommentsPanel';
 import { Header } from '../ui/Header';
@@ -53,6 +54,7 @@ function BoardView({ session }: { session: BoardSession }) {
           <ZoomControls session={session} />
           <Minimap session={session} />
           <CommentsPanel session={session} />
+          <AlgorithmsPanel session={session} />
           <CanvasMenu session={session} />
           <HelpDialog session={session} />
           <NewGraphDialog session={session} />

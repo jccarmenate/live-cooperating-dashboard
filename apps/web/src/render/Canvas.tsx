@@ -12,6 +12,7 @@ import { useStore } from 'zustand';
 import { useShallow } from 'zustand/react/shallow';
 import type { BoardSession } from '../board/session';
 import { ConnectorView } from './ConnectorView';
+import { GraphOverlay } from './GraphOverlay';
 import { SelectionLayer } from './SelectionLayer';
 import { ShapeView } from './ShapeView';
 
@@ -287,6 +288,7 @@ export function Canvas({ session }: { session: BoardSession }) {
           <ShapeView key={id} id={id} session={session} />
         ))}
         <SelectionLayer session={session} />
+        <GraphOverlay session={session} />
         {preview && <PreviewShape preview={preview} zoom={camera.zoom} />}
       </g>
     </svg>

@@ -1,4 +1,6 @@
 import {
+  type AlgorithmKind,
+  type AlgorithmResult,
   applyCommand,
   type Camera,
   CLIP_PREFIX,
@@ -37,6 +39,8 @@ import {
   plainTextSticky,
   type Rect,
   type Routing,
+  readGraph,
+  runAlgorithm as runGraphAlgorithm,
   SESSION_ORIGIN,
   type StylePatch,
   screenToWorld,
@@ -102,6 +106,8 @@ export interface BoardUiState {
   graphDialog: boolean;
   /** The graph algorithms panel is open. */
   algorithmsPanel: boolean;
+  /** The last algorithm's result, shown as a local overlay (never written to the document). */
+  graphResult: AlgorithmResult | null;
   /** The document finished its first sync. */
   synced: boolean;
 }
@@ -210,8 +216,11 @@ export interface BoardController {
   setGraphDialog(open: boolean): void;
   /** Lays out a graph around the viewport centre and creates it (one undo step, selected); false if refused. */
   createGraph(draft: GraphDraft): boolean;
-  /** The graph algorithms panel. */
+  /** The Algorithms panel (it and the comments panel exclude each other). */
   setAlgorithmsPanel(open: boolean): void;
+  /** Runs an algorithm on the selection (or the whole page) and shows its result as a local overlay. */
+  runAlgorithm(kind: AlgorithmKind, start?: string, end?: string): AlgorithmResult;
+  clearGraphResult(): void;
   destroy(): void;
 }
 
@@ -256,6 +265,7 @@ export function createBoardController(opts: {
     graphMenu: false,
     graphDialog: false,
     algorithmsPanel: false,
+    graphResult: null,
     synced: false,
   }));
   const undoStack = createUndo(opts.doc, { captureTimeout: UNDO_CAPTURE_TIMEOUT });
@@ -441,6 +451,7 @@ export function createBoardController(opts: {
         menu: null,
         graphMenu: false,
         graphDialog: false,
+        graphResult: null,
         camera: stored ?? { x: 0, y: 0, zoom: 1 },
       });
       tryFit();
@@ -466,6 +477,8 @@ export function createBoardController(opts: {
     if (event.type === 'pointerDown') fitPending = false;
     // A canvas press closes any open thread popover or composer (the comment tool reopens one).
     if (event.type === 'pointerDown') ui.setState({ openThread: null, composer: null });
+    // Escape clears the algorithm overlay.
+    if (event.type === 'cancel' && ui.getState().graphResult) ui.setState({ graphResult: null });
     const { state, effects } = step(ui.getState().tool, event, {
       shapes: opts.docStore.getState().shapes,
       connectors: opts.docStore.getState().connectors,
@@ -608,7 +621,10 @@ export function createBoardController(opts: {
       ui.setState({ openThread: id });
     },
     toggleCommentsPanel() {
-      ui.setState({ commentsPanel: !ui.getState().commentsPanel });
+      const open = !ui.getState().commentsPanel;
+      ui.setState(
+        open ? { commentsPanel: true, algorithmsPanel: false } : { commentsPanel: false },
+      );
     },
     setPage(id) {
       opts.setPage(id);
@@ -805,7 +821,26 @@ export function createBoardController(opts: {
       return created;
     },
     setAlgorithmsPanel(open) {
-      ui.setState({ algorithmsPanel: open });
+      ui.setState(
+        open ? { algorithmsPanel: true, commentsPanel: false } : { algorithmsPanel: false },
+      );
+    },
+    runAlgorithm(kind, start, end) {
+      // The projected shapes and connectors are the active page's only.
+      const { shapes, connectors } = opts.docStore.getState();
+      let result: AlgorithmResult;
+      try {
+        const graph = readGraph(ui.getState().tool.selection, shapes, connectors);
+        result = runGraphAlgorithm(graph, kind, start, end);
+      } catch {
+        // The recursive DFS can overflow the stack on a page of thousands of chained shapes.
+        result = { kind: 'error', message: 'The graph is too large for this algorithm' };
+      }
+      ui.setState({ graphResult: result });
+      return result;
+    },
+    clearGraphResult() {
+      ui.setState({ graphResult: null });
     },
     destroy() {
       throttledCommit.cancel();

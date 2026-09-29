@@ -1,5 +1,6 @@
 import {
   applyCommand,
+  type Connector,
   DEFAULT_STYLE,
   familyGraph,
   type GraphDraft,
@@ -9,6 +10,7 @@ import {
   type NewShape,
   parseEdgeList,
   readConnector,
+  type Shape,
 } from '@relay/core';
 import { describe, expect, it, vi } from 'vitest';
 import * as Y from 'yjs';
@@ -176,5 +178,67 @@ describe('creating graphs', () => {
     expect(controller.ui.getState().graphMenu).toBe(true);
     controller.setGraphDialog(true);
     expect(controller.ui.getState()).toMatchObject({ graphMenu: false, graphDialog: true });
+  });
+});
+
+describe('algorithms', () => {
+  it('runs on the page graph, stores the result locally, and clears on Escape', () => {
+    const { doc, controller } = setup();
+    twoNodes(doc);
+    controller.setAlgorithmsPanel(true);
+    const r = controller.runAlgorithm('path', 'a', 'b');
+    expect(r).toEqual({ kind: 'path', nodes: ['a', 'b'], edges: ['k'], cost: 1 });
+    expect(controller.ui.getState().graphResult).toEqual(r);
+    controller.dispatch({ type: 'cancel' });
+    expect(controller.ui.getState().graphResult).toBeNull();
+  });
+
+  it('uses only the selection when there is one', () => {
+    const { doc, controller } = setup();
+    twoNodes(doc);
+    controller.select(['a']);
+    expect(controller.runAlgorithm('components')).toEqual({ kind: 'components', groups: [['a']] });
+  });
+
+  it('the algorithms and comments panels exclude each other', () => {
+    const { controller } = setup();
+    controller.setAlgorithmsPanel(true);
+    controller.toggleCommentsPanel();
+    expect(controller.ui.getState()).toMatchObject({ commentsPanel: true, algorithmsPanel: false });
+    controller.setAlgorithmsPanel(true);
+    expect(controller.ui.getState()).toMatchObject({ commentsPanel: false, algorithmsPanel: true });
+  });
+
+  it('a page change clears the result', () => {
+    const { doc, controller } = setup();
+    twoNodes(doc);
+    controller.runAlgorithm('bfs', 'a');
+    controller.setPage(controller.createPage('board'));
+    expect(controller.ui.getState().graphResult).toBeNull();
+  });
+
+  it('maps an algorithm that throws (a DFS deeper than the stack) to an error result', () => {
+    const { docs, controller } = setup();
+    // A projected chain far deeper than the call stack: the recursive DFS overflows on it.
+    const N = 100_000;
+    const shapes: Record<string, Shape> = {};
+    const connectors: Record<string, Connector> = {};
+    for (let i = 0; i < N; i++) {
+      shapes[`n${i}`] = { ...node(`n${i}`, i * 100, 0), pageId: 'main' } as unknown as Shape;
+      if (i > 0) {
+        connectors[`e${i}`] = {
+          id: `e${i}`,
+          from: { shapeId: `n${i - 1}`, anchor: 'auto' },
+          to: { shapeId: `n${i}`, anchor: 'auto' },
+          routing: 'straight',
+          head: 'none',
+          createdBy: 'u1',
+        } as unknown as Connector;
+      }
+    }
+    docs.store.setState({ shapes, connectors });
+    const r = controller.runAlgorithm('dfs', 'n0');
+    expect(r).toEqual({ kind: 'error', message: 'The graph is too large for this algorithm' });
+    expect(controller.ui.getState().graphResult).toEqual(r);
   });
 });
