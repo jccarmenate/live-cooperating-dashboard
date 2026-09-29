@@ -114,7 +114,7 @@ flowchart LR
 relay/
 ├─ apps/
 │  ├─ web/                     Next.js App Router → Vercel
-│  │  ├─ app/page.tsx          landing: "Open live demo", "New board"
+│  │  ├─ app/page.tsx          landing: "New board"
 │  │  ├─ app/r/[roomId]/       board route (client-only, dynamic ssr:false)
 │  │  └─ src/
 │  │     ├─ sync/              provider, awareness, persistence, time offset
@@ -210,6 +210,8 @@ connectors  Y.Map<id, Y.Map>
               from, to    { shapeId, anchor: 'n'|'s'|'e'|'w'|'auto' } | { x, y }
               routing     'straight' | 'elbow'
               head        'arrow' | 'none'
+              label?      string, ≤ 40 characters (drawn at the path's middle; a
+                          number doubles as the edge weight for graph algorithms)
               z           fractional-index string
               createdBy   user id
 session     Y.Map   { vote: { open: boolean, endsAt: number, maxPerUser: number,
@@ -399,7 +401,12 @@ selection; deleting a shape deletes its connectors in the same transaction,
 and the read side drops connectors whose shape vanished concurrently.
 With an arrowhead, the visible stroke ends at the arrowhead's base (so the
 round cap never pokes past the tip) and the arrowhead length is clamped to
-the last segment's length.
+the last segment's length. A connector may carry a `label` (≤ 40
+characters), drawn in a small white box at the middle of its path (by
+length); double-clicking a connector opens an inline input to edit it
+(`SetConnectorLabel { id, label }`, `LOCAL` origin, empty removes it;
+Enter commits, Escape cancels). Viewers cannot edit labels. Pasted and
+duplicated connectors keep their label.
 
 ### Frames
 
@@ -451,7 +458,10 @@ input, textarea or contenteditable element. Enter commits a frame title
 break and Escape or a click outside ends editing. `M` selects the comment
 tool for editors only. `Ctrl+C` / `Ctrl+X` / `Ctrl+V` copy, cut and paste,
 `Ctrl+D` duplicates, `Ctrl+A` selects all, `]` / `[` bring to front / send
-to back, `Shift+1` zooms to fit everything, `?` opens the shortcut help.
+to back, `Shift+1` zooms to fit everything, `?` opens the shortcut help,
+`G` opens the graph menu (see Graphs). The toolbar groups rectangle,
+ellipse and line under one "Shapes" button whose flyout lists the three
+(its icon shows the last shape used; `R`, `O`, `L` still select them).
 These are board shortcuts: on a sheet page they (and the board's clipboard
 handlers) are off, and the grid's own keys apply (see Sheets).
 
@@ -598,7 +608,7 @@ pages.
   switches, double-click renames (Enter commits, Escape cancels, empty keeps
   the old title), dragging reorders, right-click opens a context menu
   (Rename, Delete). "+" opens a menu of page types; `calendar` is shown
-  disabled ("soon") until P4 enables it (`sheet` is enabled since P3). A page of a type this
+  disabled ("soon") until P5 enables it (`sheet` is enabled since P3). A page of a type this
   client does not know renders an "unsupported page" notice. Viewers can
   switch pages but get no "+", no rename, no reorder and no delete.
 - **Share and title:** the header's SHARE button opens a dialog with the
@@ -733,6 +743,80 @@ A `sheet` page is a shared spreadsheet. It is a grid of cells whose rows and col
   - Viewers see the grid and can select and copy. They get no editing, formula bar input, structure menu, reordering, resizing, format toolbar or paste.
   - On a sheet page the board's shortcuts and clipboard handlers are off.
 
+### Graphs (F4·P4)
+
+Graphs in the graph-theory sense (nodes joined by edges) are built from the
+board's own pieces: every node is an `ellipse` shape labelled with its name,
+and every edge is a connector between two nodes. Collaboration, undo,
+clipboard, lock, style and comments therefore work on graphs unchanged, and
+the user can move and edit a generated graph like anything else.
+
+- **Graph menu:** a "Graph" toolbar button (and `G`) opens a small menu with
+  "New graph…" (editors only) and "Algorithms…" (everyone).
+- **New graph dialog**, two tabs:
+  - **Families**, each with bounded parameters:
+    - complete Kₙ (n 1–20)
+    - cycle Cₙ (n 3–60)
+    - path Pₙ (n 2–60)
+    - star (a centre plus n leaves, n 1–60)
+    - wheel (a hub plus a rim of n, n 3–60)
+    - complete bipartite Kₘ,ₙ (m, n 1–15)
+    - grid m×n (m, n 1–10)
+    - k-ary tree (k 1–5, depth 0–6, at most 100 nodes)
+    - random G(n, p) (n 2–50, p 0–1)
+  - **Options:** *directed* (arrowheads; a cycle and a wheel's rim run
+    around the ring, i → i+1 and the last node back to the first, so a
+    directed Cₙ is a cycle; wheel spokes point hub → rim; a tree points
+    parent → child; other families point from the lower-numbered node to the
+    higher one),
+    *weighted* (each edge gets a random integer weight 1–9 as its label),
+    and node names as *letters* (A…Z, AA…) or *numbers* (1…n).
+  - **Edge list:** one item per line or comma. `A-B` is an undirected edge,
+    `A->B` a directed one, and `A-B:5` or `A->B:5` adds a weight or label (up
+    to 40 characters). A lone name adds an isolated node. Names are 1–20
+    characters from `[A-Za-z0-9_]`. A self-loop (`A-A`) is an error. Errors
+    are listed with their line numbers, and nothing is created while any
+    remain.
+  - **Limits:** 100 nodes and 500 edges. A graph over the paste budget
+    (192 KiB) is refused with the same toast as a paste.
+- **Layout** (computed once, when the graph is created):
+  - circle: complete, cycle, wheel (hub in the centre), star (centre in the
+    middle) and random;
+  - layered, top-down: path and tree;
+  - grid: grid;
+  - two columns: bipartite;
+  - deterministic force-directed (seeded on a circle, fixed iterations):
+    edge lists.
+  Nodes are 56×56 ellipses and the layout keeps at least 40 px between
+  them. The graph is centred on the viewport, created on the active page in
+  one `PasteItems` step (one undo step), and selected.
+- **Algorithms panel** (a floating panel on the right, like the comments
+  panel):
+  - **Graph read:** the nodes are the selected shapes, or every shape on the
+    page when nothing is selected. The edges are the page's connectors whose
+    two ends are attached to those nodes. An edge is directed when it has an
+    arrowhead (from → to) and undirected otherwise. Its weight is its label
+    when that parses as a finite number, and 1 otherwise. A node's name is
+    its text, or `#n` when it has none.
+  - **Algorithms:**
+    - **BFS and DFS** from a start node: nodes are numbered in visit order.
+    - **Shortest path (Dijkstra)** from start to end: the path is
+      highlighted and its cost shown. A negative weight is an error, and "no
+      path" is reported.
+    - **Minimum spanning tree (Kruskal)**, treating every edge as
+      undirected: a forest on a disconnected graph. The tree edges are
+      highlighted and the total weight shown.
+    - **Connected components** (weak, for directed graphs): each component
+      gets a palette colour and the count is shown.
+  - **Results are local:** they are an overlay only the user who ran them
+    sees, like a selection, and never touch the document. Escape or "Clear"
+    removes them, and nodes or edges deleted meanwhile drop out of the
+    overlay. The start and end pickers list the nodes by name. Ties are
+    broken by the nodes' current order (top-to-bottom, left-to-right), so a
+    result is deterministic.
+- **Roles:** viewers can open the Algorithms panel (it writes nothing) but
+  not "New graph…" or label editing.
+
 ### Comments
 
 - **Creating:** the comment tool (`M`) turns a click into a composer at the
@@ -837,7 +921,7 @@ separate pan gesture, so the FSM stays about document edits.
 A public room `demo` seeded with the mockup board (Sprint 14 retro frame,
 Intake → Triage → Build → Ship v2.4 flowchart, "WHO OWNS THE RELEASE
 NOTES?" text). A Cron Trigger restores it to the seed snapshot nightly.
-The landing page offers "Open live demo" and "New board".
+The landing page offers "New board" only (the demo room is reached by its link).
 
 ### Persistence
 
@@ -942,7 +1026,7 @@ workflow.
 | F1 — MVP | One room, grid, rect/sticky/text, move, cursors, presence, DO persistence | 30 |
 | F2 — Editing | Ellipse, lines, connectors, selection + marquee, resize, undo/redo, frames with columns, code block | 50 |
 | F3 — Navigation & session | F3a: pan/zoom, zoom controls, coordinates, camera persistence, interactive minimap with peer viewports, remote selections and "typing…", frame adoption and F2b polish. F3b: server time, voting + timer, comments | 40 |
-| F4 — Workspace | P1: pages (tabs, per-page content and presence, share dialog, editable title, toasts). P2: canvas UX (context menus, system clipboard, properties bar, z-order, style, lock, help, empty state, polish). P3: spreadsheet page with basic formulas. P4: calendar page (month and week) | — |
+| F4 — Workspace | P1: pages (tabs, per-page content and presence, share dialog, editable title, toasts). P2: canvas UX (context menus, system clipboard, properties bar, z-order, style, lock, help, empty state, polish). P3: spreadsheet page with basic formulas. P4: graphs (generator for graph families and edge lists, connector labels, visual algorithms), Shapes flyout, no live-demo link on the landing page. P5: calendar page (month and week) | — |
 | F5 — Ship | Offline, capability links, demo room + cron, E2E, deploy, bilingual README, mermaid, GIF | 40 |
 | F6 — AI | Clustering pipeline, proposal UI, evaluation | 15 |
 | **Total** | | **~185** |

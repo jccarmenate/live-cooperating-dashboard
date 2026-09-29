@@ -13,6 +13,7 @@ export const SHORTCUT_GROUPS = [
       ['C', 'Code block'],
       ['F', 'Frame'],
       ['M', 'Comment'],
+      ['G', 'Graph menu'],
     ],
   },
   {

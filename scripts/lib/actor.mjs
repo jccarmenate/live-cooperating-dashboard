@@ -49,8 +49,16 @@ export function createActor(page) {
     }
   }
 
+  /** Rectangle, ellipse and line live in the toolbar's Shapes flyout. */
+  const SHAPES = new Set(['rect', 'ellipse', 'line']);
+
+  // In small windows the selection's floating properties bar can cover the toolbar, so the
+  // buttons get a synthetic click instead of a pointer click at their position.
+  const press = (testId) => page.getByTestId(testId).dispatchEvent('click');
+
   async function tool(id) {
-    await page.getByTestId(`tool-${id}`).click();
+    if (SHAPES.has(id)) await press('tool-shapes');
+    await press(`tool-${id}`);
   }
 
   return {

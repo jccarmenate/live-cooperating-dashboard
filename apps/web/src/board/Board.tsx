@@ -6,16 +6,19 @@ import { Canvas } from '../render/Canvas';
 import { ColumnTitleEditor } from '../render/ColumnTitleEditor';
 import { CommentComposer } from '../render/CommentComposer';
 import { CommentLayer } from '../render/CommentLayer';
+import { ConnectorLabelEditor } from '../render/ConnectorLabelEditor';
 import { EmptyHint } from '../render/EmptyHint';
 import { Minimap } from '../render/Minimap';
 import { RemoteCursors } from '../render/RemoteCursors';
 import { TextEditor } from '../render/TextEditor';
 import { SheetPage } from '../sheet/SheetPage';
 import { keyFromHash, pageFromHash } from '../sync/key';
+import { AlgorithmsPanel } from '../ui/AlgorithmsPanel';
 import { CanvasMenu } from '../ui/CanvasMenu';
 import { CommentsPanel } from '../ui/CommentsPanel';
 import { Header } from '../ui/Header';
 import { HelpDialog } from '../ui/HelpDialog';
+import { NewGraphDialog } from '../ui/NewGraphDialog';
 import { PageTabs } from '../ui/PageTabs';
 import { PropertiesBar } from '../ui/PropertiesBar';
 import { StatusBanner } from '../ui/StatusBanner';
@@ -43,6 +46,7 @@ function BoardView({ session }: { session: BoardSession }) {
           <RemoteCursors session={session} />
           <CommentLayer session={session} />
           <TextEditor session={session} />
+          <ConnectorLabelEditor session={session} />
           <ColumnTitleEditor session={session} />
           <CommentComposer session={session} />
           <Toolbar session={session} />
@@ -50,8 +54,10 @@ function BoardView({ session }: { session: BoardSession }) {
           <ZoomControls session={session} />
           <Minimap session={session} />
           <CommentsPanel session={session} />
+          <AlgorithmsPanel session={session} />
           <CanvasMenu session={session} />
           <HelpDialog session={session} />
+          <NewGraphDialog session={session} />
           <StatusBanner session={session} />
         </div>
       ) : type === 'sheet' ? (

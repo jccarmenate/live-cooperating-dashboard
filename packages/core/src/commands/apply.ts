@@ -1,5 +1,6 @@
 import { generateKeyBetween, generateNKeysBetween } from 'fractional-indexing';
 import * as Y from 'yjs';
+import { MAX_CONNECTOR_LABEL } from '../schema/defaults';
 import { getRoots } from '../schema/doc';
 import { compareZ } from '../schema/normalize';
 import { MAIN_DEFAULTS, MAIN_PAGE, pageIdOf } from '../schema/pages';
@@ -211,10 +212,20 @@ function apply(doc: Y.Doc, cmd: Command): void {
       m.set('to', fields.to);
       m.set('routing', fields.routing);
       m.set('head', fields.head);
+      const label = fields.label?.trim().slice(0, MAX_CONNECTOR_LABEL);
+      if (label) m.set('label', label);
       m.set('createdBy', fields.createdBy);
       if (fields.pageId) m.set('pageId', fields.pageId);
       m.set('z', z ?? keyAbove(topKey(connectors)));
       connectors.set(fields.id, m);
+      return;
+    }
+    case 'SetConnectorLabel': {
+      const m = connectors.get(cmd.id);
+      if (!m) return;
+      const label = cmd.label.trim().slice(0, MAX_CONNECTOR_LABEL);
+      if (label) m.set('label', label);
+      else if (m.has('label')) m.delete('label');
       return;
     }
     case 'SetRouting': {

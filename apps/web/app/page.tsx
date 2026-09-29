@@ -1,4 +1,3 @@
-import Link from 'next/link';
 import { NewBoardButton } from '@/ui/NewBoardButton';
 
 export default function Home() {
@@ -14,17 +13,11 @@ export default function Home() {
         </p>
         <ul className="mt-5 grid gap-2 font-mono text-xs leading-relaxed">
           <li>▸ Stickies, shapes, connectors and frames — edited together, live.</li>
-          <li>▸ Pages per room, comments pinned to the canvas, timed dot voting.</li>
+          <li>▸ Board and spreadsheet pages per room, pinned comments, timed dot voting.</li>
           <li>▸ Right-click anything, copy between boards, press ? for every shortcut.</li>
           <li>▸ No accounts: share an edit link or a read-only view link.</li>
         </ul>
         <div className="mt-8 flex flex-wrap items-start gap-3">
-          <Link
-            href="/r/demo"
-            className="border-[3px] border-ink bg-sun px-5 py-3 font-display text-sm uppercase shadow-hard transition-transform active:translate-x-0.5 active:translate-y-0.5 active:shadow-hard-sm"
-          >
-            Open live demo
-          </Link>
           <NewBoardButton />
         </div>
       </div>

@@ -470,3 +470,21 @@ describe('controller canvas actions', () => {
     ]);
   });
 });
+
+describe('last shape', () => {
+  it('remembers the last shape tool picked, across other tools and page changes', () => {
+    const { controller } = setup();
+    const last = () => controller.ui.getState().lastShape;
+    expect(last()).toBe('rect');
+    controller.dispatch({ type: 'setTool', tool: 'ellipse' });
+    expect(last()).toBe('ellipse');
+    controller.dispatch({ type: 'setTool', tool: 'sticky' });
+    controller.dispatch({ type: 'setTool', tool: 'select' });
+    expect(last()).toBe('ellipse');
+    controller.dispatch({ type: 'setTool', tool: 'line' });
+    expect(last()).toBe('line');
+    controller.setPage(controller.createPage('sheet'));
+    controller.setPage(controller.createPage('board'));
+    expect(last()).toBe('line');
+  });
+});

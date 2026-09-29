@@ -1,4 +1,6 @@
 import {
+  type AlgorithmKind,
+  type AlgorithmResult,
   applyCommand,
   type Camera,
   CLIP_PREFIX,
@@ -13,6 +15,8 @@ import {
   DEFAULT_SIZE,
   type Effect,
   fitBounds,
+  type GraphDraft,
+  graphPlan,
   type Identity,
   initialSheet,
   initialToolState,
@@ -35,6 +39,8 @@ import {
   plainTextSticky,
   type Rect,
   type Routing,
+  readGraph,
+  runAlgorithm as runGraphAlgorithm,
   SESSION_ORIGIN,
   type StylePatch,
   screenToWorld,
@@ -70,13 +76,22 @@ export interface CanvasMenuState {
   hitId: string | null;
 }
 
+/** The shape tools behind the toolbar's Shapes button. */
+export type ShapeToolId = 'rect' | 'ellipse' | 'line';
+const isShapeTool = (tool: string): tool is ShapeToolId =>
+  tool === 'rect' || tool === 'ellipse' || tool === 'line';
+
 export interface BoardUiState {
   tool: ToolState;
+  /** The last shape tool picked (flyout or key): the Shapes button shows it. */
+  lastShape: ShapeToolId;
   preview: Preview | null;
   /** Local-only geometry for shapes being dragged/resized, rendered every frame. */
   overlay: Record<string, Rect> | null;
   editingId: string | null;
   editingColumn: { frameId: string; columnId: string } | null;
+  /** Connector whose label is being edited. */
+  editingConnector: string | null;
   camera: Camera;
   /** Canvas size in screen pixels; null until the canvas has been measured. */
   viewport: { w: number; h: number } | null;
@@ -92,6 +107,16 @@ export interface BoardUiState {
   menu: CanvasMenuState | null;
   /** The keyboard shortcuts dialog is open. */
   help: boolean;
+  /** The toolbar's Graph menu is open. */
+  graphMenu: boolean;
+  /** The New graph dialog is open. */
+  graphDialog: boolean;
+  /** The graph algorithms panel is open. */
+  algorithmsPanel: boolean;
+  /** The last algorithm's result, shown as a local overlay (never written to the document). */
+  graphResult: AlgorithmResult | null;
+  /** Node names as they were when `graphResult` was computed (the result text uses them). */
+  graphNames: Record<string, string>;
   /** The document finished its first sync. */
   synced: boolean;
 }
@@ -115,6 +140,13 @@ export interface BoardController {
   stopEditing(): void;
   renameColumn(frameId: string, columnId: string, title: string): void;
   stopEditingColumn(): void;
+  /** Opens (id) or closes (null) the inline label editor of a connector. */
+  editConnectorLabel(id: string | null): void;
+  /**
+   * Sets or clears (empty) a connector's label as one undo step, and closes the editor.
+   * Mid-gesture it commits nothing and leaves the editor open.
+   */
+  setConnectorLabel(id: string, label: string): void;
   undo(): void;
   redo(): void;
   /** Applies commands as one undo step (LOCAL origin); false (nothing applied) mid-gesture. */
@@ -187,8 +219,25 @@ export interface BoardController {
   /** Fits the active page's content into the viewport. */
   zoomToFit(): void;
   setHelp(open: boolean): void;
+  /** The toolbar's Graph menu. */
+  setGraphMenu(open: boolean): void;
+  /** The New graph dialog (opening it closes the menu). */
+  setGraphDialog(open: boolean): void;
+  /** Lays out a graph around the viewport centre and creates it (one undo step, selected); false if refused. */
+  createGraph(draft: GraphDraft): boolean;
+  /** The Algorithms panel (it and the comments panel exclude each other). */
+  setAlgorithmsPanel(open: boolean): void;
+  /** Runs an algorithm on the selection (or the whole page) and shows its result as a local overlay. */
+  runAlgorithm(kind: AlgorithmKind, start?: string, end?: string): AlgorithmResult;
+  clearGraphResult(): void;
   destroy(): void;
 }
+
+/** No algorithm result shown (the overlay and its name snapshot go together). */
+const noGraphResult = (): Pick<BoardUiState, 'graphResult' | 'graphNames'> => ({
+  graphResult: null,
+  graphNames: {},
+});
 
 /** Undo steps are delimited explicitly (gesture end, text-session end), not by time. */
 const UNDO_CAPTURE_TIMEOUT = 60_000;
@@ -214,10 +263,12 @@ export function createBoardController(opts: {
   const stored = opts.cameraStorage?.load(activePage()) ?? null;
   const ui = createStore<BoardUiState>(() => ({
     tool: initialToolState(),
+    lastShape: 'rect',
     preview: null,
     overlay: null,
     editingId: null,
     editingColumn: null,
+    editingConnector: null,
     camera: stored ?? { x: 0, y: 0, zoom: 1 },
     viewport: null,
     pointer: null,
@@ -227,6 +278,10 @@ export function createBoardController(opts: {
     commentsPanel: false,
     menu: null,
     help: false,
+    graphMenu: false,
+    graphDialog: false,
+    algorithmsPanel: false,
+    ...noGraphResult(),
     synced: false,
   }));
   const undoStack = createUndo(opts.doc, { captureTimeout: UNDO_CAPTURE_TIMEOUT });
@@ -406,9 +461,13 @@ export function createBoardController(opts: {
         overlay: null,
         editingId: null,
         editingColumn: null,
+        editingConnector: null,
         composer: null,
         openThread: null,
         menu: null,
+        graphMenu: false,
+        graphDialog: false,
+        ...noGraphResult(),
         camera: stored ?? { x: 0, y: 0, zoom: 1 },
       });
       tryFit();
@@ -423,6 +482,9 @@ export function createBoardController(opts: {
     ) {
       ui.setState({ editingColumn: null });
     }
+    const { editingConnector } = ui.getState();
+    if (editingConnector && !doc.connectors[editingConnector])
+      ui.setState({ editingConnector: null });
   });
 
   const dispatch = (event: ToolEvent) => {
@@ -431,6 +493,9 @@ export function createBoardController(opts: {
     if (event.type === 'pointerDown') fitPending = false;
     // A canvas press closes any open thread popover or composer (the comment tool reopens one).
     if (event.type === 'pointerDown') ui.setState({ openThread: null, composer: null });
+    // Escape at rest clears the algorithm overlay; a cancel mid-gesture only ends the gesture.
+    if (event.type === 'cancel' && ui.getState().tool.mode === 'idle' && ui.getState().graphResult)
+      ui.setState(noGraphResult());
     const { state, effects } = step(ui.getState().tool, event, {
       shapes: opts.docStore.getState().shapes,
       connectors: opts.docStore.getState().connectors,
@@ -439,7 +504,7 @@ export function createBoardController(opts: {
       newId,
       now,
     });
-    ui.setState({ tool: state });
+    ui.setState(isShapeTool(state.tool) ? { tool: state, lastShape: state.tool } : { tool: state });
     run(effects);
   };
 
@@ -487,6 +552,15 @@ export function createBoardController(opts: {
     },
     stopEditingColumn() {
       ui.setState({ editingColumn: null });
+    },
+    editConnectorLabel(id) {
+      ui.setState({ editingConnector: id });
+    },
+    setConnectorLabel(id, label) {
+      // Mid-gesture nothing is committed: the editor stays open so the edit is not lost.
+      if (commitStep({ type: 'SetConnectorLabel', id, label })) {
+        ui.setState({ editingConnector: null });
+      }
     },
     undo: () => travel('undo'),
     redo: () => travel('redo'),
@@ -564,7 +638,13 @@ export function createBoardController(opts: {
       ui.setState({ openThread: id });
     },
     toggleCommentsPanel() {
-      ui.setState({ commentsPanel: !ui.getState().commentsPanel });
+      const open = !ui.getState().commentsPanel;
+      // Opening Comments closes the Algorithms panel, and with it the result overlay.
+      ui.setState(
+        open
+          ? { commentsPanel: true, algorithmsPanel: false, ...noGraphResult() }
+          : { commentsPanel: false },
+      );
     },
     setPage(id) {
       opts.setPage(id);
@@ -744,6 +824,53 @@ export function createBoardController(opts: {
     },
     setHelp(open) {
       ui.setState({ help: open });
+    },
+    setGraphMenu(open) {
+      ui.setState({ graphMenu: open });
+    },
+    setGraphDialog(open) {
+      ui.setState({ graphDialog: open, graphMenu: false });
+    },
+    createGraph(draft) {
+      if (ui.getState().tool.mode !== 'idle') return false;
+      const centre = screenToWorld(ui.getState().camera, viewportCentre());
+      const created = place(
+        graphPlan(draft, centre, { newId, userId: opts.user.id, userName: opts.user.name, now }),
+      );
+      if (created) ui.setState({ graphDialog: false });
+      return created;
+    },
+    setAlgorithmsPanel(open) {
+      // Closing the panel also removes its result overlay.
+      ui.setState(
+        open
+          ? { algorithmsPanel: true, commentsPanel: false }
+          : { algorithmsPanel: false, ...noGraphResult() },
+      );
+    },
+    runAlgorithm(kind, start, end) {
+      // The projected shapes and connectors are the active page's only.
+      const { shapes, connectors } = opts.docStore.getState();
+      let result: AlgorithmResult;
+      let graphNames: Record<string, string> = {};
+      try {
+        const graph = readGraph(ui.getState().tool.selection, shapes, connectors);
+        graphNames = Object.fromEntries(graph.nodes.map((n) => [n.id, n.name]));
+        result = runGraphAlgorithm(graph, kind, start, end);
+      } catch (e) {
+        // The recursive DFS can overflow the stack on a page of thousands of chained shapes.
+        if (e instanceof RangeError) {
+          result = { kind: 'error', message: 'The graph is too large for this algorithm' };
+        } else {
+          console.error(e);
+          result = { kind: 'error', message: 'Could not run the algorithm' };
+        }
+      }
+      ui.setState({ graphResult: result, graphNames });
+      return result;
+    },
+    clearGraphResult() {
+      ui.setState(noGraphResult());
     },
     destroy() {
       throttledCommit.cancel();

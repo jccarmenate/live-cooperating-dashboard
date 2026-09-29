@@ -11,7 +11,9 @@ import { type MouseEvent, type PointerEvent, useEffect, useRef, useState } from 
 import { useStore } from 'zustand';
 import { useShallow } from 'zustand/react/shallow';
 import type { BoardSession } from '../board/session';
+import { blurStrayFocus } from '../ui/typing';
 import { ConnectorView } from './ConnectorView';
+import { GraphOverlay } from './GraphOverlay';
 import { SelectionLayer } from './SelectionLayer';
 import { ShapeView } from './ShapeView';
 
@@ -168,19 +170,9 @@ export function Canvas({ session }: { session: BoardSession }) {
         if (e.button === 1) e.preventDefault();
       }}
       onPointerDown={(e) => {
-        // The preventDefault calls below stop the browser from moving focus, so focus left in
-        // the header or the page tabs (board title, tab rename, a button) would keep catching
-        // board keys. Blur it; a pending title or tab rename commits through its own blur.
-        // Overlays inside the board area (text, column and comment editors) keep their own
-        // focus rules below.
-        const active = document.activeElement;
-        if (
-          active instanceof HTMLElement &&
-          active !== document.body &&
-          !e.currentTarget.parentElement?.contains(active)
-        ) {
-          active.blur();
-        }
+        // The preventDefault calls below keep focus where it is; see blurStrayFocus. The
+        // board-area editors keep their own focus rules below.
+        blurStrayFocus(e.currentTarget.parentElement);
         if (e.button === 1 || (e.button === 0 && controller.ui.getState().spaceHeld)) {
           e.preventDefault();
           e.currentTarget.setPointerCapture(e.pointerId);
@@ -201,7 +193,9 @@ export function Canvas({ session }: { session: BoardSession }) {
           controller.stopEditing();
           (document.activeElement as HTMLElement | null)?.blur();
         }
-        if (controller.ui.getState().editingColumn) {
+        // The column title and connector label inputs commit through their own blur.
+        const { editingColumn, editingConnector } = controller.ui.getState();
+        if (editingColumn || editingConnector) {
           (document.activeElement as HTMLElement | null)?.blur();
         }
         controller.dispatch({ type: 'pointerDown', p });
@@ -228,11 +222,13 @@ export function Canvas({ session }: { session: BoardSession }) {
       }}
       onPointerCancel={(e) => {
         if (endPan(e)) return;
-        controller.dispatch({ type: 'cancel' });
+        if (controller.ui.getState().tool.mode !== 'idle') controller.dispatch({ type: 'cancel' });
       }}
       onLostPointerCapture={(e) => {
         if (endPan(e)) return;
-        controller.dispatch({ type: 'cancel' });
+        // Capture is also lost after every pointerUp: at rest a cancel changes nothing in the
+        // tool, and must not reach the controller as an Escape (it clears algorithm results).
+        if (controller.ui.getState().tool.mode !== 'idle') controller.dispatch({ type: 'cancel' });
       }}
       onPointerLeave={() => {
         publisher.setCursor(null);
@@ -242,7 +238,13 @@ export function Canvas({ session }: { session: BoardSession }) {
         // A pan never dispatches tool events: with Space held, Space's auto-repeat
         // would otherwise type spaces into the editor this just opened.
         if (controller.ui.getState().spaceHeld) return;
-        controller.dispatch({ type: 'doubleClick', p: info(e) });
+        const p = info(e);
+        // A double-click on a connector (not on a shape) edits its label; editors only.
+        if (!p.hitId && p.connectorId && session.conn.clock.getState().role === 'edit') {
+          controller.editConnectorLabel(p.connectorId);
+          return;
+        }
+        controller.dispatch({ type: 'doubleClick', p });
       }}
       onContextMenu={(e) => {
         e.preventDefault();
@@ -279,6 +281,7 @@ export function Canvas({ session }: { session: BoardSession }) {
           <ShapeView key={id} id={id} session={session} />
         ))}
         <SelectionLayer session={session} />
+        <GraphOverlay session={session} />
         {preview && <PreviewShape preview={preview} zoom={camera.zoom} />}
       </g>
     </svg>
