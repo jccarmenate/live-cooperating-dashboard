@@ -10,7 +10,7 @@ import { createDocStore } from '../src/store/docStore';
 const ZONE = 'Europe/Madrid';
 const NOW = Date.UTC(2026, 8, 28, 10, 0); // Monday 28 Sep 2026, 12:00 in Madrid
 
-function setup(opts: { canEdit?: boolean } = {}) {
+function setup(opts: { canEdit?: boolean; zone?: string } = {}) {
   const doc = new Y.Doc();
   const docs = createDocStore(doc);
   const activity = createActivityStore(doc);
@@ -33,7 +33,7 @@ function setup(opts: { canEdit?: boolean } = {}) {
     canEdit: () => opts.canEdit ?? true,
     notify,
     user: { id: 'u1', name: 'Brisk Otter' },
-    zone: ZONE,
+    zone: opts.zone ?? ZONE,
     now: () => NOW,
     newId: () => `ev${++n}`,
   });
@@ -569,5 +569,121 @@ describe('limits and edge cases', () => {
       when: { allDay: false, start: '2026-09-30T10:00', end: '2026-09-30T11:30', tz: ZONE },
     });
     expect(events()[0]?.when).toEqual({ allDay: true, start: '2026-09-28', end: '2026-09-28' });
+  });
+});
+
+describe('changes are measured against the draft the editor opened with', () => {
+  const ALL_DAY_DAILY = {
+    when: { allDay: true, start: '2026-09-28', end: '2026-09-28' },
+    rule: { freq: 'daily', interval: 1 },
+  };
+
+  it('a title-only "All events" save on another zone\'s timed exception keeps the series', () => {
+    const { ctl, create, events, doc, page } = setup();
+    create('a', ALL_DAY_DAILY);
+    // Made "only this" by a Havana user: 20:00 Havana is 02:00 the next day in Madrid.
+    const havana = {
+      allDay: false,
+      start: '2026-09-30T20:00',
+      end: '2026-09-30T21:00',
+      tz: 'America/Havana',
+    } as const;
+    applyCommand(doc, {
+      type: 'SetOccurrence',
+      pageId: page,
+      id: 'a',
+      key: '2026-09-30',
+      value: { when: havana },
+    });
+    applyCommand(doc, {
+      type: 'SetOccurrence',
+      pageId: page,
+      id: 'a',
+      key: '2026-10-02',
+      value: { cancelled: true },
+    });
+    ctl.openEditor({ eventId: 'a', key: '2026-09-30' });
+    expect(draftOf(ctl)).toMatchObject({ startDate: '2026-10-01', startTime: '02:00' });
+    ctl.save({ ...draftOf(ctl), title: 'Holiday' });
+    expect(ctl.ui.getState().question).toEqual({ action: 'save', drops: 0 });
+    ctl.answer('all');
+    expect(events()[0]).toMatchObject({ title: 'Holiday', when: ALL_DAY_DAILY.when });
+    expect(events()[0]?.exceptions).toEqual({
+      '2026-09-30': { when: havana },
+      '2026-10-02': { cancelled: true },
+    });
+  });
+
+  it('a title-only save on an occurrence whose end is an ambiguous fall-back time, seen from another zone', () => {
+    const { ctl, create, events, notify } = setup({ zone: 'America/Havana' });
+    // 25 Oct: 02:00 CEST + 1 h ends at 02:00 CET, which reads back as the earlier 02:00.
+    const when = { allDay: false, start: '2026-09-28T02:00', end: '2026-09-28T03:00', tz: ZONE };
+    create('s', { when, rule: { freq: 'daily', interval: 1 } });
+    ctl.openEditor({ eventId: 's', key: '2026-10-25' });
+    ctl.save({ ...draftOf(ctl), title: 'Backup' });
+    expect(notify).not.toHaveBeenCalled();
+    expect(ctl.ui.getState().question).toEqual({ action: 'save', drops: 0 });
+    ctl.answer('all');
+    expect(events()[0]).toMatchObject({ title: 'Backup', when, exceptions: {} });
+  });
+
+  it('"Only this event" overrides only the fields that differ from the series', () => {
+    const { ctl, create, events } = setup();
+    create('s', DAILY_9);
+    ctl.openEditor({ eventId: 's', key: '2026-09-30' });
+    ctl.save({ ...draftOf(ctl), title: 'Focus' });
+    ctl.answer('one');
+    expect(events()[0]?.exceptions['2026-09-30']).toEqual({
+      when: { allDay: false, start: '2026-09-30T09:00', end: '2026-09-30T09:30', tz: ZONE },
+      title: 'Focus',
+    });
+    ctl.openEditor({ eventId: 's', key: '2026-09-30' });
+    expect(draftOf(ctl).title).toBe('Focus');
+    ctl.save({ ...draftOf(ctl), title: 'T', color: EVENT_COLORS[2] as string });
+    ctl.answer('one');
+    expect(events()[0]?.exceptions['2026-09-30']).toEqual({
+      when: { allDay: false, start: '2026-09-30T09:00', end: '2026-09-30T09:30', tz: ZONE },
+      color: EVENT_COLORS[2],
+    });
+  });
+
+  it('"All events" patches only the text fields the user changed', () => {
+    const { ctl, create, events } = setup();
+    create('s', DAILY_9);
+    ctl.openEditor({ eventId: 's', key: '2026-09-30' });
+    ctl.save({ ...draftOf(ctl), title: 'Focus' });
+    ctl.answer('one');
+    ctl.openEditor({ eventId: 's', key: '2026-09-30' });
+    ctl.save({ ...draftOf(ctl), color: EVENT_COLORS[1] as string });
+    ctl.answer('all');
+    expect(events()[0]).toMatchObject({ title: 'T', color: EVENT_COLORS[1], when: DAILY_9.when });
+    expect(events()[0]?.exceptions['2026-09-30']).toMatchObject({ title: 'Focus' });
+  });
+
+  it('keeps a base start that falls in a DST gap', () => {
+    const { ctl, create, events } = setup();
+    // Madrid springs forward on 29 Mar 2026: 02:30 does not exist that day.
+    create('s', {
+      when: { allDay: false, start: '2026-03-28T02:30', end: '2026-03-28T03:00', tz: ZONE },
+      rule: { freq: 'daily', interval: 1 },
+    });
+    ctl.move({ eventId: 's', key: '2026-03-28' }, { date: '2026-03-29' });
+    ctl.answer('all');
+    expect(events()[0]?.when.start).toBe('2026-03-29T02:30');
+  });
+
+  it('turns weekly days with the series when "All events" moves it', () => {
+    const { ctl, create, events } = setup();
+    create('s', { ...DAILY_9, rule: { freq: 'weekly', interval: 1, byDay: [0, 2] } });
+    // Drag Wednesday 30 Sep to Thursday 1 Oct.
+    ctl.move({ eventId: 's', key: '2026-09-30' }, { date: '2026-10-01' });
+    expect(ctl.ui.getState().question).toEqual({ action: 'move', drops: 0 });
+    ctl.answer('all');
+    expect(events()[0]).toMatchObject({
+      when: { start: '2026-09-29T09:00', end: '2026-09-29T09:30' },
+      rule: { freq: 'weekly', interval: 1, byDay: [1, 3] },
+    });
+    ctl.setView('week');
+    expect(ctl.visible().occurrences.map((o) => o.key)).toEqual(['2026-09-29', '2026-10-01']);
   });
 });

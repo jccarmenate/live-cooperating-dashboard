@@ -123,6 +123,8 @@ export interface CalendarController {
   destroy(): void;
 }
 
+type Changed = Extract<Exception, { when: When }>;
+
 const EPOCH: Ymd = { y: 1970, m: 1, d: 1 };
 const DAY_MINUTES = 24 * 60;
 const MINUTE_MS = 60_000;
@@ -162,16 +164,32 @@ const spanOf = (w: When): number =>
 /** A timed when's real (instant) duration in ms; 0 for all-day. */
 const realMs = (w: When): number =>
   w.allDay ? 0 : toInstant(wallOf(w.end), w.tz) - toInstant(wallOf(w.start), w.tz);
-/** The timed when starting at the wall time `start` in `tz` and lasting `ms` of real time. */
-const timedFrom = (start: Wall, ms: number, tz: string): When => {
-  const s = toInstant(start, tz);
-  return {
-    allDay: false,
-    start: formatWall(toWall(s, tz)),
-    end: formatWall(toWall(s + ms, tz)),
-    tz,
-  };
-};
+/**
+ * The timed when starting at the wall time `start` in `tz` and lasting `ms` of real time. The
+ * start is stored as given, even in a DST gap: a series base keeps its time of day, and each
+ * occurrence resolves the gap on its own day.
+ */
+const timedFrom = (start: Wall, ms: number, tz: string): When => ({
+  allDay: false,
+  start: formatWall(start),
+  end: formatWall(toWall(toInstant(start, tz) + ms, tz)),
+  tz,
+});
+
+/** A weekly rule's days turned with its start, when the series moved `dayDelta` days. */
+function rotateRule(rule: Rule | undefined, dayDelta: number): Rule | undefined {
+  const turn = ((dayDelta % 7) + 7) % 7;
+  if (rule?.freq !== 'weekly' || !rule.byDay?.length || turn === 0) return rule;
+  const byDay = [...new Set(rule.byDay.map((d) => (d + turn) % 7))].sort((a, b) => a - b);
+  return { ...rule, byDay };
+}
+
+/** Whether two drafts show the same dates, times and all-day flag (times ignored all-day). */
+const sameTiming = (a: EditorDraft, b: EditorDraft): boolean =>
+  a.allDay === b.allDay &&
+  a.startDate === b.startDate &&
+  a.endDate === b.endDate &&
+  (a.allDay || (a.startTime === b.startTime && a.endTime === b.endTime));
 
 /** What an edit changed about an occurrence, as the user sees it (`occ` → `next`). */
 function changesOf(occ: When, next: When) {
@@ -318,6 +336,7 @@ export function createCalendarController(opts: CalendarControllerOptions): Calen
    */
   const editAll = (base: When, occ: When, next: When): When => {
     const c = changesOf(occ, next);
+    if (c.dayDelta === 0 && !c.allDayChanged && !c.timeChanged && !c.durChanged) return base;
     const date = addDays(firstDate(base), c.dayDelta);
     if (c.allDayChanged ? next.allDay : base.allDay) {
       const days = next.allDay && c.durChanged ? spanOf(next) : spanOf(base);
@@ -360,20 +379,32 @@ export function createCalendarController(opts: CalendarControllerOptions): Calen
     return commitEvent({ type: 'SetOccurrence', pageId: page, id: ev.id, key, value });
   };
 
-  /** Writes a new effective when for one occurrence, keeping its other changed fields. */
-  const changeOne = (
+  /** A gesture on one occurrence: a new effective when, keeping its other changed fields. */
+  const changeOne = (ev: CalendarEvent, key: string, when: When): boolean => {
+    const prev = ev.exceptions[key];
+    const value: Changed = { when };
+    if (prev && 'when' in prev) {
+      if (prev.title !== undefined) value.title = prev.title;
+      if (prev.notes !== undefined) value.notes = prev.notes;
+      if (prev.color !== undefined) value.color = prev.color;
+    }
+    return setOccurrence(ev, key, value);
+  };
+
+  /**
+   * "Only this event" from the editor: the occurrence as the editor shows it, overriding only
+   * the fields that differ from the series (a field set back to the series value drops out).
+   */
+  const overrideOne = (
     ev: CalendarEvent,
     key: string,
     when: When,
-    fields: Partial<Record<'title' | 'notes' | 'color', string>> = {},
+    fields: { title: string; notes: string; color: string },
   ): boolean => {
-    const prev = ev.exceptions[key];
-    const kept =
-      prev && 'when' in prev ? { title: prev.title, notes: prev.notes, color: prev.color } : {};
-    const value: Exception = { when };
-    for (const [k, v] of Object.entries({ ...kept, ...fields })) {
-      if (v !== undefined) (value as Record<string, unknown>)[k] = v;
-    }
+    const value: Changed = { when };
+    if (fields.title !== ev.title) value.title = fields.title;
+    if (fields.notes !== ev.notes) value.notes = fields.notes;
+    if (fields.color !== ev.color) value.color = fields.color;
     return setOccurrence(ev, key, value);
   };
 
@@ -516,51 +547,75 @@ export function createCalendarController(opts: CalendarControllerOptions): Calen
       const r = resolve(ref);
       if (!r) return;
       const { ev } = r;
-      const tz = ev.when.allDay ? zone : ev.when.tz;
-      const when = whenOfDraft(draft, tz);
-      if (typeof when === 'string') {
-        opts.notify(when);
-        return;
+      const opened = editor.draft;
+      // What the user changed is read from the draft, in the viewer's frame: untouched dates
+      // and times keep the occurrence exactly as stored, with no round trip through the
+      // viewer's zone.
+      let edited: When | null = null;
+      if (!sameTiming(draft, opened)) {
+        const w = whenOfDraft(draft, ev.when.allDay ? zone : ev.when.tz);
+        if (typeof w === 'string') {
+          opts.notify(w);
+          return;
+        }
+        edited = w;
       }
       if (!ev.rule) {
         const ok = commitEvent({
           type: 'UpdateEvent',
           pageId: page,
           id: ev.id,
-          patch: { title, notes, color, when, rule: rule ?? null },
+          patch: { title, notes, color, when: edited ?? ev.when, rule: rule ?? null },
         });
         if (ok) ui.setState({ editor: null });
         return;
       }
-      const ruleChanged = ruleKey(rule) !== ruleKey(ev.rule);
-      const c = changesOf(r.when, when);
-      const clears = c.dayDelta !== 0 || c.timeChanged || c.allDayChanged || ruleChanged;
+      // "All events" writes only the text fields the user changed.
+      const text = {
+        ...(draft.title !== opened.title ? { title } : {}),
+        ...(draft.notes !== opened.notes ? { notes } : {}),
+        ...(draft.color !== opened.color ? { color } : {}),
+      };
+      /** "All events": the new base, the rule to write and whether the exceptions clear. */
+      const planAll = (cur: { ev: CalendarEvent; when: When }) => {
+        const next = edited ?? cur.when;
+        const c = changesOf(cur.when, next);
+        const userRule = ruleKey(rule) !== ruleKey(cur.ev.rule);
+        // A user-edited rule is taken as is; otherwise weekly days turn with a moved start.
+        const newRule = userRule ? rule : rotateRule(cur.ev.rule, c.dayDelta);
+        const ruleChanged = ruleKey(newRule) !== ruleKey(cur.ev.rule);
+        return {
+          when: editAll(cur.ev.when, cur.when, next),
+          userRule,
+          newRule,
+          ruleChanged,
+          clears: c.dayDelta !== 0 || c.timeChanged || c.allDayChanged || ruleChanged,
+        };
+      };
+      const plan = planAll(r);
       const question: SeriesQuestion = {
         action: 'save',
-        drops: clears ? exceptionCount(ev) : 0,
-        ...(ruleChanged ? { allOnly: true as const } : {}),
+        drops: plan.clears ? exceptionCount(ev) : 0,
+        ...(plan.userRule ? { allOnly: true as const } : {}),
       };
       ask(ev.id, question, (scope) => {
         const cur = resolve(ref);
         if (!cur) return;
         let ok: boolean;
-        if (scope === 'one') ok = changeOne(cur.ev, ref.key, when, { title, notes, color });
-        else {
-          const now = changesOf(cur.when, when);
-          const ruleNow = ruleKey(rule) !== ruleKey(cur.ev.rule);
-          const clear = now.dayDelta !== 0 || now.timeChanged || now.allDayChanged || ruleNow;
+        if (scope === 'one') {
+          ok = overrideOne(cur.ev, ref.key, edited ?? cur.when, { title, notes, color });
+        } else {
+          const p = planAll(cur);
           ok = commitEvent({
             type: 'UpdateEvent',
             pageId: page,
             id: cur.ev.id,
             patch: {
-              title,
-              notes,
-              color,
-              when: editAll(cur.ev.when, cur.when, when),
-              ...(ruleNow ? { rule: rule ?? null } : {}),
+              ...text,
+              when: p.when,
+              ...(p.ruleChanged ? { rule: p.newRule ?? null } : {}),
             },
-            clearExceptions: clear && exceptionCount(cur.ev) > 0,
+            clearExceptions: p.clears && exceptionCount(cur.ev) > 0,
           });
         }
         if (ok) ui.setState({ editor: null });
@@ -600,24 +655,30 @@ export function createCalendarController(opts: CalendarControllerOptions): Calen
         commitEvent({ type: 'UpdateEvent', pageId: page, id: ev.id, patch: { when: next } });
         return;
       }
-      const shifted = shiftAll(ev.when, when, next);
-      const clears = JSON.stringify(shifted) !== JSON.stringify(ev.when);
-      ask(ev.id, { action: 'move', drops: clears ? exceptionCount(ev) : 0 }, (scope) => {
+      const dayDelta = startDay(next) - startDay(when);
+      /** The gesture's own shift (`when` → `next`) applied to a series; weekly days turn with it. */
+      const planAll = (cur: CalendarEvent) => {
+        const base = shiftAll(cur.when, when, next);
+        const rule = rotateRule(cur.rule, dayDelta);
+        const ruleChanged = ruleKey(rule) !== ruleKey(cur.rule);
+        const clears = ruleChanged || JSON.stringify(base) !== JSON.stringify(cur.when);
+        return { base, rule, ruleChanged, clears };
+      };
+      const drops = planAll(ev).clears ? exceptionCount(ev) : 0;
+      ask(ev.id, { action: 'move', drops }, (scope) => {
         const cur = resolve(ref);
         if (!cur) return;
         if (scope === 'one') {
           changeOne(cur.ev, ref.key, next);
           return;
         }
-        // The gesture's own shift (`when` → `next`), applied to the current base.
-        const base = shiftAll(cur.ev.when, when, next);
-        const clear = JSON.stringify(base) !== JSON.stringify(cur.ev.when);
+        const p = planAll(cur.ev);
         commitEvent({
           type: 'UpdateEvent',
           pageId: page,
           id: cur.ev.id,
-          patch: { when: base },
-          clearExceptions: clear && exceptionCount(cur.ev) > 0,
+          patch: { when: p.base, ...(p.ruleChanged ? { rule: p.rule ?? null } : {}) },
+          clearExceptions: p.clears && exceptionCount(cur.ev) > 0,
         });
       });
     },
