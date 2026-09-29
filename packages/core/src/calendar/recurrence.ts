@@ -55,13 +55,21 @@ const LAST_DAY = dayNumber({ y: MAX_YEAR, m: 12, d: 31 });
 
 /** The instants a when covers; all-day dates are read in `zone`. */
 export function whenRange(w: When, zone: string): { start: number; end: number } {
-  if (w.allDay) {
-    return {
-      start: toInstant({ ...dateOf(w.start), hh: 0, mm: 0 }, zone),
-      end: toInstant({ ...addDays(dateOf(w.end), 1), hh: 0, mm: 0 }, zone),
-    };
-  }
-  return { start: toInstant(wallOf(w.start), w.tz), end: toInstant(wallOf(w.end), w.tz) };
+  return { start: whenStart(w, zone), end: whenEnd(w, zone) };
+}
+
+/** When `w` starts; all-day dates are read in `zone`. */
+function whenStart(w: When, zone: string): number {
+  return w.allDay
+    ? toInstant({ ...dateOf(w.start), hh: 0, mm: 0 }, zone)
+    : toInstant(wallOf(w.start), w.tz);
+}
+
+/** When `w` ends, exclusive; all-day dates are read in `zone`. */
+function whenEnd(w: When, zone: string): number {
+  return w.allDay
+    ? toInstant({ ...addDays(dateOf(w.end), 1), hh: 0, mm: 0 }, zone)
+    : toInstant(wallOf(w.end), w.tz);
 }
 
 const startDate = (w: When): Ymd => (w.allDay ? dateOf(w.start) : wallOf(w.start));
@@ -241,15 +249,21 @@ function occurrence(
   };
 }
 
-/** The occurrence an exception makes (null when it cancels, or misses the window). */
+/**
+ * The occurrence an exception makes: null when it cancels, misses the window, or starts after
+ * `cutoff` (then it could not be kept). The start is checked before the rest is built.
+ */
 function changedOccurrence(
   ev: CalendarEvent,
   key: string,
   ex: Exception,
   win: ExpandWindow,
+  cutoff: number,
 ): Occurrence | null {
   if ('cancelled' in ex) return null;
-  return occurrence(ev, key, { when: ex.when, ...whenRange(ex.when, win.zone) }, ex, win);
+  const start = whenStart(ex.when, win.zone);
+  if (start >= win.to || start > cutoff) return null;
+  return occurrence(ev, key, { when: ex.when, start, end: whenEnd(ex.when, win.zone) }, ex, win);
 }
 
 const byStart = (a: Occurrence, b: Occurrence): number =>
@@ -343,7 +357,7 @@ function collect(ev: CalendarEvent, win: ExpandWindow, sink: Earliest): void {
     handled.add(key);
     const ex = ev.exceptions[key];
     const o = ex
-      ? changedOccurrence(ev, key, ex, win)
+      ? changedOccurrence(ev, key, ex, win, sink.cutoff())
       : occurrence(ev, key, series.on(date, at), undefined, win);
     if (o) sink.add(o);
   }
@@ -362,7 +376,7 @@ function collect(ev: CalendarEvent, win: ExpandWindow, sink: Earliest): void {
       counted ??= countedDays(start, ev.rule, ev.rule.count);
       if (!counted.has(dayNumber(date))) continue;
     }
-    const o = changedOccurrence(ev, key, ex, win);
+    const o = changedOccurrence(ev, key, ex, win, sink.cutoff());
     if (o) sink.add(o);
   }
 }

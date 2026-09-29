@@ -178,3 +178,62 @@ describe('zones', () => {
     );
   });
 });
+
+describe('cached zone offsets', () => {
+  /** The offset straight from Intl, computed independently of the module's cache. */
+  const oracle = (ms: number, tz: string): number => {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: tz,
+      hourCycle: 'h23',
+      year: 'numeric',
+      month: 'numeric',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: 'numeric',
+      second: 'numeric',
+    }).formatToParts(new Date(ms));
+    const get = (type: string) => Number(parts.find((p) => p.type === type)?.value ?? 0);
+    const asUtc = Date.UTC(
+      get('year'),
+      get('month') - 1,
+      get('day'),
+      get('hour') % 24,
+      get('minute'),
+      get('second'),
+    );
+    return Math.round((asUtc - Math.floor(ms / 1000) * 1000) / 60_000);
+  };
+
+  it('equal an uncached Intl offset, even when the bucket was filled by another instant (property)', () => {
+    const zones = [...ZONES, 'Asia/Kathmandu', 'Pacific/Chatham', 'Pacific/Apia'];
+    fc.assert(
+      fc.property(
+        fc.constantFrom(...zones),
+        fc.integer({ min: Date.UTC(1980, 0, 1), max: Date.UTC(2060, 0, 1) }),
+        fc.integer({ min: 0, max: 899_999 }),
+        (tz, ms, other) => {
+          // Fill the cache from a different instant of the same 15-minute bucket first.
+          zoneOffset(Math.floor(ms / 900_000) * 900_000 + other, tz);
+          expect(zoneOffset(ms, tz)).toBe(oracle(ms, tz));
+        },
+      ),
+      { numRuns: 3000 },
+    );
+  });
+
+  it('are exact on both sides of real transitions', () => {
+    const cases: [string, number][] = [
+      ['Europe/Madrid', Date.UTC(2026, 2, 29, 1, 0)],
+      ['Europe/Madrid', Date.UTC(2026, 9, 25, 1, 0)],
+      ['America/New_York', Date.UTC(2026, 2, 8, 7, 0)],
+      ['Australia/Lord_Howe', Date.UTC(2026, 3, 4, 15, 0)],
+      ['Pacific/Chatham', Date.UTC(2026, 3, 4, 14, 0)],
+    ];
+    for (const [tz, at] of cases) {
+      for (const ms of [at - 900_000, at - 1, at, at + 1, at + 899_999]) {
+        expect(zoneOffset(ms, tz)).toBe(oracle(ms, tz));
+      }
+      expect(zoneOffset(at - 1, tz)).not.toBe(zoneOffset(at, tz));
+    }
+  });
+});

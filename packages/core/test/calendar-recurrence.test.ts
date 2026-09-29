@@ -317,6 +317,51 @@ describe('expandAll', () => {
     120_000,
   );
 
+  it('stays fast when 500 series each move 200 past occurrences into the window', () => {
+    // Exception k is keyed on the series' real occurrence 2025-01-01 + k days and moved to
+    // day k % 3 of the window at 08:00 + (k % 8) h: the moves cluster on the window's first
+    // days, and many share the earliest start.
+    const seriesStart = { y: 2025, m: 1, d: 1 };
+    const winStart = { y: 2026, m: 3, d: 2 };
+    const exceptions: CalendarEvent['exceptions'] = {};
+    for (let k = 0; k < 200; k++) {
+      const d = formatDate(addDays(winStart, k % 3));
+      const hh = String(8 + (k % 8)).padStart(2, '0');
+      exceptions[formatDate(addDays(seriesStart, k))] = {
+        when: timed(`${d}T${hh}:00`, `${d}T${hh}:30`),
+        title: 'Moved',
+      };
+    }
+    const events = Array.from({ length: 500 }, (_, i) => ({
+      ...ev(
+        timed('2025-01-01T09:00', '2025-01-01T10:00'),
+        { freq: 'daily', interval: 1 },
+        exceptions,
+      ),
+      id: `e${String(i).padStart(3, '0')}`,
+    }));
+    const win = { from: at(2026, 3, 2, MADRID), to: at(2026, 4, 13, MADRID), zone: MADRID };
+
+    const t0 = Date.now();
+    const res = expandAll({ events }, win);
+    const elapsed = Date.now() - t0;
+
+    // 9 moves per series land at the earliest start (k ≡ 0 mod 24), so the first 1000 are all
+    // moved occurrences at 2 March 08:00, by event id and then key.
+    const earliest = toInstant({ ...winStart, hh: 8, mm: 0 }, MADRID);
+    const firstKeys = Array.from({ length: 9 }, (_, j) => formatDate(addDays(seriesStart, 24 * j)));
+    expect(res.truncated).toBe(true);
+    expect(res.occurrences).toHaveLength(1000);
+    expect(
+      res.occurrences.every((o) => o.start === earliest && o.changed && o.title === 'Moved'),
+    ).toBe(true);
+    expect(res.occurrences.slice(0, 9).map((o) => [o.eventId, o.key])).toEqual(
+      firstKeys.map((k) => ['e000', k]),
+    );
+    expect(res.occurrences[999]?.eventId).toBe('e111');
+    expect(elapsed).toBeLessThan(BUDGET_MS);
+  }, 120_000);
+
   it('equals expanding every event fully and then sorting (property)', () => {
     const zones = ['UTC', MADRID, 'America/Havana', 'Pacific/Apia', 'Australia/Lord_Howe'];
     const dateArb = fc

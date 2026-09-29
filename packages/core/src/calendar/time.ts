@@ -127,12 +127,42 @@ export const isValidZone = (tz: unknown): tz is string => formatter(tz) !== null
 /** `tz` in its canonical IANA spelling (`europe/madrid` → `Europe/Madrid`), or `'UTC'`. */
 export const safeZone = (tz: unknown): string => formatter(tz)?.resolvedOptions().timeZone ?? 'UTC';
 
+// Offsets cached per zone and 15-minute UTC bucket, in an LRU: `Intl` formatting is by far
+// the slowest part of wall-time conversion, and expanding a calendar converts thousands of
+// times. Modern transitions fall on 15-minute UTC boundaries, so a zone's offset is constant
+// within a bucket. Historical local mean time changes at odd seconds (pre-1980 edge cases) may
+// read up to 15 minutes off inside the bucket that holds the change.
+const OFFSET_BUCKET_MS = 900_000;
+const MAX_CACHED_OFFSETS = 20_000;
+const offsets = new Map<string, number>();
+
 /**
  * Offset of `tz` from UTC at instant `ms`, in minutes (east positive). An unknown zone reads
- * as UTC; a non-finite `ms` gives 0.
+ * as UTC; a non-finite `ms` gives 0. Cached per 15-minute bucket (see above).
  */
 export function zoneOffset(ms: number, tz: string): number {
   if (!Number.isFinite(ms)) return 0;
+  // Only names that could be zones are cached, so a key stays short.
+  if (typeof tz !== 'string' || tz.length > MAX_ZONE_LENGTH) return intlOffset(ms, tz);
+  const key = `${tz}|${Math.floor(ms / OFFSET_BUCKET_MS)}`;
+  const cached = offsets.get(key);
+  if (cached !== undefined) {
+    // Refresh recency.
+    offsets.delete(key);
+    offsets.set(key, cached);
+    return cached;
+  }
+  const offset = intlOffset(ms, tz);
+  if (offsets.size >= MAX_CACHED_OFFSETS) {
+    const oldest = offsets.keys().next().value;
+    if (oldest !== undefined) offsets.delete(oldest);
+  }
+  offsets.set(key, offset);
+  return offset;
+}
+
+/** `zoneOffset` straight from `Intl`, without the cache. */
+function intlOffset(ms: number, tz: string): number {
   const f = formatter(tz) ?? formatter('UTC');
   if (!f) return 0;
   const parts = f.formatToParts(new Date(ms));
@@ -173,7 +203,8 @@ export function toInstant(w: Wall, tz: string): number {
   const before = zoneOffset(guess - DAY_MS, tz);
   const after = zoneOffset(guess + DAY_MS, tz);
   const target = wallMinutes(w);
-  const hits = [before, after]
+  // With no change within a day either side, both candidates are the same instant.
+  const hits = (before === after ? [before] : [before, after])
     .map((o) => guess - o * 60_000)
     .filter((t) => wallMinutes(toWall(t, tz)) === target);
   if (hits.length > 0) return Math.min(...hits);
