@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useStore } from 'zustand';
+import { CalendarPage } from '../calendar/CalendarPage';
 import { Canvas } from '../render/Canvas';
 import { ColumnTitleEditor } from '../render/ColumnTitleEditor';
 import { CommentComposer } from '../render/CommentComposer';
@@ -63,6 +64,11 @@ function BoardView({ session }: { session: BoardSession }) {
       ) : type === 'sheet' ? (
         <div className="relative min-h-0 flex-1">
           <SheetPage session={session} />
+          <StatusBanner session={session} />
+        </div>
+      ) : type === 'calendar' ? (
+        <div className="relative min-h-0 flex-1">
+          <CalendarPage session={session} />
           <StatusBanner session={session} />
         </div>
       ) : (

@@ -1,6 +1,14 @@
 import { type Occurrence, toInstant } from '@relay/core';
 import { describe, expect, it } from 'vitest';
-import { monthGrid, monthLayout, viewWindow, weekDates, weekLayout } from '../src/calendar/layout';
+import {
+  monthGrid,
+  monthLayout,
+  periodTitle,
+  timeLabel,
+  viewWindow,
+  weekDates,
+  weekLayout,
+} from '../src/calendar/layout';
 
 const Z = 'Europe/Madrid';
 let n = 0;
@@ -121,5 +129,16 @@ describe('week layout', () => {
       [c, 5, 6, 0],
     ]);
     expect(layout.allDayLanes).toBe(2);
+  });
+});
+
+describe('titles and labels', () => {
+  it('names the period in en-GB style', () => {
+    expect(periodTitle('month', '2026-09-15')).toBe('September 2026');
+    expect(periodTitle('week', '2026-09-24')).toBe('21 – 27 Sep 2026');
+    expect(periodTitle('week', '2026-10-01')).toBe('28 Sep – 4 Oct 2026');
+    expect(periodTitle('week', '2026-01-01')).toBe('29 Dec 2025 – 4 Jan 2026');
+    expect(timeLabel(9 * 60 + 5)).toBe('09:05');
+    expect(timeLabel(0)).toBe('00:00');
   });
 });

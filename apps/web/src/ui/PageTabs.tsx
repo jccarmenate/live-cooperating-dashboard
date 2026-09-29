@@ -172,12 +172,7 @@ export function PageTabs({ session }: { session: BoardSession }) {
               items: [
                 { label: 'Board', testId: 'page-add-board', onSelect: () => add('board') },
                 { label: 'Spreadsheet', testId: 'page-add-sheet', onSelect: () => add('sheet') },
-                {
-                  label: 'Calendar (soon)',
-                  testId: 'page-add-calendar',
-                  disabled: true,
-                  onSelect: () => {},
-                },
+                { label: 'Calendar', testId: 'page-add-calendar', onSelect: () => add('calendar') },
               ],
             });
           }}

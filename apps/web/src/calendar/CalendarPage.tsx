@@ -1,0 +1,81 @@
+'use client';
+
+import { viewerZone } from '@relay/core';
+import { useEffect, useMemo, useState } from 'react';
+import { useStore } from 'zustand';
+import type { BoardSession } from '../board/session';
+import { toast } from '../ui/toasts';
+import { CalendarHeader } from './CalendarHeader';
+import { type CalendarController, createCalendarController } from './calendarController';
+import { MonthView } from './MonthView';
+import { useCalendarKeys } from './useCalendarKeys';
+import { WeekView } from './WeekView';
+
+export function CalendarPage({ session }: { session: BoardSession }) {
+  const hasCalendar = useStore(session.calendar, (s) => s.calendar !== null);
+  const [ctl, setCtl] = useState<CalendarController | null>(null);
+
+  useEffect(() => {
+    const c = createCalendarController({
+      calendar: session.calendar,
+      commit: session.controller.commit,
+      commitSession: session.controller.commitSession,
+      canEdit: () => session.conn.clock.getState().role === 'edit',
+      notify: toast,
+      user: session.user,
+      zone: viewerZone(),
+      now: () => Date.now(),
+    });
+    // Peers see which event this user has open.
+    const unsubscribe = c.ui.subscribe((s, prev) => {
+      const id = s.editor?.ref?.eventId ?? null;
+      if (id !== (prev.editor?.ref?.eventId ?? null)) session.publisher.setCalEvent(id);
+    });
+    setCtl(c);
+    return () => {
+      unsubscribe();
+      session.publisher.setCalEvent(null);
+      c.destroy();
+    };
+  }, [session]);
+
+  if (!ctl) return null;
+  if (!hasCalendar) {
+    return (
+      <div
+        data-testid="unsupported-page"
+        className="grid h-full place-items-center px-4 text-center font-mono text-xs"
+      >
+        This calendar could not be loaded.
+      </div>
+    );
+  }
+  return <CalendarBody session={session} ctl={ctl} />;
+}
+
+function CalendarBody({ session, ctl }: { session: BoardSession; ctl: CalendarController }) {
+  useCalendarKeys(session, ctl);
+  const view = useStore(ctl.ui, (s) => s.view);
+  const anchor = useStore(ctl.ui, (s) => s.anchor);
+  const calendar = useStore(session.calendar, (s) => s.calendar);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: recomputed when the calendar or the period changes
+  const { occurrences, truncated } = useMemo(() => ctl.visible(), [ctl, calendar, view, anchor]);
+  return (
+    <div data-testid="calendar-page" className="flex h-full min-h-0 flex-col">
+      <CalendarHeader session={session} ctl={ctl} />
+      {truncated && (
+        <p
+          data-testid="cal-truncated"
+          className="border-b-2 border-ink bg-sun px-3 py-1 font-mono text-xs"
+        >
+          Showing the first 1000 events
+        </p>
+      )}
+      {view === 'month' ? (
+        <MonthView session={session} ctl={ctl} occurrences={occurrences} />
+      ) : (
+        <WeekView session={session} ctl={ctl} occurrences={occurrences} />
+      )}
+    </div>
+  );
+}

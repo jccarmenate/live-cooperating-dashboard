@@ -225,3 +225,35 @@ export function weekLayout(occs: Occurrence[], days: string[], zone: string): We
     boxes,
   };
 }
+
+const MONTHS = [
+  'January',
+  'February',
+  'March',
+  'April',
+  'May',
+  'June',
+  'July',
+  'August',
+  'September',
+  'October',
+  'November',
+  'December',
+];
+const MON = MONTHS.map((m) => m.slice(0, 3));
+export const WEEKDAY_SHORT = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+
+export const timeLabel = (minutes: number): string =>
+  `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
+
+/** The header title: "September 2026", or a week such as "28 Sep – 4 Oct 2026" (en-GB). */
+export function periodTitle(view: 'month' | 'week', anchor: string): string {
+  const a = dateOf(anchor);
+  if (view === 'month') return `${MONTHS[a.m - 1]} ${a.y}`;
+  const days = weekDates(anchor);
+  const s = dateOf(days[0] as string);
+  const e = dateOf(days[6] as string);
+  if (s.y !== e.y) return `${s.d} ${MON[s.m - 1]} ${s.y} – ${e.d} ${MON[e.m - 1]} ${e.y}`;
+  if (s.m !== e.m) return `${s.d} ${MON[s.m - 1]} – ${e.d} ${MON[e.m - 1]} ${e.y}`;
+  return `${s.d} – ${e.d} ${MON[e.m - 1]} ${e.y}`;
+}
