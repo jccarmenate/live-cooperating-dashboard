@@ -1,5 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import { calendarKey } from '../src/calendar/useCalendarKeys';
+import {
+  BUTTON_SELECTOR,
+  calendarKey,
+  DIALOG_SELECTOR,
+  keyLeftToFocus,
+  LIST_SELECTOR,
+} from '../src/calendar/useCalendarKeys';
+
+/** A focused element inside the given kind of control (or none). */
+const inside = (selector: string | null) => ({
+  closest: (s: string) => (s === selector ? {} : null),
+});
 
 const k = (
   key: string,
@@ -29,5 +40,29 @@ describe('calendar keys', () => {
     expect(k('t', { ctrlKey: true })).toBeNull();
     expect(k('n', { altKey: true })).toBeNull();
     expect(k('ArrowLeft', { shiftKey: true })).toBeNull();
+  });
+});
+
+describe('keys left to the focused control', () => {
+  it('a focused button keeps only Enter and Space', () => {
+    const button = inside(BUTTON_SELECTOR);
+    expect(keyLeftToFocus(button, 'Enter')).toBe(true);
+    expect(keyLeftToFocus(button, ' ')).toBe(true);
+    for (const key of ['ArrowRight', 'ArrowLeft', 'm', 'w', 't', 'n', 'Delete', 'Escape', 'z'])
+      expect(keyLeftToFocus(button, key)).toBe(false);
+  });
+
+  it('a focused select or menu keeps arrows, Enter and Space', () => {
+    const list = inside(LIST_SELECTOR);
+    for (const key of ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Enter', ' '])
+      expect(keyLeftToFocus(list, key)).toBe(true);
+    expect(keyLeftToFocus(list, 'm')).toBe(false);
+    expect(keyLeftToFocus(list, 'Escape')).toBe(false);
+  });
+
+  it('a dialog keeps every key; no focus keeps none', () => {
+    expect(keyLeftToFocus(inside(DIALOG_SELECTOR), 'm')).toBe(true);
+    expect(keyLeftToFocus(inside(null), 'Enter')).toBe(false);
+    expect(keyLeftToFocus(null, 'Enter')).toBe(false);
   });
 });

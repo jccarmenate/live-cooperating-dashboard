@@ -13,6 +13,7 @@ import { WeekView } from './WeekView';
 
 export function CalendarPage({ session }: { session: BoardSession }) {
   const hasCalendar = useStore(session.calendar, (s) => s.calendar !== null);
+  const pageId = useStore(session.calendar, (s) => s.pageId);
   const [ctl, setCtl] = useState<CalendarController | null>(null);
 
   useEffect(() => {
@@ -50,7 +51,8 @@ export function CalendarPage({ session }: { session: BoardSession }) {
       </div>
     );
   }
-  return <CalendarBody session={session} ctl={ctl} />;
+  // Per-page view state (the "+N more" popover, a live drag) starts fresh on each calendar page.
+  return <CalendarBody key={pageId ?? ''} session={session} ctl={ctl} />;
 }
 
 function CalendarBody({ session, ctl }: { session: BoardSession; ctl: CalendarController }) {

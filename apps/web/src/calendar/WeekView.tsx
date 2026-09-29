@@ -1,25 +1,60 @@
-import { type Occurrence, parseDate, todayIn, toWall } from '@relay/core';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { dayNumber, type Occurrence, parseDate, todayIn, toWall } from '@relay/core';
+import { memo, useEffect, useMemo, useRef } from 'react';
 import { useStore } from 'zustand';
+import { createStore, type StoreApi } from 'zustand/vanilla';
 import type { BoardSession } from '../board/session';
 import type { CalendarController, OccRef } from './calendarController';
-import { HOUR_PX, SNAP_MIN, timeLabel, WEEKDAY_SHORT, weekDates, weekLayout } from './layout';
-import { useEventDrag } from './MonthView';
+import {
+  HOUR_PX,
+  occurrenceDays,
+  SNAP_MIN,
+  timeLabel,
+  WEEKDAY_SHORT,
+  type WeekBox,
+  weekDates,
+  weekLayout,
+} from './layout';
+import { DRAG_THRESHOLD, useEventDrag } from './useEventDrag';
+import { useNow } from './useNow';
 
+const DAY_MIN = 24 * 60;
+
+/** A live pointer gesture on the time grid. Mutated in place: moves never re-render the view. */
 type Gesture =
-  | { kind: 'create'; date: string; from: number; to: number }
+  | { kind: 'create'; pointerId: number; col: HTMLElement; date: string; from: number; to: number }
   | {
       kind: 'move';
+      pointerId: number;
       ref: OccRef;
+      x: number;
+      y: number;
+      moved: boolean;
       offset: number;
       length: number;
       date: string;
       top: number;
-      moved: boolean;
     }
-  | { kind: 'resize'; ref: OccRef; date: string; top: number; bottom: number };
+  | {
+      kind: 'resize';
+      pointerId: number;
+      ref: OccRef;
+      x: number;
+      y: number;
+      moved: boolean;
+      date: string;
+      top: number;
+      bottom: number;
+    };
 
-const snap = (m: number) => Math.max(0, Math.min(24 * 60, Math.round(m / SNAP_MIN) * SNAP_MIN));
+/** What the drag preview draws: a day column (0–6) and a minute range. */
+interface Preview {
+  day: number;
+  top: number;
+  height: number;
+  create: boolean;
+}
+
+const snap = (m: number) => Math.max(0, Math.min(DAY_MIN, Math.round(m / SNAP_MIN) * SNAP_MIN));
 
 function minutesAt(clientY: number, column: Element): number {
   const r = column.getBoundingClientRect();
@@ -28,6 +63,10 @@ function minutesAt(clientY: number, column: Element): number {
 
 const columnAt = (x: number, y: number) =>
   document.elementFromPoint(x, y)?.closest<HTMLElement>('[data-testid="cal-week-col"]') ?? null;
+
+const gridColumns = '56px repeat(7, 1fr)';
+const hourLines = `repeating-linear-gradient(to bottom, transparent 0, transparent ${HOUR_PX - 1}px, rgba(17,17,17,0.12) ${HOUR_PX - 1}px, rgba(17,17,17,0.12) ${HOUR_PX}px)`;
+const textOn = (color: string) => (color === '#F5D547' ? '#111111' : '#FFFFFF');
 
 export function WeekView({
   session,
@@ -46,29 +85,133 @@ export function WeekView({
     () => weekLayout(occurrences, days, ctl.zone),
     [occurrences, days, ctl.zone],
   );
+  /** Boxes per day column; `hasEnd` marks the segment holding the event's real end. */
+  const byDay = useMemo(() => {
+    const out: { box: WeekBox; hasEnd: boolean }[][] = days.map(() => []);
+    for (const box of layout.boxes) {
+      const date = parseDate(days[box.day] ?? '');
+      const hasEnd = !!date && occurrenceDays(box.occ, ctl.zone).last === dayNumber(date);
+      out[box.day]?.push({ box, hasEnd });
+    }
+    return out;
+  }, [layout, days, ctl.zone]);
   const scroller = useRef<HTMLDivElement>(null);
-  const [gesture, setGesture] = useState<Gesture | null>(null);
-  const today = todayIn(Date.now(), ctl.zone);
-  const now = toWall(Date.now(), ctl.zone);
+  const gesture = useRef<Gesture | null>(null);
+  const preview = useMemo(() => createStore<Preview | null>(() => null), []);
+  const now = useNow();
+  const today = todayIn(now, ctl.zone);
+  const nowWall = toWall(now, ctl.zone);
   const allDayDrag = useEventDrag(ctl, canEdit);
 
   useEffect(() => {
     if (scroller.current) scroller.current.scrollTop = 8 * HOUR_PX;
   }, []);
 
-  const finish = (e: React.PointerEvent) => {
-    const g = gesture;
-    setGesture(null);
-    if (!g) return;
+  const show = (g: Gesture) => {
+    const day = days.indexOf(g.date);
+    if (g.kind === 'create') {
+      const top = Math.min(g.from, g.to);
+      preview.setState(
+        { day, top, height: Math.max(SNAP_MIN, Math.abs(g.to - g.from)), create: true },
+        true,
+      );
+    } else if (g.moved) {
+      const height = g.kind === 'move' ? g.length : g.bottom - g.top;
+      preview.setState({ day, top: g.top, height, create: false }, true);
+    }
+  };
+  const clear = () => {
+    gesture.current = null;
+    preview.setState(null, true);
+  };
+  const boxOf = (el: HTMLElement, day: number) =>
+    byDay[day]?.find(
+      (x) => x.box.occ.eventId === el.dataset.eventId && x.box.occ.key === el.dataset.key,
+    );
+
+  const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return;
+    const t = e.target as HTMLElement;
+    const col = t.closest<HTMLElement>('[data-testid="cal-week-col"]');
+    const date = col?.dataset.date;
+    if (!col || !date) return;
+    const evEl = t.closest<HTMLElement>('[data-testid="cal-event"]');
+    if (evEl) {
+      const found = boxOf(evEl, days.indexOf(date));
+      if (!found) return;
+      const b = found.box;
+      const ref = { eventId: b.occ.eventId, key: b.occ.key };
+      const start = { pointerId: e.pointerId, ref, x: e.clientX, y: e.clientY, moved: false, date };
+      gesture.current =
+        t.dataset.resize && found.hasEnd
+          ? { kind: 'resize', ...start, top: b.top, bottom: b.top + b.height }
+          : {
+              kind: 'move',
+              ...start,
+              offset: minutesAt(e.clientY, col) - b.top,
+              length: b.height,
+              top: b.top,
+            };
+    } else {
+      if (!canEdit) return;
+      // A start at the bottom edge still leaves room for the shortest event.
+      const m = Math.min(minutesAt(e.clientY, col), DAY_MIN - SNAP_MIN);
+      gesture.current = { kind: 'create', pointerId: e.pointerId, col, date, from: m, to: m };
+      show(gesture.current);
+    }
+    e.currentTarget.setPointerCapture(e.pointerId);
+  };
+
+  const onPointerMove = (e: React.PointerEvent) => {
+    const g = gesture.current;
+    if (!g || g.pointerId !== e.pointerId) return;
+    if (g.kind === 'create') {
+      g.to = minutesAt(e.clientY, g.col);
+      show(g);
+      return;
+    }
+    if (!canEdit) return;
+    if (!g.moved) {
+      if (Math.hypot(e.clientX - g.x, e.clientY - g.y) <= DRAG_THRESHOLD) return;
+      g.moved = true;
+    }
+    const col = columnAt(e.clientX, e.clientY);
+    if (!col) return;
+    const m = minutesAt(e.clientY, col);
+    if (g.kind === 'resize') g.bottom = Math.max(g.top + SNAP_MIN, m);
+    else {
+      g.top = Math.min(Math.max(0, DAY_MIN - g.length), snap(m - g.offset));
+      g.date = col.dataset.date ?? g.date;
+    }
+    show(g);
+  };
+
+  const onPointerUp = (e: React.PointerEvent) => {
+    const g = gesture.current;
+    if (!g || g.pointerId !== e.pointerId) return;
+    clear();
     if (g.kind === 'create') {
       const from = Math.min(g.from, g.to);
       const to = Math.max(g.from, g.to);
-      ctl.newEvent({ date: g.date, start: from, end: to > from ? to : from + 60 });
-    } else if (g.kind === 'move') {
-      if (!g.moved) ctl.select(g.ref);
-      else ctl.move(g.ref, { date: g.date, minutes: g.top });
-    } else ctl.resize(g.ref, { date: g.date, minutes: g.bottom });
-    e.stopPropagation();
+      // An end of 24:00 rolls into the next day in `newEvent`.
+      ctl.newEvent({
+        date: g.date,
+        start: from,
+        end: Math.min(DAY_MIN, to > from ? to : from + 60),
+      });
+    } else if (!g.moved) ctl.select(g.ref);
+    else if (g.kind === 'move') ctl.move(g.ref, { date: g.date, minutes: g.top });
+    else ctl.resize(g.ref, { date: g.date, minutes: g.bottom });
+  };
+
+  const onCancel = (e: React.PointerEvent) => {
+    if (gesture.current?.pointerId === e.pointerId) clear();
+  };
+
+  const onDoubleClick = (e: React.MouseEvent) => {
+    const el = (e.target as HTMLElement).closest<HTMLElement>('[data-testid="cal-event"]');
+    const { eventId, key } = el?.dataset ?? {};
+    if (eventId && key) ctl.openEditor({ eventId, key });
   };
 
   const isSel = (o: Occurrence) => selected?.eventId === o.eventId && selected.key === o.key;
@@ -78,7 +221,7 @@ export function WeekView({
     <div className="flex min-h-0 flex-1 flex-col">
       <div
         className="grid border-b-2 border-ink bg-paper font-mono text-[11px]"
-        style={{ gridTemplateColumns: '56px repeat(7, 1fr)' }}
+        style={{ gridTemplateColumns: gridColumns }}
       >
         <div />
         {days.map((d, i) => (
@@ -89,7 +232,7 @@ export function WeekView({
       </div>
       <div
         className="relative grid border-b-2 border-ink bg-white"
-        style={{ gridTemplateColumns: '56px repeat(7, 1fr)', height: lanes * 20 + 4 }}
+        style={{ gridTemplateColumns: gridColumns, height: lanes * 20 + 4 }}
       >
         <div className="px-1 font-mono text-[10px] text-ink/60">all-day</div>
         {days.map((d) => (
@@ -106,15 +249,17 @@ export function WeekView({
             onPointerDown={allDayDrag.onPointerDown(s.occ)}
             onPointerMove={allDayDrag.onPointerMove}
             onPointerUp={allDayDrag.onPointerUp}
+            onPointerCancel={allDayDrag.onPointerCancel}
+            onLostPointerCapture={allDayDrag.onLostPointerCapture}
             onDoubleClick={() => ctl.openEditor({ eventId: s.occ.eventId, key: s.occ.key })}
-            className={`absolute truncate px-1 font-mono text-[11px] ${isSel(s.occ) ? 'outline outline-2 outline-ink' : ''}`}
+            className={`absolute touch-none truncate px-1 font-mono text-[11px] ${isSel(s.occ) ? 'outline outline-2 outline-ink' : ''}`}
             style={{
               top: 2 + s.lane * 20,
               height: 18,
               left: `calc(56px + (100% - 56px) * ${s.startCol / 7} + 2px)`,
               width: `calc((100% - 56px) * ${(s.endCol - s.startCol + 1) / 7} - 4px)`,
               background: s.occ.color,
-              color: s.occ.color === '#F5D547' ? '#111111' : '#FFFFFF',
+              color: textOn(s.occ.color),
             }}
           >
             {s.occ.title}
@@ -122,9 +267,16 @@ export function WeekView({
         ))}
       </div>
       <div ref={scroller} className="relative min-h-0 flex-1 overflow-y-auto">
+        {/* biome-ignore lint/a11y/noStaticElementInteractions: the time grid is a drag surface; keyboard users create with N and open with Enter */}
         <div
-          className="grid"
-          style={{ gridTemplateColumns: '56px repeat(7, 1fr)', height: 24 * HOUR_PX }}
+          className="relative grid"
+          style={{ gridTemplateColumns: gridColumns, height: 24 * HOUR_PX }}
+          onPointerDown={onPointerDown}
+          onPointerMove={onPointerMove}
+          onPointerUp={onPointerUp}
+          onPointerCancel={onCancel}
+          onLostPointerCapture={onCancel}
+          onDoubleClick={onDoubleClick}
         >
           <div className="relative">
             {Array.from({ length: 24 }, (_, h) => (
@@ -143,140 +295,87 @@ export function WeekView({
               key={date}
               data-testid="cal-week-col"
               data-date={date}
-              className="relative border-l border-ink/20"
-              style={{
-                backgroundImage: `repeating-linear-gradient(to bottom, transparent 0, transparent ${HOUR_PX - 1}px, rgba(17,17,17,0.12) ${HOUR_PX - 1}px, rgba(17,17,17,0.12) ${HOUR_PX}px)`,
-              }}
-              onPointerDown={(e) => {
-                if (e.button !== 0 || e.target !== e.currentTarget || !canEdit) return;
-                const m = minutesAt(e.clientY, e.currentTarget);
-                e.currentTarget.setPointerCapture(e.pointerId);
-                setGesture({ kind: 'create', date, from: m, to: m });
-              }}
-              onPointerMove={(e) => {
-                if (gesture?.kind === 'create' && gesture.date === date)
-                  setGesture({ ...gesture, to: minutesAt(e.clientY, e.currentTarget) });
-              }}
-              onPointerUp={finish}
+              className="relative touch-none border-l border-ink/20"
+              style={{ backgroundImage: hourLines }}
             >
-              {layout.boxes
-                .filter((b) => b.day === day)
-                .map((b) => {
-                  const ref = { eventId: b.occ.eventId, key: b.occ.key };
-                  return (
-                    // biome-ignore lint/a11y/noStaticElementInteractions: an event is a drag target; keyboard users open the selection with Enter
-                    <div
-                      key={`${b.occ.eventId}:${b.occ.key}`}
-                      data-testid="cal-event"
-                      data-event-id={b.occ.eventId}
-                      data-key={b.occ.key}
-                      data-selected={isSel(b.occ) ? 'true' : undefined}
-                      className={`absolute overflow-hidden border border-ink px-1 font-mono text-[11px] ${isSel(b.occ) ? 'outline outline-2 outline-ink' : ''}`}
-                      style={{
-                        top: (b.top / 60) * HOUR_PX,
-                        height: Math.max(12, (b.height / 60) * HOUR_PX - 1),
-                        left: `${(b.col / b.cols) * 100}%`,
-                        width: `${100 / b.cols}%`,
-                        background: b.occ.color,
-                        color: b.occ.color === '#F5D547' ? '#111111' : '#FFFFFF',
-                      }}
-                      onPointerDown={(e) => {
-                        if (e.button !== 0) return;
-                        e.stopPropagation();
-                        const col = e.currentTarget.parentElement;
-                        if (!col) return;
-                        e.currentTarget.setPointerCapture(e.pointerId);
-                        if ((e.target as HTMLElement).dataset.resize) {
-                          setGesture({
-                            kind: 'resize',
-                            ref,
-                            date,
-                            top: b.top,
-                            bottom: b.top + b.height,
-                          });
-                          return;
-                        }
-                        setGesture({
-                          kind: 'move',
-                          ref,
-                          offset: minutesAt(e.clientY, col) - b.top,
-                          length: b.height,
-                          date,
-                          top: b.top,
-                          moved: false,
-                        });
-                      }}
-                      onPointerMove={(e) => {
-                        if (!gesture || gesture.kind === 'create' || !canEdit) return;
-                        const colEl = columnAt(e.clientX, e.clientY);
-                        if (!colEl) return;
-                        const m = minutesAt(e.clientY, colEl);
-                        if (gesture.kind === 'resize')
-                          setGesture({ ...gesture, bottom: Math.max(gesture.top + SNAP_MIN, m) });
-                        else {
-                          const top = snap(m - gesture.offset);
-                          const target = colEl.dataset.date ?? gesture.date;
-                          if (top !== gesture.top || target !== gesture.date)
-                            setGesture({ ...gesture, top, date: target, moved: true });
-                        }
-                      }}
-                      onPointerUp={finish}
-                      onDoubleClick={() => ctl.openEditor(ref)}
-                    >
-                      <div className="font-bold">{b.occ.title}</div>
-                      <div>{timeLabel(b.top)}</div>
-                      {canEdit && (
-                        <div
-                          data-testid="cal-resize"
-                          data-resize="1"
-                          className="absolute inset-x-0 bottom-0 h-1.5 cursor-ns-resize"
-                        />
-                      )}
-                    </div>
-                  );
-                })}
-              {gesture &&
-                gesture.kind !== 'create' &&
-                gesture.date === date &&
-                (gesture.kind === 'resize' || gesture.moved) && (
-                  <div
-                    data-testid="cal-drag-preview"
-                    className="pointer-events-none absolute inset-x-0 border-2 border-dashed border-ink bg-ink/10"
-                    style={
-                      gesture.kind === 'resize'
-                        ? {
-                            top: (gesture.top / 60) * HOUR_PX,
-                            height: ((gesture.bottom - gesture.top) / 60) * HOUR_PX,
-                          }
-                        : {
-                            top: (gesture.top / 60) * HOUR_PX,
-                            height: (gesture.length / 60) * HOUR_PX,
-                          }
-                    }
-                  />
-                )}
-              {gesture?.kind === 'create' && gesture.date === date && (
-                <div
-                  data-testid="cal-drag-preview"
-                  className="pointer-events-none absolute inset-x-0 border-2 border-dashed border-ink bg-sun/40"
-                  style={{
-                    top: (Math.min(gesture.from, gesture.to) / 60) * HOUR_PX,
-                    height:
-                      (Math.max(SNAP_MIN, Math.abs(gesture.to - gesture.from)) / 60) * HOUR_PX,
-                  }}
+              {byDay[day]?.map(({ box, hasEnd }) => (
+                <EventBox
+                  key={`${box.occ.eventId}:${box.occ.key}`}
+                  box={box}
+                  selected={isSel(box.occ)}
+                  resizable={canEdit && hasEnd}
                 />
-              )}
+              ))}
               {date === today && (
                 <div
                   data-testid="cal-now"
                   className="pointer-events-none absolute inset-x-0 h-0.5 bg-flame"
-                  style={{ top: ((now.hh * 60 + now.mm) / 60) * HOUR_PX }}
+                  style={{ top: ((nowWall.hh * 60 + nowWall.mm) / 60) * HOUR_PX }}
                 />
               )}
             </div>
           ))}
+          <DragPreview store={preview} />
         </div>
       </div>
     </div>
+  );
+}
+
+/** A timed event box; its gestures are handled by the time grid (delegated by data attributes). */
+const EventBox = memo(function EventBox({
+  box,
+  selected,
+  resizable,
+}: {
+  box: WeekBox;
+  selected: boolean;
+  resizable: boolean;
+}) {
+  const { occ } = box;
+  return (
+    <div
+      data-testid="cal-event"
+      data-event-id={occ.eventId}
+      data-key={occ.key}
+      data-selected={selected ? 'true' : undefined}
+      className={`absolute touch-none overflow-hidden border border-ink px-1 font-mono text-[11px] ${selected ? 'outline outline-2 outline-ink' : ''}`}
+      style={{
+        top: (box.top / 60) * HOUR_PX,
+        height: Math.max(12, (box.height / 60) * HOUR_PX - 1),
+        left: `${(box.col / box.cols) * 100}%`,
+        width: `${100 / box.cols}%`,
+        background: occ.color,
+        color: textOn(occ.color),
+      }}
+    >
+      <div className="font-bold">{occ.title}</div>
+      <div>{timeLabel(box.top)}</div>
+      {resizable && (
+        <div
+          data-testid="cal-resize"
+          data-resize="1"
+          className="absolute inset-x-0 bottom-0 h-1.5 cursor-ns-resize"
+        />
+      )}
+    </div>
+  );
+});
+
+/** The drag preview owns its subscription, so a pointer move re-renders only this element. */
+function DragPreview({ store }: { store: StoreApi<Preview | null> }) {
+  const p = useStore(store);
+  if (!p || p.day < 0) return null;
+  return (
+    <div
+      data-testid="cal-drag-preview"
+      className={`pointer-events-none absolute border-2 border-dashed border-ink ${p.create ? 'bg-sun/40' : 'bg-ink/10'}`}
+      style={{
+        top: (p.top / 60) * HOUR_PX,
+        height: (p.height / 60) * HOUR_PX,
+        left: `calc(56px + (100% - 56px) * ${p.day / 7})`,
+        width: 'calc((100% - 56px) / 7)',
+      }}
+    />
   );
 }

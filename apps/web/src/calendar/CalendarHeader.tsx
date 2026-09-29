@@ -42,9 +42,6 @@ export function CalendarHeader({
       >
         <ChevronRight size={14} />
       </button>
-      <h2 data-testid="cal-title" className="min-w-40 font-display text-base">
-        {periodTitle(view, anchor)}
-      </h2>
       <div className="flex">
         {(['month', 'week'] as const).map((v) => (
           <button
@@ -59,10 +56,10 @@ export function CalendarHeader({
           </button>
         ))}
       </div>
-      <span data-testid="cal-zone" className="font-mono text-[11px] text-ink/60">
-        Times in {ctl.zone}
-      </span>
-      <div className="ml-auto flex items-center gap-2">
+      <h2 data-testid="cal-title" className="min-w-40 font-display text-base">
+        {periodTitle(view, anchor)}
+      </h2>
+      <div className="ml-auto flex items-center gap-3">
         {canEdit && (
           <button
             type="button"
@@ -75,6 +72,9 @@ export function CalendarHeader({
             </span>
           </button>
         )}
+        <span data-testid="cal-zone" className="font-mono text-[11px] text-ink/60">
+          Times in {ctl.zone}
+        </span>
       </div>
     </div>
   );

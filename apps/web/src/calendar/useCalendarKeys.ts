@@ -53,16 +53,39 @@ export function calendarKey(e: KeyLike): CalendarKeyAction | null {
   return null;
 }
 
-/** Focus is on a control whose own keys (Enter, arrows) must keep their native meaning. */
-const onControl = (t: EventTarget | null) =>
-  t instanceof Element &&
-  t.closest('button, select, a[href], [role="menuitem"], [role="dialog"]') !== null;
+/** Dialogs stop their own keys. */
+export const DIALOG_SELECTOR = '[role="dialog"]';
+/** Selects and menus use arrows, Enter and Space to pick. */
+export const LIST_SELECTOR =
+  'select, [role="menu"], [role="menuitem"], [role="listbox"], [role="option"]';
+/** Buttons and links use Enter and Space to activate. */
+export const BUTTON_SELECTOR = 'button, a[href]';
+
+const PICK_KEYS = new Set(['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Enter', ' ']);
+const PRESS_KEYS = new Set(['Enter', ' ']);
+
+/**
+ * Whether a key keeps its native meaning on the focused element. A header button clicked a
+ * moment ago keeps focus, so only its own keys (Enter, Space) are left to it: letters, arrows,
+ * Delete, Escape and Ctrl+Z still reach the calendar.
+ */
+export function keyLeftToFocus(
+  target: { closest(selector: string): unknown } | null,
+  key: string,
+): boolean {
+  if (!target) return false;
+  if (target.closest(DIALOG_SELECTOR)) return true;
+  if (target.closest(LIST_SELECTOR)) return PICK_KEYS.has(key);
+  if (target.closest(BUTTON_SELECTOR)) return PRESS_KEYS.has(key);
+  return false;
+}
 
 /** Calendar shortcuts on a calendar page (dialogs stop their own keys). */
 export function useCalendarKeys(session: BoardSession, ctl: CalendarController) {
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
-      if (isTyping(e.target) || onControl(e.target)) return;
+      if (isTyping(e.target)) return;
+      if (keyLeftToFocus(e.target instanceof Element ? e.target : null, e.key)) return;
       const { editor, question, selected } = ctl.ui.getState();
       if (editor || question) return;
       const action = calendarKey(e);

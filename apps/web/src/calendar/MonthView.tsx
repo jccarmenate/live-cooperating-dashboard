@@ -1,16 +1,8 @@
-import {
-  dayNumber,
-  formatDate,
-  fromDayNumber,
-  type Occurrence,
-  parseDate,
-  todayIn,
-  toWall,
-} from '@relay/core';
-import { useMemo, useRef, useState } from 'react';
+import { dayNumber, type Occurrence, parseDate, todayIn, toWall } from '@relay/core';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from 'zustand';
 import type { BoardSession } from '../board/session';
-import type { CalendarController, OccRef } from './calendarController';
+import type { CalendarController } from './calendarController';
 import {
   firstOfGrid,
   MONTH_LINES,
@@ -20,71 +12,11 @@ import {
   timeLabel,
   WEEKDAY_SHORT,
 } from './layout';
+import { useEventDrag } from './useEventDrag';
+import { useNow } from './useNow';
 
 const LINE = 20;
 const HEAD = 22;
-
-/**
- * The day under a point. Bars are not inside a day cell and stay put during a drag, so the
- * topmost element may have no day: the elements below it are looked through.
- */
-function dateAt(x: number, y: number): string | null {
-  for (const el of document.elementsFromPoint(x, y)) {
-    const date = el.closest<HTMLElement>('[data-date]')?.dataset.date;
-    if (date) return date;
-  }
-  return null;
-}
-
-/**
- * Pointer gestures on an event: a click selects; a drag onto another day moves it by the days
- * between the day it was grabbed on and the day it was dropped on (a multi-day bar grabbed in
- * its middle keeps its offset under the pointer).
- */
-export function useEventDrag(ctl: CalendarController, canEdit: boolean) {
-  const drag = useRef<{
-    ref: OccRef;
-    /** The occurrence's first day (viewer's zone), as a day number. */
-    first: number;
-    grabbed: string | null;
-    x: number;
-    y: number;
-    moved: boolean;
-  } | null>(null);
-  const onPointerDown = (o: Occurrence) => (e: React.PointerEvent) => {
-    if (e.button !== 0) return;
-    e.stopPropagation();
-    drag.current = {
-      ref: { eventId: o.eventId, key: o.key },
-      first: occurrenceDays(o, ctl.zone).first,
-      grabbed: dateAt(e.clientX, e.clientY),
-      x: e.clientX,
-      y: e.clientY,
-      moved: false,
-    };
-    e.currentTarget.setPointerCapture(e.pointerId);
-  };
-  const onPointerMove = (e: React.PointerEvent) => {
-    const d = drag.current;
-    if (d && Math.hypot(e.clientX - d.x, e.clientY - d.y) > 4) d.moved = true;
-  };
-  const onPointerUp = (e: React.PointerEvent) => {
-    const d = drag.current;
-    drag.current = null;
-    if (!d) return;
-    if (!d.moved) {
-      ctl.select(d.ref);
-      return;
-    }
-    if (!canEdit) return;
-    const from = parseDate(d.grabbed ?? '');
-    const to = parseDate(dateAt(e.clientX, e.clientY) ?? '');
-    if (!from || !to) return;
-    const delta = dayNumber(to) - dayNumber(from);
-    if (delta !== 0) ctl.move(d.ref, { date: formatDate(fromDayNumber(d.first + delta)) });
-  };
-  return { onPointerDown, onPointerMove, onPointerUp };
-}
 
 export function MonthView({
   session,
@@ -98,9 +30,12 @@ export function MonthView({
   const anchor = useStore(ctl.ui, (s) => s.anchor);
   const selected = useStore(ctl.ui, (s) => s.selected);
   const canEdit = useStore(session.conn.clock, (c) => c.role === 'edit');
-  const [popover, setPopover] = useState<string | null>(null);
+  // The popover belongs to the period it was opened in: navigating closes it.
+  const [popover, setPopover] = useState<{ date: string; anchor: string } | null>(null);
+  const openDate = popover?.anchor === anchor ? popover.date : null;
+  const now = useNow();
   const a = parseDate(anchor) ?? { y: 1970, m: 1, d: 1 };
-  const cells = monthGrid(a.y, a.m, todayIn(Date.now(), ctl.zone));
+  const cells = monthGrid(a.y, a.m, todayIn(now, ctl.zone));
   const layout = useMemo(
     () => monthLayout(occurrences, firstOfGrid(a.y, a.m), ctl.zone),
     [occurrences, a.y, a.m, ctl.zone],
@@ -116,9 +51,11 @@ export function MonthView({
     onPointerDown: drag.onPointerDown(o),
     onPointerMove: drag.onPointerMove,
     onPointerUp: drag.onPointerUp,
+    onPointerCancel: drag.onPointerCancel,
+    onLostPointerCapture: drag.onLostPointerCapture,
     onDoubleClick: () => ctl.openEditor({ eventId: o.eventId, key: o.key }),
   });
-  const popIndex = popover ? cells.findIndex((c) => c.date === popover) : -1;
+  const popIndex = openDate ? cells.findIndex((c) => c.date === openDate) : -1;
   /** Every occurrence on a day, including those hidden behind "+N more". */
   const dayItems = (index: number) => {
     const date = parseDate(cells[index]?.date ?? '');
@@ -152,13 +89,21 @@ export function MonthView({
                   key={cell.date}
                   data-testid="cal-day"
                   data-date={cell.date}
-                  className={`relative min-h-0 overflow-hidden border-r border-ink/20 px-1 ${cell.inMonth ? 'bg-white' : 'bg-paper text-ink/40'}`}
+                  className={`relative flex min-h-0 flex-col overflow-hidden border-r border-ink/20 px-1 ${cell.inMonth ? 'bg-white' : 'bg-paper text-ink/40'}`}
                   onClick={(e) => {
-                    if (e.target === e.currentTarget && canEdit) ctl.newEvent({ date: cell.date });
+                    // The day number and the space around the chips create; events and
+                    // "+N more" keep their own clicks.
+                    const t = e.target as Element;
+                    if (
+                      !canEdit ||
+                      t.closest('[data-testid="cal-event"], [data-testid="cal-more"]')
+                    )
+                      return;
+                    ctl.newEvent({ date: cell.date });
                   }}
                 >
                   <span
-                    className={`font-mono text-[11px] ${cell.today ? 'bg-flame px-1 text-white' : ''}`}
+                    className={`self-start font-mono text-[11px] ${cell.today ? 'bg-flame px-1 text-white' : ''}`}
                   >
                     {cell.day}
                   </span>
@@ -167,7 +112,7 @@ export function MonthView({
                       <div
                         key={`${o.eventId}:${o.key}`}
                         {...eventProps(o)}
-                        className={`truncate px-1 font-mono text-[11px] ${isSel(o) ? 'outline outline-2 outline-ink' : ''}`}
+                        className={`touch-none truncate px-1 font-mono text-[11px] ${isSel(o) ? 'outline outline-2 outline-ink' : ''}`}
                         style={{ height: LINE - 2, borderLeft: `4px solid ${o.color}` }}
                       >
                         {o.when.allDay ? '' : `${timeLabel(minutesOfDay(o.start, ctl.zone))} `}
@@ -178,8 +123,8 @@ export function MonthView({
                       <button
                         type="button"
                         data-testid="cal-more"
-                        className="text-left font-mono text-[11px] underline"
-                        onClick={() => setPopover(cell.date)}
+                        className="self-start text-left font-mono text-[11px] underline"
+                        onClick={() => setPopover({ date: cell.date, anchor })}
                       >
                         +{day.more} more
                       </button>
@@ -188,37 +133,24 @@ export function MonthView({
                 </div>
               );
             })}
-            {popIndex >= 0 && Math.floor(popIndex / 7) === row && (
-              // Outside the day cell, which clips its content: anchored to the cell's column,
-              // opening upwards in the lower rows and leftwards in the last columns.
-              <div
-                data-testid="cal-day-popover"
-                data-date={popover ?? undefined}
-                className="absolute z-20 max-h-72 w-56 overflow-y-auto border-2 border-ink bg-white p-2 shadow-hard"
-                style={{
-                  ...(row < 3 ? { top: 0 } : { bottom: 0 }),
-                  ...(popIndex % 7 < 5
-                    ? { left: `${((popIndex % 7) / 7) * 100}%` }
-                    : { right: `${((6 - (popIndex % 7)) / 7) * 100}%` }),
-                }}
+            {openDate && popIndex >= 0 && Math.floor(popIndex / 7) === row && (
+              <DayPopover
+                date={openDate}
+                row={row}
+                col={popIndex % 7}
+                onClose={() => setPopover(null)}
               >
-                <div className="mb-1 flex justify-between font-mono text-xs">
-                  <span>{popover}</span>
-                  <button type="button" aria-label="Close" onClick={() => setPopover(null)}>
-                    ×
-                  </button>
-                </div>
                 {dayItems(popIndex).map((o) => (
                   <div
                     key={`${o.eventId}:${o.key}`}
                     {...eventProps(o)}
-                    className="truncate font-mono text-[11px]"
+                    className="touch-none truncate font-mono text-[11px]"
                     style={{ borderLeft: `4px solid ${o.color}`, paddingLeft: 4 }}
                   >
                     {o.title}
                   </div>
                 ))}
-              </div>
+              </DayPopover>
             )}
             {layout.bars
               .filter((b) => b.row === row)
@@ -226,7 +158,7 @@ export function MonthView({
                 <div
                   key={`${b.occ.eventId}:${b.occ.key}:${row}`}
                   {...eventProps(b.occ)}
-                  className={`absolute truncate px-1 font-mono text-[11px] text-white ${isSel(b.occ) ? 'outline outline-2 outline-ink' : ''}`}
+                  className={`absolute touch-none truncate px-1 font-mono text-[11px] text-white ${isSel(b.occ) ? 'outline outline-2 outline-ink' : ''}`}
                   style={{
                     top: HEAD + b.lane * LINE,
                     height: LINE - 2,
@@ -242,6 +174,66 @@ export function MonthView({
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+/**
+ * The "+N more" list, outside the day cell (which clips its content): anchored to the cell's
+ * column, opening upwards in the lower rows and leftwards in the last columns. Escape and a
+ * press outside close it.
+ */
+function DayPopover({
+  date,
+  row,
+  col,
+  onClose,
+  children,
+}: {
+  date: string;
+  row: number;
+  col: number;
+  onClose: () => void;
+  children: React.ReactNode;
+}) {
+  const box = useRef<HTMLDivElement>(null);
+  const close = useRef(onClose);
+  close.current = onClose;
+  useEffect(() => {
+    // Capture phase: Escape closes the popover without also clearing the selection.
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      e.stopPropagation();
+      close.current();
+    };
+    const onDown = (e: PointerEvent) => {
+      if (!(e.target instanceof Node) || !box.current?.contains(e.target)) close.current();
+    };
+    window.addEventListener('keydown', onKey, true);
+    window.addEventListener('pointerdown', onDown, true);
+    return () => {
+      window.removeEventListener('keydown', onKey, true);
+      window.removeEventListener('pointerdown', onDown, true);
+    };
+  }, []);
+  return (
+    <div
+      ref={box}
+      data-testid="cal-day-popover"
+      data-date={date}
+      className="absolute z-20 max-h-72 w-56 overflow-y-auto border-2 border-ink bg-white p-2 shadow-hard"
+      style={{
+        ...(row < 3 ? { top: 0 } : { bottom: 0 }),
+        ...(col < 5 ? { left: `${(col / 7) * 100}%` } : { right: `${((6 - col) / 7) * 100}%` }),
+      }}
+    >
+      <div className="mb-1 flex justify-between font-mono text-xs">
+        <span>{date}</span>
+        <button type="button" aria-label="Close" onClick={onClose}>
+          ×
+        </button>
+      </div>
+      {children}
     </div>
   );
 }
