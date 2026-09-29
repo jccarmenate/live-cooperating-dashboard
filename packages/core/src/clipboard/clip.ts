@@ -188,6 +188,7 @@ export function pastePlan(
       to,
       routing: c.routing,
       head: c.head,
+      ...(c.label ? { label: c.label } : {}),
       createdBy: ctx.userId,
     });
   }

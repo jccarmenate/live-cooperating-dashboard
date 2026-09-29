@@ -28,6 +28,7 @@ export type Command =
   | { type: 'DeleteShapes'; ids: string[] }
   | { type: 'Connect'; connector: NewConnector }
   | { type: 'SetRouting'; id: string; routing: Routing }
+  | { type: 'SetConnectorLabel'; id: string; label: string }
   | {
       type: 'Reparent';
       moves: { id: string; parentId: string | null; columnId: string | null }[];

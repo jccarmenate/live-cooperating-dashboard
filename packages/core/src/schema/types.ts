@@ -64,6 +64,8 @@ export interface Connector {
   to: Endpoint;
   routing: Routing;
   head: 'arrow' | 'none';
+  /** Text drawn at the middle of the path; a number doubles as the edge weight. */
+  label?: string;
   /** Fractional-index key; ties are broken by id. */
   z: string;
   createdBy: string;

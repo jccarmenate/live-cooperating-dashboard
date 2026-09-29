@@ -50,3 +50,6 @@ export const MAX_THREAD_ENTRIES = 200;
 /** Title limits, enforced on read and when a title is written. */
 export const MAX_PAGE_TITLE = 80;
 export const MAX_BOARD_TITLE = 120;
+
+/** A connector label (also an edge weight when it is a number) is at most this long. */
+export const MAX_CONNECTOR_LABEL = 40;

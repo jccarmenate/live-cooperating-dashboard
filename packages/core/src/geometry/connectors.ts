@@ -164,3 +164,25 @@ export function arrowGeometry(
   };
   return { stroke: [...path.slice(0, -1), base], head: arrowHead(tip, before, s) };
 }
+
+/** The point halfway along a polyline, by length (where a connector's label sits). */
+export function pathMidpoint(points: readonly Point[]): Point {
+  let total = 0;
+  for (let i = 1; i < points.length; i++) {
+    const a = points[i - 1] as Point;
+    const b = points[i] as Point;
+    total += Math.hypot(b.x - a.x, b.y - a.y);
+  }
+  let rest = total / 2;
+  for (let i = 1; i < points.length; i++) {
+    const a = points[i - 1] as Point;
+    const b = points[i] as Point;
+    const d = Math.hypot(b.x - a.x, b.y - a.y);
+    if (d > 0 && rest <= d) {
+      const t = rest / d;
+      return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
+    }
+    rest -= d;
+  }
+  return points.at(-1) ?? { x: 0, y: 0 };
+}

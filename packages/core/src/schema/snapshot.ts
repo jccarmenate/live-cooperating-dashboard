@@ -1,5 +1,5 @@
 import * as Y from 'yjs';
-import { DEFAULT_STYLE, MAX_BOARD_TITLE, MAX_COLUMNS } from './defaults';
+import { DEFAULT_STYLE, MAX_BOARD_TITLE, MAX_COLUMNS, MAX_CONNECTOR_LABEL } from './defaults';
 import { MAIN_PAGE, pageIdOf } from './pages';
 import {
   type BoardMeta,
@@ -123,6 +123,7 @@ export function readConnector(id: string, m: Source): Connector | null {
   const to = readEndpoint(m.get('to'));
   if (!from || !to) return null;
   const pageId = pageIdOf(m.get('pageId'));
+  const label = str(m.get('label'))?.slice(0, MAX_CONNECTOR_LABEL);
   return {
     id,
     from,
@@ -131,6 +132,7 @@ export function readConnector(id: string, m: Source): Connector | null {
     head: m.get('head') === 'none' ? 'none' : 'arrow',
     z: str(m.get('z')) ?? 'a0',
     createdBy: str(m.get('createdBy')) ?? 'unknown',
+    ...(label ? { label } : {}),
     ...(pageId !== MAIN_PAGE ? { pageId } : {}),
   };
 }
