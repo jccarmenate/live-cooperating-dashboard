@@ -151,6 +151,8 @@ export interface BoardController {
   redo(): void;
   /** Applies commands as one undo step (LOCAL origin); false (nothing applied) mid-gesture. */
   commit(...commands: Command[]): boolean;
+  /** Applies a command with the SESSION origin (never undoable). */
+  commitSession(command: Command): void;
   startVote(minutes: number): void;
   endVote(): void;
   /** Casts or retracts the local user's vote on a sticky while a vote is open (cap enforced). */
@@ -565,6 +567,7 @@ export function createBoardController(opts: {
     undo: () => travel('undo'),
     redo: () => travel('redo'),
     commit: commitStep,
+    commitSession,
     startVote(minutes) {
       commitSession({
         type: 'StartVote',
