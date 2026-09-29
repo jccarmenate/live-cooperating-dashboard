@@ -173,12 +173,13 @@ export function Canvas({ session }: { session: BoardSession }) {
         // the header or the page tabs (board title, tab rename, a button) would keep catching
         // board keys. Blur it; a pending title or tab rename commits through its own blur.
         // Overlays inside the board area (text, column and comment editors) keep their own
-        // focus rules below.
+        // focus rules below. A select inside it (the Algorithms panel) is blurred too: it keeps
+        // board keys (Delete, arrows, tool letters) for itself while focused.
         const active = document.activeElement;
         if (
           active instanceof HTMLElement &&
           active !== document.body &&
-          !e.currentTarget.parentElement?.contains(active)
+          (!e.currentTarget.parentElement?.contains(active) || active.tagName === 'SELECT')
         ) {
           active.blur();
         }
