@@ -219,3 +219,141 @@ describe('parseIcs', () => {
     expect(e?.fields.notes).toBe('');
   });
 });
+
+/** A one-event calendar around `lines`, CRLF-joined; the event starts on physical line 2. */
+const oneEvent = (...lines: string[]): string =>
+  ['BEGIN:VCALENDAR', 'BEGIN:VEVENT', ...lines, 'END:VEVENT', 'END:VCALENDAR'].join('\r\n');
+
+describe('parseIcs limits and edge cases', () => {
+  it('reads a long EXDATE list under an unknown zone once, warning once and capping at 200', () => {
+    const values = Array.from({ length: 5000 }, (_, i) => {
+      const day = new Date(Date.UTC(2026, 9, 1) + i * 86_400_000);
+      return `${day.toISOString().slice(0, 10).replace(/-/g, '')}T090000`;
+    });
+    const ics = oneEvent(
+      'UID:long',
+      'DTSTART;TZID=Foo/Bar:20260928T090000',
+      'RRULE:FREQ=DAILY',
+      `EXDATE;TZID=Foo/Bar:${values.join(',')}`,
+      `EXDATE;TZID=Foo/Bar:${values.slice(0, 3).join(',')}`,
+    );
+    const { events, warnings } = parseIcs(ics, { zone: 'Europe/Madrid' });
+    expect(warnings).toEqual([{ line: 4, message: 'Unknown time zone "Foo/Bar"; read as UTC' }]);
+    expect(Object.keys(events[0]?.exceptions ?? {})).toHaveLength(200);
+    expect(events[0]?.exceptions['2026-10-01']).toEqual({ cancelled: true });
+  });
+
+  it('keeps cleared notes on a changed occurrence through a round trip', () => {
+    const e = base({
+      notes: 'Agenda',
+      rule: { freq: 'daily', interval: 1 },
+      exceptions: {
+        '2026-09-29': {
+          when: {
+            allDay: false,
+            start: '2026-09-29T10:00',
+            end: '2026-09-29T10:15',
+            tz: 'Europe/Madrid',
+          },
+          notes: '',
+        },
+      },
+    });
+    const text = writeIcs({ events: [e] }, { name: 'x', now: NOW });
+    expect(text).toContain('DESCRIPTION:\r\n');
+    expect(parseIcs(text, { zone: 'UTC' }).events[0]?.exceptions).toEqual(e.exceptions);
+  });
+
+  it('reads a UTC UNTIL as its date in the event zone', () => {
+    const ics = oneEvent(
+      'UID:u',
+      'DTSTART;TZID=America/New_York:20260928T200000',
+      'RRULE:FREQ=DAILY;UNTIL=20261003T000000Z',
+    );
+    expect(parseIcs(ics, { zone: 'UTC' }).events[0]?.fields.rule).toEqual({
+      freq: 'daily',
+      interval: 1,
+      until: '2026-10-02',
+    });
+  });
+
+  it('reads a floating UNTIL in the event zone, not in UTC', () => {
+    const ics = oneEvent(
+      'UID:t',
+      'DTSTART;TZID=Asia/Tokyo:20260928T090000',
+      'RRULE:FREQ=DAILY;UNTIL=20261002T230000',
+    );
+    expect(parseIcs(ics, { zone: 'UTC' }).events[0]?.fields.rule?.until).toBe('2026-10-02');
+  });
+
+  it('reads DATE-valued EXDATEs on an all-day series', () => {
+    const ics = oneEvent(
+      'UID:d',
+      'DTSTART;VALUE=DATE:20261001',
+      'RRULE:FREQ=WEEKLY',
+      'EXDATE;VALUE=DATE:20261008,20261015',
+      'EXDATE;VALUE=DATE:20261029',
+    );
+    expect(parseIcs(ics, { zone: 'UTC' }).events[0]?.exceptions).toEqual({
+      '2026-10-08': { cancelled: true },
+      '2026-10-15': { cancelled: true },
+      '2026-10-29': { cancelled: true },
+    });
+  });
+
+  it('clamps an oversized DURATION instead of dropping the event', () => {
+    const ics = [
+      'BEGIN:VCALENDAR',
+      'BEGIN:VEVENT',
+      'UID:all',
+      'DTSTART;VALUE=DATE:20261001',
+      'DURATION:P99999999W',
+      'END:VEVENT',
+      'BEGIN:VEVENT',
+      'UID:timed',
+      'DTSTART:20261001T090000',
+      'DURATION:P99999999W',
+      'END:VEVENT',
+      'END:VCALENDAR',
+    ].join('\r\n');
+    const { events, warnings } = parseIcs(ics, { zone: 'UTC' });
+    expect(warnings).toEqual([]);
+    expect(events.map((e) => e.fields.when)).toEqual([
+      { allDay: true, start: '2026-10-01', end: '2027-10-01' },
+      { allDay: false, start: '2026-10-01T09:00', end: '2026-10-15T09:00', tz: 'UTC' },
+    ]);
+  });
+
+  it('accepts WKST=MO and treats any other week start as unsupported', () => {
+    const mo = oneEvent(
+      'UID:mo',
+      'DTSTART:20261001T090000Z',
+      'RRULE:FREQ=WEEKLY;WKST=MO;BYDAY=TU,TH',
+    );
+    expect(parseIcs(mo, { zone: 'UTC' })).toEqual({
+      events: [
+        expect.objectContaining({
+          fields: expect.objectContaining({ rule: { freq: 'weekly', interval: 1, byDay: [1, 3] } }),
+        }),
+      ],
+      warnings: [],
+    });
+    const su = oneEvent(
+      'UID:su',
+      'DTSTART:20261001T090000Z',
+      'RRULE:FREQ=WEEKLY;WKST=SU;BYDAY=TU,TH',
+    );
+    const { events, warnings } = parseIcs(su, { zone: 'UTC' });
+    expect(events[0]?.fields.rule).toBeUndefined();
+    expect(warnings).toEqual([
+      { line: 2, message: 'Repeat rule not supported; only the first date was imported' },
+    ]);
+  });
+
+  it('escapes a UID with separators and line breaks on export', () => {
+    const text = writeIcs({ events: [base({ uid: 'a;b,c\rd\ne' })] }, { name: 'x', now: NOW });
+    expect(text).toContain('UID:a\\;b\\,c\\nd\\ne\r\n');
+    expect(text.replace(/\r\n/g, '')).not.toMatch(/[\r\n]/);
+    expect(parseIcs(text, { zone: 'UTC' }).events[0]?.uid).toBe('a;b,c\nd\ne');
+  });
+});

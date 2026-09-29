@@ -5,6 +5,7 @@ import {
   type EventFields,
   type Exception,
   FREQS,
+  MAX_ALLDAY_DAYS,
   MAX_EVENT_NOTES,
   MAX_EVENT_TITLE,
   MAX_EXCEPTIONS,
@@ -22,6 +23,7 @@ import {
   isValidZone,
   parseDate,
   parseWall,
+  safeZone,
   toInstant,
   toWall,
   type Wall,
@@ -149,7 +151,8 @@ function eventLines(ev: CalendarEvent, stamp: string): string[] {
     );
     lines.push(...dtLines(ex.when), `SUMMARY:${escapeText(ex.title ?? ev.title)}`);
     const notes = ex.notes ?? ev.notes;
-    if (notes) lines.push(`DESCRIPTION:${escapeText(notes)}`);
+    // An empty DESCRIPTION keeps notes cleared on this occurrence only.
+    if (notes || (ex.notes === '' && ev.notes)) lines.push(`DESCRIPTION:${escapeText(notes)}`);
     lines.push('END:VEVENT');
   }
   return lines;
@@ -231,11 +234,38 @@ const unescapeText = (s: string): string =>
 
 type IcsTime = { kind: 'date'; date: Ymd } | { kind: 'time'; wall: Wall; tz: string };
 
+/** Resolves a TZID seen on physical line `line` to the zone it is read in. */
+type ZoneResolver = (tzid: string, line: number) => string;
+
+/**
+ * A TZID resolver for one `parseIcs` call: each distinct TZID is checked (and, when unknown,
+ * warned about at its first line) once, however many values use it.
+ */
+function zoneResolver(warn: (line: number, m: string) => void): ZoneResolver {
+  const zones = new Map<string, string>();
+  return (tzid, line) => {
+    const known = zones.get(tzid);
+    if (known !== undefined) return known;
+    // Taken before the check: `isValidZone` is a type guard, so `tzid` is `never` past it.
+    const shown = tzid.slice(0, 40);
+    let tz = 'UTC';
+    if (isValidZone(tzid)) tz = safeZone(tzid);
+    else warn(line, `Unknown time zone "${shown}"; read as UTC`);
+    zones.set(tzid, tz);
+    return tz;
+  };
+}
+
+/** No TZID parameter can reach this resolver (UNTIL values carry none). */
+const noZones: ZoneResolver = () => 'UTC';
+
+/** `zone` is where floating and UTC values are read; `line` is where a TZID warning points. */
 function readTime(
   value: string,
   params: Record<string, string>,
   zone: string,
-  warn: (m: string) => void,
+  zoneOf: ZoneResolver,
+  line: number,
 ): IcsTime | null {
   const v = value.trim();
   const d = /^(\d{4})(\d{2})(\d{2})$/.exec(v);
@@ -257,11 +287,7 @@ function readTime(
   }
   const tzid = params.TZID;
   if (tzid === undefined) return { kind: 'time', wall, tz: zone };
-  // Taken before the check: `isValidZone` is a type guard, so `tzid` is `never` past it.
-  const shown = tzid.slice(0, 40);
-  if (isValidZone(tzid)) return { kind: 'time', wall, tz: tzid };
-  warn(`Unknown time zone "${shown}"; read as UTC`);
-  return { kind: 'time', wall, tz: 'UTC' };
+  return { kind: 'time', wall, tz: zoneOf(tzid, line) };
 }
 
 /** The date of a time in `tz` (the zone an exception key is written in). */
@@ -280,7 +306,8 @@ function durationMinutes(v: string): number | null {
     number,
     number,
   ];
-  return ((w * 7 + d) * 24 + h) * 60 + m;
+  // Longer than any event can last: clamp so the wall arithmetic stays in range.
+  return Math.min(((w * 7 + d) * 24 + h) * 60 + m, MAX_ALLDAY_DAYS * 1440);
 }
 
 const KNOWN_RULE_PARTS = new Set(['FREQ', 'INTERVAL', 'BYDAY', 'UNTIL', 'COUNT', 'WKST']);
@@ -293,6 +320,9 @@ function readRrule(value: string, start: IcsTime, zone: string): Rule | null {
     parts.set(p.slice(0, eq).toUpperCase(), p.slice(eq + 1).toUpperCase());
   }
   if ([...parts.keys()].some((k) => !KNOWN_RULE_PARTS.has(k))) return null;
+  // Weeks start on Monday here; another week start changes which days an interval skips.
+  const wkst = parts.get('WKST');
+  if (wkst !== undefined && wkst !== 'MO') return null;
   const freq = FREQS.find((f) => f.toUpperCase() === parts.get('FREQ'));
   if (!freq) return null;
   const interval = parts.has('INTERVAL') ? Number(parts.get('INTERVAL')) : 1;
@@ -313,11 +343,12 @@ function readRrule(value: string, start: IcsTime, zone: string): Rule | null {
   }
   const until = parts.get('UNTIL');
   if (until !== undefined) {
-    const t = readTime(until, {}, 'UTC', () => {});
+    // A UTC UNTIL names an instant and a floating one a wall time in the event's zone; either
+    // way its date is the one in the event's own zone.
+    const eventZone = start.kind === 'time' ? start.tz : zone;
+    const t = readTime(until, {}, eventZone, noZones, 0);
     if (!t) return null;
-    // A UTC UNTIL names an instant: its date is the one in the event's own zone.
-    rule.until =
-      t.kind === 'date' ? formatDate(t.date) : dateIn(t, start.kind === 'time' ? start.tz : zone);
+    rule.until = t.kind === 'date' ? formatDate(t.date) : dateIn(t, eventZone);
   }
   return rule;
 }
@@ -344,14 +375,14 @@ function components(lines: Prop[]): RawEvent[] {
   return out;
 }
 
-function whenOf(props: Prop[], zone: string, warn: (line: number, m: string) => void): When | null {
+function whenOf(props: Prop[], zone: string, zoneOf: ZoneResolver): When | null {
   const get = (n: string) => props.find((p) => p.name === n);
   const ds = get('DTSTART');
   if (!ds) return null;
-  const start = readTime(ds.value, ds.params, zone, (m) => warn(ds.line, m));
+  const start = readTime(ds.value, ds.params, zone, zoneOf, ds.line);
   if (!start) return null;
   const de = get('DTEND');
-  const end = de ? readTime(de.value, de.params, zone, (m) => warn(de.line, m)) : null;
+  const end = de ? readTime(de.value, de.params, zone, zoneOf, de.line) : null;
   const dur = get('DURATION');
   const minutes = dur ? durationMinutes(dur.value) : null;
   if (start.kind === 'date') {
@@ -381,6 +412,7 @@ export function parseIcs(
 ): { events: IcsEvent[]; warnings: IcsWarning[] } {
   const warnings: IcsWarning[] = [];
   const warn = (line: number, message: string) => warnings.push({ line, message });
+  const zoneOf = zoneResolver(warn);
   const events: IcsEvent[] = [];
   const byUid = new Map<string, IcsEvent>();
   const overrides: { uid: string; raw: RawEvent }[] = [];
@@ -395,7 +427,7 @@ export function parseIcs(
       warn(raw.line, `Duplicate event "${uid.slice(0, 40)}"; skipped`);
       continue;
     }
-    const when = whenOf(raw.props, opts.zone, warn);
+    const when = whenOf(raw.props, opts.zone, zoneOf);
     if (!when) {
       warn(raw.line, 'Event without a valid start; skipped');
       continue;
@@ -425,11 +457,14 @@ export function parseIcs(
     }
     const ev: IcsEvent = { uid, fields, exceptions: {} };
     if (fields.rule) {
+      // Checked before each value is read, so a huge EXDATE list costs nothing past the cap.
+      const full = () => Object.keys(ev.exceptions).length >= MAX_EXCEPTIONS;
       for (const p of raw.props.filter((x) => x.name === 'EXDATE')) {
+        if (full()) break;
         for (const v of p.value.split(',')) {
-          const t = readTime(v, p.params, opts.zone, (m) => warn(p.line, m));
-          if (t && Object.keys(ev.exceptions).length < MAX_EXCEPTIONS)
-            ev.exceptions[dateIn(t, tzOfEvent)] = { cancelled: true };
+          if (full()) break;
+          const t = readTime(v, p.params, opts.zone, zoneOf, p.line);
+          if (t) ev.exceptions[dateIn(t, tzOfEvent)] = { cancelled: true };
         }
       }
     }
@@ -443,8 +478,8 @@ export function parseIcs(
       warn(raw.line, 'A changed occurrence has no series; skipped');
       continue;
     }
-    const t = readTime(rid.value, rid.params, opts.zone, (m) => warn(rid.line, m));
-    const when = whenOf(raw.props, opts.zone, warn);
+    const t = readTime(rid.value, rid.params, opts.zone, zoneOf, rid.line);
+    const when = whenOf(raw.props, opts.zone, zoneOf);
     if (!t || !when) {
       warn(raw.line, 'Event without a valid start; skipped');
       continue;
