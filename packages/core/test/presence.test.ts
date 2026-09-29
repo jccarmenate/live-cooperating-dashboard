@@ -203,3 +203,12 @@ describe('sheet presence', () => {
     expect(parsePresence({ user: alice })).not.toHaveProperty('sheet');
   });
 });
+
+describe('calendar presence', () => {
+  it('keeps a valid open event id and drops anything else', () => {
+    expect(parsePresence({ user: alice, calEvent: 'e1' })?.calEvent).toBe('e1');
+    expect(parsePresence({ user: alice, calEvent: 'x'.repeat(65) })?.calEvent).toBeUndefined();
+    expect(parsePresence({ user: alice, calEvent: 7 })?.calEvent).toBeUndefined();
+    expect(parsePresence({ user: alice, calEvent: null })?.calEvent).toBeUndefined();
+  });
+});

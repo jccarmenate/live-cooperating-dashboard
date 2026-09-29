@@ -21,6 +21,8 @@ export interface PresenceState {
   page: string | null;
   /** Selection on a sheet page (only sheet pages publish it). */
   sheet?: SheetPresence | null;
+  /** Event open in the editor on a calendar page. */
+  calEvent?: string | null;
 }
 
 export interface Peer extends PresenceState {
@@ -95,6 +97,8 @@ export function parsePresence(raw: unknown): PresenceState | null {
   };
   const sheet = readSheetPresence(o.sheet);
   if (sheet) state.sheet = sheet;
+  if (typeof o.calEvent === 'string' && o.calEvent.length > 0 && o.calEvent.length <= 64)
+    state.calEvent = o.calEvent;
   return state;
 }
 
