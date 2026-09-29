@@ -7,7 +7,7 @@ import {
   familyGraph,
   parseEdgeList,
 } from '@relay/core';
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useStore } from 'zustand';
 import type { BoardSession } from '../board/session';
 import { Dialog } from './Dialog';
@@ -46,7 +46,16 @@ export function NewGraphDialog({ session }: { session: BoardSession }) {
   });
   const [edges, setEdges] = useState('A-B, B-C:2\nC->D:5, D-A');
   const [errors, setErrors] = useState<EdgeListError[]>([]);
+  // However the dialog closes (Cancel, Escape, a page change), it reopens without old errors.
+  useEffect(() => {
+    if (!open) setErrors([]);
+  }, [open]);
   if (!open) return null;
+
+  const switchTab = (t: typeof tab) => {
+    setTab(t);
+    setErrors([]);
+  };
 
   const create = () => {
     if (tab === 'families') {
@@ -75,7 +84,7 @@ export function NewGraphDialog({ session }: { session: BoardSession }) {
             type="button"
             data-testid="graph-tab-families"
             className={tabClass('families')}
-            onClick={() => setTab('families')}
+            onClick={() => switchTab('families')}
           >
             Families
           </button>
@@ -83,7 +92,7 @@ export function NewGraphDialog({ session }: { session: BoardSession }) {
             type="button"
             data-testid="graph-tab-edges"
             className={tabClass('edges')}
-            onClick={() => setTab('edges')}
+            onClick={() => switchTab('edges')}
           >
             Edge list
           </button>
@@ -174,8 +183,9 @@ export function NewGraphDialog({ session }: { session: BoardSession }) {
         )}
         {errors.length > 0 && (
           <ul data-testid="graph-errors" className="mt-3 grid gap-1 font-mono text-xs text-flame">
-            {errors.map((e) => (
-              <li key={`${e.line}:${e.message}`}>
+            {errors.map((e, i) => (
+              // biome-ignore lint/suspicious/noArrayIndexKey: the same error can repeat (A-A, A-A); the list is static between runs
+              <li key={`${i}:${e.line}:${e.message}`}>
                 {e.line > 0 ? `Line ${e.line}: ${e.message}` : e.message}
               </li>
             ))}

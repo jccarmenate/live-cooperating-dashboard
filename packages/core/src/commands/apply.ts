@@ -212,7 +212,8 @@ function apply(doc: Y.Doc, cmd: Command): void {
       m.set('to', fields.to);
       m.set('routing', fields.routing);
       m.set('head', fields.head);
-      if (fields.label) m.set('label', fields.label.slice(0, MAX_CONNECTOR_LABEL));
+      const label = fields.label?.trim().slice(0, MAX_CONNECTOR_LABEL);
+      if (label) m.set('label', label);
       m.set('createdBy', fields.createdBy);
       if (fields.pageId) m.set('pageId', fields.pageId);
       m.set('z', z ?? keyAbove(topKey(connectors)));

@@ -16,7 +16,10 @@ const GROUP_COLORS: string[] = [
 ];
 const toPoints = (points: Point[]) => points.map((p) => `${p.x},${p.y}`).join(' ');
 
-/** The last algorithm's result: highlighted nodes and edges, visit numbers, component colours. Local only. */
+/**
+ * The last algorithm's result: highlighted nodes and edges, visit numbers, component colours.
+ * Local only. Stroke widths and badges are divided by the zoom, so they keep their screen size.
+ */
 export function GraphOverlay({ session }: { session: BoardSession }) {
   const result = useStore(session.controller.ui, (s) => s.graphResult);
   const shapes = useStore(session.doc, (d) => d.shapes);
@@ -62,7 +65,7 @@ export function GraphOverlay({ session }: { session: BoardSession }) {
         fill="none"
         stroke={PALETTE.cobalt}
         strokeOpacity={0.45}
-        strokeWidth={10}
+        strokeWidth={10 / zoom}
         strokeLinecap="round"
         strokeLinejoin="round"
       />
@@ -82,7 +85,7 @@ export function GraphOverlay({ session }: { session: BoardSession }) {
               <g
                 key={`o:${id}`}
                 data-testid="graph-order-badge"
-                transform={`translate(${b.x + b.w} ${b.y})`}
+                transform={`translate(${b.x + b.w} ${b.y}) scale(${1 / zoom})`}
               >
                 <circle r={11} fill={PALETTE.cobalt} stroke={PALETTE.ink} strokeWidth={1.5} />
                 <text

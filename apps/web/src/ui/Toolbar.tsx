@@ -66,14 +66,11 @@ function ToolButton({ tool, active, onPick }: { tool: Tool; active: boolean; onP
 /** One button for rectangle, ellipse and line; it shows the last shape used and opens a flyout. */
 function ShapesButton({ session, active }: { session: BoardSession; active: ToolId }) {
   const [open, setOpen] = useState(false);
-  const [last, setLast] = useState<Tool>(SHAPES[0] as Tool);
+  // Kept by the controller (flyout or R, O, L), so it survives the toolbar remounting.
+  const lastShape = useStore(session.controller.ui, (s) => s.lastShape);
+  const last = SHAPES.find((s) => s.id === lastShape) ?? (SHAPES[0] as Tool);
   const ref = useRef<HTMLDivElement>(null);
   const current = SHAPES.find((s) => s.id === active);
-
-  // A shape picked by keyboard (R, O, L) becomes the button's shape too.
-  useEffect(() => {
-    if (current) setLast(current);
-  }, [current]);
 
   useEffect(() => {
     if (!open) return;

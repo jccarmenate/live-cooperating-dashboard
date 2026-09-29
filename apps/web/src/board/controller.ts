@@ -76,8 +76,15 @@ export interface CanvasMenuState {
   hitId: string | null;
 }
 
+/** The shape tools behind the toolbar's Shapes button. */
+export type ShapeToolId = 'rect' | 'ellipse' | 'line';
+const isShapeTool = (tool: string): tool is ShapeToolId =>
+  tool === 'rect' || tool === 'ellipse' || tool === 'line';
+
 export interface BoardUiState {
   tool: ToolState;
+  /** The last shape tool picked (flyout or key): the Shapes button shows it. */
+  lastShape: ShapeToolId;
   preview: Preview | null;
   /** Local-only geometry for shapes being dragged/resized, rendered every frame. */
   overlay: Record<string, Rect> | null;
@@ -256,6 +263,7 @@ export function createBoardController(opts: {
   const stored = opts.cameraStorage?.load(activePage()) ?? null;
   const ui = createStore<BoardUiState>(() => ({
     tool: initialToolState(),
+    lastShape: 'rect',
     preview: null,
     overlay: null,
     editingId: null,
@@ -496,7 +504,7 @@ export function createBoardController(opts: {
       newId,
       now,
     });
-    ui.setState({ tool: state });
+    ui.setState(isShapeTool(state.tool) ? { tool: state, lastShape: state.tool } : { tool: state });
     run(effects);
   };
 

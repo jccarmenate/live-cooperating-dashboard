@@ -13,6 +13,7 @@ import {
 import { type PointerEvent, useRef } from 'react';
 import { useStore } from 'zustand';
 import type { BoardSession } from '../board/session';
+import { blurStrayFocus } from '../ui/typing';
 import { onPage } from './pageFilter';
 
 const W = 200;
@@ -50,6 +51,8 @@ export function Minimap({ session }: { session: BoardSession }) {
       className="absolute right-4 bottom-4 touch-none border-2 border-ink bg-white shadow-hard"
       onPointerDown={(e) => {
         if (e.button !== 0) return;
+        // preventDefault keeps focus where it is: blur a stray one, as on the canvas.
+        blurStrayFocus(e.currentTarget.parentElement);
         e.preventDefault();
         e.currentTarget.setPointerCapture(e.pointerId);
         drag.current = projection;

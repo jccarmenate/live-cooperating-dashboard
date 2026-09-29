@@ -116,6 +116,41 @@ describe('edge lists', () => {
     ]);
   });
 
+  it('shows the arrow used in a self-loop error', () => {
+    expect(parseEdgeList('A->A').errors).toEqual([{ line: 1, message: 'A->A is a self-loop' }]);
+  });
+
+  it('names a node name longer than 20 characters', () => {
+    const long = 'x'.repeat(21);
+    expect(parseEdgeList(`A-B\nA->${long}:3`).errors).toEqual([
+      { line: 2, message: `Name "${long}" is longer than 20 characters` },
+    ]);
+    expect(parseEdgeList(long).errors).toEqual([
+      { line: 1, message: `Name "${long}" is longer than 20 characters` },
+    ]);
+    expect(parseEdgeList(`${'y'.repeat(20)}-B`).errors).toEqual([]);
+  });
+
+  it('reads CRLF line endings', () => {
+    const { draft: d, errors } = parseEdgeList('A-B\r\nB->C:5\r\nC=D\r\n');
+    expect(errors).toEqual([{ line: 3, message: 'Cannot read "C=D"' }]);
+    const ok = parseEdgeList('A-B\r\nB->C:5\r\n');
+    expect(d).toBeNull();
+    expect(ok.errors).toEqual([]);
+    expect(ok.draft?.edges).toEqual([
+      { from: 0, to: 1, directed: false },
+      { from: 1, to: 2, directed: true, label: '5' },
+    ]);
+  });
+
+  it('rejects more than 500 edges', () => {
+    const items: string[] = [];
+    for (let i = 0; i < 33; i++) for (let j = i + 1; j < 33; j++) items.push(`n${i}-n${j}`);
+    expect(parseEdgeList(items.join(',')).errors).toEqual([
+      { line: 0, message: 'The graph has 528 edges (at most 500)' },
+    ]);
+  });
+
   it('rejects an empty list and too many nodes', () => {
     expect(parseEdgeList(' \n , ').errors).toEqual([{ line: 0, message: 'The list is empty' }]);
     const many = Array.from({ length: 101 }, (_, i) => `n${i}`).join(',');

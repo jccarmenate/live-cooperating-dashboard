@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { isTyping, leavesKeyAlone } from '../src/ui/typing';
+import { blurStrayFocus, isTyping, leavesKeyAlone } from '../src/ui/typing';
 
 // The tests run without a DOM: a minimal HTMLElement stands in for focused elements.
 class FakeElement {
@@ -7,6 +7,7 @@ class FakeElement {
     readonly tagName: string,
     readonly isContentEditable = false,
   ) {}
+  blur() {}
 }
 
 describe('isTyping', () => {
@@ -39,5 +40,48 @@ describe('isTyping', () => {
     expect(leavesKeyAlone(select, 'Escape')).toBe(false);
     expect(leavesKeyAlone(input, 'Escape')).toBe(true);
     expect(leavesKeyAlone(new FakeElement('BUTTON') as unknown as EventTarget, 'r')).toBe(false);
+  });
+});
+
+describe('blurStrayFocus', () => {
+  const body = new FakeElement('BODY');
+  const inside = new Set<FakeElement>();
+  const boardArea = { contains: (n: unknown) => inside.has(n as FakeElement) };
+  const focused = (el: FakeElement) => {
+    vi.stubGlobal('document', { activeElement: el, body });
+    return vi.spyOn(el, 'blur');
+  };
+  beforeEach(() => {
+    vi.stubGlobal('HTMLElement', FakeElement);
+    inside.clear();
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it('blurs focus outside the board area (header, page tabs)', () => {
+    const blur = focused(new FakeElement('BUTTON'));
+    blurStrayFocus(boardArea as unknown as Element);
+    expect(blur).toHaveBeenCalledOnce();
+  });
+
+  it('blurs a select even inside the board area (the Algorithms panel)', () => {
+    const select = new FakeElement('SELECT');
+    inside.add(select);
+    const blur = focused(select);
+    blurStrayFocus(boardArea as unknown as Element);
+    expect(blur).toHaveBeenCalledOnce();
+  });
+
+  it('leaves the board-area editors and the body alone', () => {
+    const editor = new FakeElement('TEXTAREA');
+    inside.add(editor);
+    const blurEditor = focused(editor);
+    blurStrayFocus(boardArea as unknown as Element);
+    expect(blurEditor).not.toHaveBeenCalled();
+    const blurBody = focused(body);
+    blurStrayFocus(null);
+    expect(blurBody).not.toHaveBeenCalled();
   });
 });

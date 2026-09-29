@@ -58,6 +58,30 @@ describe('connector labels', () => {
     expect(read(doc2())?.label).toBe('7');
   });
 
+  it('Connect trims the label before capping it, like SetConnectorLabel', () => {
+    const connect = (label: string) => {
+      const doc = doc2();
+      getRoots(doc).connectors.delete('k');
+      applyCommand(doc, {
+        type: 'Connect',
+        connector: {
+          id: 'k',
+          from: { shapeId: 'a', anchor: 'auto' },
+          to: { shapeId: 'b', anchor: 'auto' },
+          routing: 'straight',
+          head: 'none',
+          createdBy: 'u1',
+          label,
+        },
+      });
+      return getRoots(doc).connectors.get('k');
+    };
+    const padded = `${' '.repeat(10)}${'x'.repeat(60)}`;
+    expect(connect(padded)?.get('label')).toBe('x'.repeat(MAX_CONNECTOR_LABEL));
+    expect(connect('  7  ')?.get('label')).toBe('7');
+    expect(connect('   ')?.has('label')).toBe(false);
+  });
+
   it('SetConnectorLabel sets (trimmed, capped) and clears', () => {
     const doc = doc2();
     applyCommand(doc, { type: 'SetConnectorLabel', id: 'k', label: `  ${'x'.repeat(60)}  ` });

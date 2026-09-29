@@ -11,6 +11,7 @@ import { type MouseEvent, type PointerEvent, useEffect, useRef, useState } from 
 import { useStore } from 'zustand';
 import { useShallow } from 'zustand/react/shallow';
 import type { BoardSession } from '../board/session';
+import { blurStrayFocus } from '../ui/typing';
 import { ConnectorView } from './ConnectorView';
 import { GraphOverlay } from './GraphOverlay';
 import { SelectionLayer } from './SelectionLayer';
@@ -169,20 +170,9 @@ export function Canvas({ session }: { session: BoardSession }) {
         if (e.button === 1) e.preventDefault();
       }}
       onPointerDown={(e) => {
-        // The preventDefault calls below stop the browser from moving focus, so focus left in
-        // the header or the page tabs (board title, tab rename, a button) would keep catching
-        // board keys. Blur it; a pending title or tab rename commits through its own blur.
-        // Overlays inside the board area (text, column and comment editors) keep their own
-        // focus rules below. A select inside it (the Algorithms panel) is blurred too: it keeps
-        // board keys (Delete, arrows, tool letters) for itself while focused.
-        const active = document.activeElement;
-        if (
-          active instanceof HTMLElement &&
-          active !== document.body &&
-          (!e.currentTarget.parentElement?.contains(active) || active.tagName === 'SELECT')
-        ) {
-          active.blur();
-        }
+        // The preventDefault calls below keep focus where it is; see blurStrayFocus. The
+        // board-area editors keep their own focus rules below.
+        blurStrayFocus(e.currentTarget.parentElement);
         if (e.button === 1 || (e.button === 0 && controller.ui.getState().spaceHeld)) {
           e.preventDefault();
           e.currentTarget.setPointerCapture(e.pointerId);
