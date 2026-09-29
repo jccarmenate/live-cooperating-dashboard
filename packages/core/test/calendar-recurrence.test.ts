@@ -1,10 +1,12 @@
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import {
+  addDays,
   type CalendarEvent,
   EVENT_COLORS,
   expand,
   expandAll,
+  formatDate,
   isOccurrence,
   parseDate,
   type Rule,
@@ -227,4 +229,46 @@ describe('expandAll', () => {
     const first = res.occurrences.slice(0, 3).map((o) => o.eventId);
     expect(first).toEqual(['e0', 'e1', 'e2']);
   });
+
+  it('expands counted series with many exceptions at the caps within a time budget', () => {
+    const start = parseDate('2026-01-01') ?? { y: 0, m: 0, d: 0 };
+    const day = (n: number) => formatDate(addDays(start, n));
+    const allDay = (d: string): When => ({ allDay: true, start: d, end: d });
+    // 200 exceptions outside the window: 198 edits in place, one occurrence moved into the
+    // window, and one on a date past the count (not an occurrence, so ignored).
+    const exceptions: CalendarEvent['exceptions'] = {};
+    for (let k = 1; k < 199; k++)
+      exceptions[day(700 + k)] = { when: allDay(day(700 + k)), title: 'Edited' };
+    exceptions[day(700)] = { when: allDay('2026-01-07'), title: 'Moved' };
+    exceptions[day(1100)] = { when: allDay('2026-01-08'), title: 'Ghost' };
+    expect(Object.keys(exceptions)).toHaveLength(200);
+    const events = Array.from({ length: 500 }, (_, i) => ({
+      ...ev(allDay('2026-01-01'), { freq: 'daily', interval: 1, count: 999 }, exceptions),
+      id: `e${String(i).padStart(3, '0')}`,
+    }));
+    const win = { from: at(2026, 1, 5), to: at(2026, 1, 12), zone: 'UTC' };
+
+    const t0 = Date.now();
+    const perEvent = events.map((e) => expand(e, win));
+    const all = expandAll({ events }, win);
+    const elapsed = Date.now() - t0;
+
+    expect(elapsed).toBeLessThan(1500);
+    // Each series: 5–11 January, plus the occurrence moved in from its original date.
+    for (const occ of perEvent) {
+      expect(occ.map((o) => o.key)).toEqual([
+        '2026-01-05',
+        '2026-01-06',
+        '2026-01-07',
+        day(700),
+        '2026-01-08',
+        '2026-01-09',
+        '2026-01-10',
+        '2026-01-11',
+      ]);
+    }
+    expect(perEvent[0]?.find((o) => o.key === day(700))?.title).toBe('Moved');
+    expect(all.occurrences).toHaveLength(1000);
+    expect(all.truncated).toBe(true);
+  }, 120_000);
 });

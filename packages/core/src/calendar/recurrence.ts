@@ -65,6 +65,22 @@ export function whenRange(w: When, zone: string): { start: number; end: number }
 }
 
 const startDate = (w: When): Ymd => (w.allDay ? dateOf(w.start) : wallOf(w.start));
+const endDate = (w: When): Ymd => (w.allDay ? dateOf(w.end) : wallOf(w.end));
+
+const DAY_MS = 86_400_000;
+
+/**
+ * A cheap, conservative test before `whenRange` (which costs a few `Intl` calls): false only
+ * when `w` certainly misses the window. A wall date is within a day of its UTC date in every
+ * zone (offsets stay under ±24 h, and a DST gap moves a time by hours), so a when whose dates
+ * are more than two days from the window's UTC days cannot overlap it.
+ */
+function nearWindow(w: When, win: Window): boolean {
+  return (
+    dayNumber(startDate(w)) <= Math.floor(win.to / DAY_MS) + 2 &&
+    dayNumber(endDate(w)) >= Math.floor(win.from / DAY_MS) - 2
+  );
+}
 
 /** The series' occurrence on `date` (before exceptions), with the first occurrence's duration. */
 export function occurrenceWhen(base: When, date: Ymd): When {
@@ -218,14 +234,34 @@ export function expand(ev: CalendarEvent, win: Window, limit = MAX_OCCURRENCES):
     if (o) out.push(o);
   }
   // An exception can move its occurrence into the window from a date outside it.
+  let counted: Set<number> | undefined;
   for (const [key, ex] of Object.entries(ev.exceptions)) {
-    if (handled.has(key) || 'cancelled' in ex) continue;
+    if (handled.has(key) || 'cancelled' in ex || !nearWindow(ex.when, win)) continue;
     const date = parseDate(key);
-    if (!date || !isOccurrence(ev, date)) continue;
+    if (!date) continue;
+    if (ev.rule.count === undefined) {
+      if (!isOccurrence(ev, date)) continue;
+    } else {
+      // A counted series has at most 999 dates: list them once instead of re-walking from
+      // the start for every exception.
+      counted ??= countedDays(start, ev.rule, ev.rule.count);
+      if (!counted.has(dayNumber(date))) continue;
+    }
     const o = occurrence(ev, key, date, ex, win);
     if (o) out.push(o);
   }
   return out.sort(byStart).slice(0, limit);
+}
+
+/** The day numbers of a counted series' first `count` dates. */
+function countedDays(start: Ymd, rule: Rule, count: number): Set<number> {
+  const days = new Set<number>();
+  let index = 0;
+  for (const d of ruleDates(start, rule, 0)) {
+    if (index++ >= count) break;
+    days.add(dayNumber(d));
+  }
+  return days;
 }
 
 /** Every event's occurrences in the window, at most MAX_OCCURRENCES, sorted by start. */
