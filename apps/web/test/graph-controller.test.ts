@@ -3,12 +3,14 @@ import {
   DEFAULT_STYLE,
   getRoots,
   LOCAL_ORIGIN,
+  MAX_CONNECTOR_LABEL,
   type NewShape,
   readConnector,
 } from '@relay/core';
 import { describe, expect, it, vi } from 'vitest';
 import * as Y from 'yjs';
 import { createBoardController } from '../src/board/controller';
+import { labelUnchanged } from '../src/render/connectorLabel';
 import { createActivityStore } from '../src/store/activityStore';
 import { createDocStore } from '../src/store/docStore';
 
@@ -80,7 +82,29 @@ describe('connector label editing', () => {
     expect(label(doc)).toBe('12');
     expect(controller.ui.getState().editingConnector).toBeNull();
     controller.undo();
+    expect(getRoots(doc).connectors.get('k')).toBeDefined();
     expect(label(doc)).toBeUndefined();
+  });
+
+  it('keeps the editor open, and writes nothing, when a gesture is in progress', () => {
+    const { doc, controller } = setup();
+    twoNodes(doc);
+    controller.editConnectorLabel('k');
+    controller.dispatch({
+      type: 'pointerDown',
+      p: { world: { x: 28, y: 28 }, shift: false, hitId: 'a' },
+    });
+    expect(controller.ui.getState().tool.mode).not.toBe('idle');
+    controller.setConnectorLabel('k', '7');
+    expect(label(doc)).toBeUndefined();
+    expect(controller.ui.getState().editingConnector).toBe('k');
+    controller.dispatch({
+      type: 'pointerUp',
+      p: { world: { x: 28, y: 28 }, shift: false, hitId: 'a' },
+    });
+    controller.setConnectorLabel('k', '7');
+    expect(label(doc)).toBe('7');
+    expect(controller.ui.getState().editingConnector).toBeNull();
   });
 
   it('closes the editor when the connector is deleted or the page changes', () => {
@@ -93,5 +117,18 @@ describe('connector label editing', () => {
     controller.editConnectorLabel('k');
     controller.setPage(controller.createPage('board'));
     expect(controller.ui.getState().editingConnector).toBeNull();
+  });
+});
+
+describe('labelUnchanged', () => {
+  it('compares the normalised value with the label the editor opened with', () => {
+    expect(labelUnchanged('12', ' 12 ')).toBe(true);
+    expect(labelUnchanged('', '   ')).toBe(true);
+    expect(labelUnchanged('', '')).toBe(true);
+    expect(labelUnchanged('12', '13')).toBe(false);
+    expect(labelUnchanged('12', '')).toBe(false);
+    expect(labelUnchanged('', 'x')).toBe(false);
+    const long = 'x'.repeat(MAX_CONNECTOR_LABEL);
+    expect(labelUnchanged(long, `${long}yz`)).toBe(true);
   });
 });

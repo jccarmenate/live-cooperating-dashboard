@@ -8,6 +8,7 @@ import {
 import { useLayoutEffect, useRef } from 'react';
 import { useStore } from 'zustand';
 import type { BoardSession } from '../board/session';
+import { labelUnchanged } from './connectorLabel';
 
 /** Inline input over the middle of a connector while its label is edited. */
 export function ConnectorLabelEditor({ session }: { session: BoardSession }) {
@@ -17,12 +18,15 @@ export function ConnectorLabelEditor({ session }: { session: BoardSession }) {
   const shapes = useStore(session.doc, (d) => d.shapes);
   const camera = useStore(controller.ui, (s) => s.camera);
   const ref = useRef<HTMLInputElement>(null);
+  // The label as it was when the editor opened (what the input started with).
+  const initial = useRef('');
 
   useLayoutEffect(() => {
     if (!id) return;
+    initial.current = session.doc.getState().connectors[id]?.label ?? '';
     ref.current?.focus();
     ref.current?.select();
-  }, [id]);
+  }, [id, session]);
 
   if (!id || !connector) return null;
   const lookup = {
@@ -37,10 +41,15 @@ export function ConnectorLabelEditor({ session }: { session: BoardSession }) {
   if (!path) return null;
   const at = worldToScreen(camera, pathMidpoint(path));
   const commit = (value: string) => {
-    if (controller.ui.getState().editingConnector === id) controller.setConnectorLabel(id, value);
+    if (controller.ui.getState().editingConnector !== id) return;
+    // Unchanged: just close; writing would add an invisible undo step and could put the
+    // opening value back over a label a peer changed meanwhile.
+    if (labelUnchanged(initial.current, value)) controller.editConnectorLabel(null);
+    else controller.setConnectorLabel(id, value);
   };
   return (
     <input
+      key={id}
       ref={ref}
       data-testid="connector-label-input"
       aria-label="Connector label"

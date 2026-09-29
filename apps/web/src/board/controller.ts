@@ -119,7 +119,10 @@ export interface BoardController {
   stopEditingColumn(): void;
   /** Opens (id) or closes (null) the inline label editor of a connector. */
   editConnectorLabel(id: string | null): void;
-  /** Sets or clears (empty) a connector's label as one undo step, and closes the editor. */
+  /**
+   * Sets or clears (empty) a connector's label as one undo step, and closes the editor.
+   * Mid-gesture it commits nothing and leaves the editor open.
+   */
   setConnectorLabel(id: string, label: string): void;
   undo(): void;
   redo(): void;
@@ -503,8 +506,10 @@ export function createBoardController(opts: {
       ui.setState({ editingConnector: id });
     },
     setConnectorLabel(id, label) {
-      ui.setState({ editingConnector: null });
-      commitStep({ type: 'SetConnectorLabel', id, label });
+      // Mid-gesture nothing is committed: the editor stays open so the edit is not lost.
+      if (commitStep({ type: 'SetConnectorLabel', id, label })) {
+        ui.setState({ editingConnector: null });
+      }
     },
     undo: () => travel('undo'),
     redo: () => travel('redo'),
