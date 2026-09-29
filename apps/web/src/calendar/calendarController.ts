@@ -27,6 +27,7 @@ import {
   todayIn,
   toInstant,
   toWall,
+  type Wall,
   type When,
   wallMinutes,
   type Ymd,
@@ -73,6 +74,8 @@ export interface SeriesQuestion {
   action: 'save' | 'move' | 'delete';
   /** Exceptions an "All events" answer would clear. */
   drops: number;
+  /** Only "All events" applies (the rule changed): answering 'one' does nothing. */
+  allOnly?: true;
 }
 
 export interface CalendarUi {
@@ -121,13 +124,75 @@ export interface CalendarController {
 }
 
 const EPOCH: Ymd = { y: 1970, m: 1, d: 1 };
+const DAY_MINUTES = 24 * 60;
+const MINUTE_MS = 60_000;
+const DAY_MS = 86_400_000;
 const dateOf = (s: string): Ymd => parseDate(s) ?? EPOCH;
+const wallOf = (s: string): Wall => parseWall(s) ?? { ...EPOCH, hh: 0, mm: 0 };
 const p2 = (n: number) => String(n).padStart(2, '0');
 const hhmm = (minutes: number) => `${p2(Math.floor(minutes / 60))}:${p2(minutes % 60)}`;
 const minutesOf = (time: string): number => {
   const [h, m] = time.split(':').map(Number) as [number, number];
   return Number.isFinite(h) && Number.isFinite(m) ? h * 60 + m : 0;
 };
+const atMinutes = (date: Ymd, minutes: number): Wall => ({
+  y: date.y,
+  m: date.m,
+  d: date.d,
+  hh: Math.floor(minutes / 60),
+  mm: minutes % 60,
+});
+
+/** A when's first day in its own frame (the event's zone for timed events). */
+const firstDate = (w: When): Ymd => {
+  if (w.allDay) return dateOf(w.start);
+  const { y, m, d } = wallOf(w.start);
+  return { y, m, d };
+};
+const startDay = (w: When): number => dayNumber(firstDate(w));
+/** Minutes from midnight of a timed start, in the event's zone; -1 for all-day. */
+const timeOfDay = (w: When): number => {
+  if (w.allDay) return -1;
+  const s = wallOf(w.start);
+  return s.hh * 60 + s.mm;
+};
+/** Days an all-day when spans after its first (0 for a one-day event); 0 for timed. */
+const spanOf = (w: When): number =>
+  w.allDay ? dayNumber(dateOf(w.end)) - dayNumber(dateOf(w.start)) : 0;
+/** A timed when's real (instant) duration in ms; 0 for all-day. */
+const realMs = (w: When): number =>
+  w.allDay ? 0 : toInstant(wallOf(w.end), w.tz) - toInstant(wallOf(w.start), w.tz);
+/** The timed when starting at the wall time `start` in `tz` and lasting `ms` of real time. */
+const timedFrom = (start: Wall, ms: number, tz: string): When => {
+  const s = toInstant(start, tz);
+  return {
+    allDay: false,
+    start: formatWall(toWall(s, tz)),
+    end: formatWall(toWall(s + ms, tz)),
+    tz,
+  };
+};
+
+/** What an edit changed about an occurrence, as the user sees it (`occ` → `next`). */
+function changesOf(occ: When, next: When) {
+  const allDayChanged = next.allDay !== occ.allDay;
+  return {
+    dayDelta: startDay(next) - startDay(occ),
+    allDayChanged,
+    timeChanged: timeOfDay(next) !== timeOfDay(occ),
+    durChanged:
+      allDayChanged || (next.allDay ? spanOf(next) !== spanOf(occ) : realMs(next) !== realMs(occ)),
+  };
+}
+
+/** The part of a rule the editor can express; equal keys mean "unchanged". */
+function ruleKey(rule: Rule | undefined): string {
+  if (!rule) return 'none';
+  const byDay = rule.freq === 'weekly' ? [...new Set(rule.byDay ?? [])].sort((a, b) => a - b) : [];
+  const end =
+    rule.count !== undefined ? { count: rule.count } : rule.until ? { until: rule.until } : null;
+  return JSON.stringify([rule.freq, rule.interval, byDay, end]);
+}
 
 export function createCalendarController(opts: CalendarControllerOptions): CalendarController {
   const zone = opts.zone;
@@ -139,7 +204,8 @@ export function createCalendarController(opts: CalendarControllerOptions): Calen
     editor: null,
     question: null,
   }));
-  let pending: ((scope: Scope) => void) | null = null;
+  /** The open series question's action; it re-reads the event when it runs. */
+  let pending: { eventId: string; run: (scope: Scope) => void } | null = null;
 
   const pageId = () => opts.calendar.getState().pageId;
   const events = () => opts.calendar.getState().calendar?.events ?? [];
@@ -154,8 +220,8 @@ export function createCalendarController(opts: CalendarControllerOptions): Calen
     return { ev, when: ev.rule ? occurrenceWhen(ev.when, dateOf(ref.key)) : ev.when };
   };
 
-  const ask = (question: SeriesQuestion, run: (scope: Scope) => void) => {
-    pending = run;
+  const ask = (eventId: string, question: SeriesQuestion, run: (scope: Scope) => void) => {
+    pending = { eventId, run };
     ui.setState({ question });
   };
 
@@ -171,8 +237,8 @@ export function createCalendarController(opts: CalendarControllerOptions): Calen
         endDate: w.end,
         endTime: '10:00',
       };
-    const s = toWall(toInstant(parseWall(w.start) ?? { ...EPOCH, hh: 0, mm: 0 }, w.tz), zone);
-    const e = toWall(toInstant(parseWall(w.end) ?? { ...EPOCH, hh: 0, mm: 0 }, w.tz), zone);
+    const s = toWall(toInstant(wallOf(w.start), w.tz), zone);
+    const e = toWall(toInstant(wallOf(w.end), w.tz), zone);
     return {
       allDay: false,
       startDate: formatDate(s),
@@ -223,8 +289,8 @@ export function createCalendarController(opts: CalendarControllerOptions): Calen
     const start = toInstant({ ...sd, ...split(d.startTime) }, zone);
     const end = toInstant({ ...ed, ...split(d.endTime) }, zone);
     if (end < start) return 'The end is before the start';
-    if (end - start < MIN_EVENT_MINUTES * 60_000) return 'An event lasts at least 15 minutes';
-    if (end - start > MAX_TIMED_DAYS * 86_400_000) return 'An event can last at most 14 days';
+    if (end - start < MIN_EVENT_MINUTES * MINUTE_MS) return 'An event lasts at least 15 minutes';
+    if (end - start > MAX_TIMED_DAYS * DAY_MS) return 'An event can last at most 14 days';
     return {
       allDay: false,
       start: formatWall(toWall(start, tz)),
@@ -246,39 +312,40 @@ export function createCalendarController(opts: CalendarControllerOptions): Calen
     return rule;
   };
 
-  /** Start date of a when in its own frame (the event's zone for timed events). */
-  const startDay = (w: When): number =>
-    dayNumber(w.allDay ? dateOf(w.start) : (parseWall(w.start) ?? EPOCH));
-  const timeOfDay = (w: When): number => {
-    if (w.allDay) return -1;
-    const s = parseWall(w.start);
-    return s ? s.hh * 60 + s.mm : 0;
+  /**
+   * "All events" from an edited occurrence: only what the user changed (`occ` → `next`) is
+   * applied to the series base, never the occurrence's own exception.
+   */
+  const editAll = (base: When, occ: When, next: When): When => {
+    const c = changesOf(occ, next);
+    const date = addDays(firstDate(base), c.dayDelta);
+    if (c.allDayChanged ? next.allDay : base.allDay) {
+      const days = next.allDay && c.durChanged ? spanOf(next) : spanOf(base);
+      return { allDay: true, start: formatDate(date), end: formatDate(addDays(date, days)) };
+    }
+    const tz = base.allDay ? zone : base.tz;
+    const adopt = !next.allDay;
+    const minutes = adopt && (c.allDayChanged || c.timeChanged) ? timeOfDay(next) : timeOfDay(base);
+    const ms = adopt && c.durChanged ? realMs(next) : realMs(base);
+    return timedFrom(atMinutes(date, minutes), ms, tz);
   };
 
-  /**
-   * The series base when that puts the occurrence `key` at `occ`: same shift in days from
-   * the base start, the occurrence's time of day and duration.
-   */
-  const rebase = (base: When, key: string, occ: When): When => {
-    const shift = startDay(occ) - dayNumber(dateOf(key));
-    const baseDate = addDays(dateOf(base.allDay ? base.start : base.start.slice(0, 10)), shift);
-    if (occ.allDay) {
-      const span = dayNumber(dateOf(occ.end)) - dayNumber(dateOf(occ.start));
+  /** "All events" from a move gesture: the gesture's day and time-of-day shift, same duration. */
+  const shiftAll = (base: When, occ: When, next: When): When => {
+    const dayDelta = startDay(next) - startDay(occ);
+    const minuteDelta = !occ.allDay && !next.allDay ? timeOfDay(next) - timeOfDay(occ) : 0;
+    if (base.allDay) {
+      const date = addDays(dateOf(base.start), dayDelta);
       return {
         allDay: true,
-        start: formatDate(baseDate),
-        end: formatDate(addDays(baseDate, span)),
+        start: formatDate(date),
+        end: formatDate(addDays(date, spanOf(base))),
       };
     }
-    const s = parseWall(occ.start) ?? { ...EPOCH, hh: 0, mm: 0 };
-    const e = parseWall(occ.end) ?? s;
-    const start = { ...baseDate, hh: s.hh, mm: s.mm };
-    return {
-      allDay: false,
-      start: formatWall(start),
-      end: formatWall(fromWallMinutes(wallMinutes(start) + wallMinutes(e) - wallMinutes(s))),
-      tz: occ.tz,
-    };
+    const start = fromWallMinutes(
+      wallMinutes(wallOf(base.start)) + dayDelta * DAY_MINUTES + minuteDelta,
+    );
+    return timedFrom(start, realMs(base), base.tz);
   };
 
   const exceptionCount = (ev: CalendarEvent) => Object.keys(ev.exceptions).length;
@@ -299,7 +366,7 @@ export function createCalendarController(opts: CalendarControllerOptions): Calen
     key: string,
     when: When,
     fields: Partial<Record<'title' | 'notes' | 'color', string>> = {},
-  ) => {
+  ): boolean => {
     const prev = ev.exceptions[key];
     const kept =
       prev && 'when' in prev ? { title: prev.title, notes: prev.notes, color: prev.color } : {};
@@ -307,7 +374,7 @@ export function createCalendarController(opts: CalendarControllerOptions): Calen
     for (const [k, v] of Object.entries({ ...kept, ...fields })) {
       if (v !== undefined) (value as Record<string, unknown>)[k] = v;
     }
-    setOccurrence(ev, key, value);
+    return setOccurrence(ev, key, value);
   };
 
   const closeIfGone = () => {
@@ -315,6 +382,10 @@ export function createCalendarController(opts: CalendarControllerOptions): Calen
     const patch: Partial<CalendarUi> = {};
     if (editor?.ref && !eventById(editor.ref.eventId)) patch.editor = null;
     if (selected && !eventById(selected.eventId)) patch.selected = null;
+    if (pending && !eventById(pending.eventId)) {
+      pending = null;
+      patch.question = null;
+    }
     if (Object.keys(patch).length > 0) ui.setState(patch);
   };
   let lastPage = pageId();
@@ -369,7 +440,9 @@ export function createCalendarController(opts: CalendarControllerOptions): Calen
       const date = at?.date ?? todayIn(opts.now(), zone);
       const timed = at?.start !== undefined;
       const start = at?.start ?? 9 * 60;
-      const end = Math.min(at?.end ?? start + 60, 24 * 60 - 1);
+      const end = Math.max(at?.end ?? start + 60, start + MIN_EVENT_MINUTES);
+      // A drag that ends at or after midnight ends on the next day.
+      const nextDay = end >= DAY_MINUTES;
       const draft: EditorDraft = {
         ...draftOf(
           null,
@@ -380,7 +453,8 @@ export function createCalendarController(opts: CalendarControllerOptions): Calen
         ),
         allDay: !timed,
         startTime: hhmm(start),
-        endTime: hhmm(Math.max(end, start + MIN_EVENT_MINUTES)),
+        endDate: nextDay ? formatDate(addDays(dateOf(date), 1)) : date,
+        endTime: hhmm(nextDay ? end - DAY_MINUTES : end),
       };
       ui.setState({ editor: { ref: null, draft, readOnly: false } });
     },
@@ -410,6 +484,11 @@ export function createCalendarController(opts: CalendarControllerOptions): Calen
       const color = EVENT_COLORS.includes(draft.color) ? draft.color : (EVENT_COLORS[0] as string);
       const rule = ruleOfDraft(draft);
       if (!editor.ref) {
+        // A peer may have filled the calendar while the editor was open.
+        if (events().length >= MAX_EVENTS) {
+          opts.notify('This calendar is full (500 events)');
+          return;
+        }
         const when = whenOfDraft(draft, zone);
         if (typeof when === 'string') {
           opts.notify(when);
@@ -428,12 +507,13 @@ export function createCalendarController(opts: CalendarControllerOptions): Calen
         if (commitEvent({ type: 'CreateEvent', pageId: page, id, fields })) {
           ui.setState({
             editor: null,
-            selected: { eventId: id, key: formatDate(dateOf(when.start.slice(0, 10))) },
+            selected: { eventId: id, key: formatDate(firstDate(when)) },
           });
         }
         return;
       }
-      const r = resolve(editor.ref);
+      const ref = editor.ref;
+      const r = resolve(ref);
       if (!r) return;
       const { ev } = r;
       const tz = ev.when.allDay ? zone : ev.when.tz;
@@ -443,35 +523,47 @@ export function createCalendarController(opts: CalendarControllerOptions): Calen
         return;
       }
       if (!ev.rule) {
-        commitEvent({
+        const ok = commitEvent({
           type: 'UpdateEvent',
           pageId: page,
           id: ev.id,
           patch: { title, notes, color, when, rule: rule ?? null },
         });
-        ui.setState({ editor: null });
+        if (ok) ui.setState({ editor: null });
         return;
       }
-      const key = editor.ref.key;
-      const base = rebase(ev.when, key, when);
-      const ruleChanged = JSON.stringify(rule ?? null) !== JSON.stringify(ev.rule);
-      const timeChanged =
-        startDay(when) !== startDay(r.when) ||
-        timeOfDay(when) !== timeOfDay(r.when) ||
-        when.allDay !== r.when.allDay;
-      const clears = ruleChanged || timeChanged;
-      ask({ action: 'save', drops: clears ? exceptionCount(ev) : 0 }, (scope) => {
-        if (scope === 'one') changeOne(ev, key, when, { title, notes, color });
+      const ruleChanged = ruleKey(rule) !== ruleKey(ev.rule);
+      const c = changesOf(r.when, when);
+      const clears = c.dayDelta !== 0 || c.timeChanged || c.allDayChanged || ruleChanged;
+      const question: SeriesQuestion = {
+        action: 'save',
+        drops: clears ? exceptionCount(ev) : 0,
+        ...(ruleChanged ? { allOnly: true as const } : {}),
+      };
+      ask(ev.id, question, (scope) => {
+        const cur = resolve(ref);
+        if (!cur) return;
+        let ok: boolean;
+        if (scope === 'one') ok = changeOne(cur.ev, ref.key, when, { title, notes, color });
         else {
-          commitEvent({
+          const now = changesOf(cur.when, when);
+          const ruleNow = ruleKey(rule) !== ruleKey(cur.ev.rule);
+          const clear = now.dayDelta !== 0 || now.timeChanged || now.allDayChanged || ruleNow;
+          ok = commitEvent({
             type: 'UpdateEvent',
             pageId: page,
-            id: ev.id,
-            patch: { title, notes, color, when: base, rule: rule ?? null },
-            clearExceptions: clears && exceptionCount(ev) > 0,
+            id: cur.ev.id,
+            patch: {
+              title,
+              notes,
+              color,
+              when: editAll(cur.ev.when, cur.when, when),
+              ...(ruleNow ? { rule: rule ?? null } : {}),
+            },
+            clearExceptions: clear && exceptionCount(cur.ev) > 0,
           });
         }
-        ui.setState({ editor: null });
+        if (ok) ui.setState({ editor: null });
       });
     },
     move(ref, to) {
@@ -487,19 +579,19 @@ export function createCalendarController(opts: CalendarControllerOptions): Calen
           start: formatDate(addDays(dateOf(when.start), shift)),
           end: formatDate(addDays(dateOf(when.end), shift)),
         };
+      } else if (to.minutes === undefined) {
+        // Month view: the event keeps its own wall time of day in its own zone, moved by
+        // the days between the cell it was shown in and the cell it was dropped on.
+        const s = wallOf(when.start);
+        const shownOn = toWall(toInstant(s, when.tz), zone);
+        const shift = dayNumber(dateOf(to.date)) - dayNumber(shownOn);
+        next = timedFrom(atMinutes(addDays(s, shift), s.hh * 60 + s.mm), realMs(when), when.tz);
       } else {
-        const s = toInstant(parseWall(when.start) ?? { ...EPOCH, hh: 0, mm: 0 }, when.tz);
-        const e = toInstant(parseWall(when.end) ?? { ...EPOCH, hh: 0, mm: 0 }, when.tz);
-        const local = toWall(s, zone);
-        const minutes = to.minutes ?? local.hh * 60 + local.mm;
-        const start = toInstant(
-          { ...dateOf(to.date), hh: Math.floor(minutes / 60), mm: minutes % 60 },
-          zone,
-        );
+        const start = toInstant(atMinutes(dateOf(to.date), to.minutes), zone);
         next = {
           allDay: false,
           start: formatWall(toWall(start, when.tz)),
-          end: formatWall(toWall(start + (e - s), when.tz)),
+          end: formatWall(toWall(start + realMs(when), when.tz)),
           tz: when.tz,
         };
       }
@@ -508,17 +600,25 @@ export function createCalendarController(opts: CalendarControllerOptions): Calen
         commitEvent({ type: 'UpdateEvent', pageId: page, id: ev.id, patch: { when: next } });
         return;
       }
-      ask({ action: 'move', drops: exceptionCount(ev) }, (scope) => {
-        if (scope === 'one') changeOne(ev, ref.key, next);
-        else {
-          commitEvent({
-            type: 'UpdateEvent',
-            pageId: page,
-            id: ev.id,
-            patch: { when: rebase(ev.when, ref.key, next) },
-            clearExceptions: exceptionCount(ev) > 0,
-          });
+      const shifted = shiftAll(ev.when, when, next);
+      const clears = JSON.stringify(shifted) !== JSON.stringify(ev.when);
+      ask(ev.id, { action: 'move', drops: clears ? exceptionCount(ev) : 0 }, (scope) => {
+        const cur = resolve(ref);
+        if (!cur) return;
+        if (scope === 'one') {
+          changeOne(cur.ev, ref.key, next);
+          return;
         }
+        // The gesture's own shift (`when` → `next`), applied to the current base.
+        const base = shiftAll(cur.ev.when, when, next);
+        const clear = JSON.stringify(base) !== JSON.stringify(cur.ev.when);
+        commitEvent({
+          type: 'UpdateEvent',
+          pageId: page,
+          id: cur.ev.id,
+          patch: { when: base },
+          clearExceptions: clear && exceptionCount(cur.ev) > 0,
+        });
       });
     },
     resize(ref, to) {
@@ -526,14 +626,11 @@ export function createCalendarController(opts: CalendarControllerOptions): Calen
       const r = resolve(ref);
       if (!opts.canEdit() || !page || !r || r.when.allDay) return;
       const { ev, when } = r;
-      const s = toInstant(parseWall(when.start) ?? { ...EPOCH, hh: 0, mm: 0 }, when.tz);
-      const raw = toInstant(
-        { ...dateOf(to.date), hh: Math.floor(to.minutes / 60), mm: to.minutes % 60 },
-        zone,
-      );
+      const s = toInstant(wallOf(when.start), when.tz);
+      const raw = toInstant(atMinutes(dateOf(to.date), to.minutes), zone);
       const end = Math.min(
-        Math.max(raw, s + MIN_EVENT_MINUTES * 60_000),
-        s + MAX_TIMED_DAYS * 86_400_000,
+        Math.max(raw, s + MIN_EVENT_MINUTES * MINUTE_MS),
+        s + MAX_TIMED_DAYS * DAY_MS,
       );
       const next: When = { ...when, end: formatWall(toWall(end, when.tz)) };
       if (next.end === when.end) return;
@@ -541,18 +638,24 @@ export function createCalendarController(opts: CalendarControllerOptions): Calen
         commitEvent({ type: 'UpdateEvent', pageId: page, id: ev.id, patch: { when: next } });
         return;
       }
-      ask({ action: 'move', drops: 0 }, (scope) => {
-        if (scope === 'one') changeOne(ev, ref.key, next);
-        else if (!ev.when.allDay) {
-          const bs = parseWall(ev.when.start) ?? { ...EPOCH, hh: 0, mm: 0 };
-          const minutes = Math.round((end - s) / 60_000);
+      // A timed exception of an all-day series: "All events" has no duration to change.
+      if (ev.when.allDay) {
+        changeOne(ev, ref.key, next);
+        return;
+      }
+      const ms = end - s;
+      ask(ev.id, { action: 'move', drops: 0 }, (scope) => {
+        const cur = resolve(ref);
+        if (!cur) return;
+        if (scope === 'one') changeOne(cur.ev, ref.key, next);
+        else if (!cur.ev.when.allDay) {
+          const base = cur.ev.when;
+          const bs = toInstant(wallOf(base.start), base.tz);
           commitEvent({
             type: 'UpdateEvent',
             pageId: page,
-            id: ev.id,
-            patch: {
-              when: { ...ev.when, end: formatWall(fromWallMinutes(wallMinutes(bs) + minutes)) },
-            },
+            id: cur.ev.id,
+            patch: { when: { ...base, end: formatWall(toWall(bs + ms, base.tz)) } },
           });
         }
       });
@@ -563,21 +666,26 @@ export function createCalendarController(opts: CalendarControllerOptions): Calen
       if (!opts.canEdit() || !page || !ev) return;
       const done = () => ui.setState({ selected: null, editor: null });
       if (!ev.rule) {
-        commitEvent({ type: 'DeleteEvent', pageId: page, id: ev.id });
-        done();
+        if (commitEvent({ type: 'DeleteEvent', pageId: page, id: ev.id })) done();
         return;
       }
-      ask({ action: 'delete', drops: 0 }, (scope) => {
-        if (scope === 'one') setOccurrence(ev, ref.key, { cancelled: true });
-        else commitEvent({ type: 'DeleteEvent', pageId: page, id: ev.id });
-        done();
+      ask(ev.id, { action: 'delete', drops: 0 }, (scope) => {
+        const cur = eventById(ref.eventId);
+        if (!cur) return;
+        const ok =
+          scope === 'one'
+            ? setOccurrence(cur, ref.key, { cancelled: true })
+            : commitEvent({ type: 'DeleteEvent', pageId: page, id: cur.id });
+        if (ok) done();
       });
     },
     answer(scope) {
-      const run = pending;
+      const p = pending;
+      if (scope === 'one' && ui.getState().question?.allOnly) return;
       pending = null;
       ui.setState({ question: null });
-      if (scope && run) run(scope);
+      if (!scope || !p || !opts.canEdit() || !eventById(p.eventId)) return;
+      p.run(scope);
     },
     rsvp(eventId, status) {
       const page = pageId();
