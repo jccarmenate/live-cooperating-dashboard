@@ -764,8 +764,11 @@ the user can move and edit a generated graph like anything else.
     - grid m×n (m, n 1–10)
     - k-ary tree (k 1–5, depth 0–6, at most 100 nodes)
     - random G(n, p) (n 2–50, p 0–1)
-  - **Options:** *directed* (arrowheads; a tree points parent → child,
-    other families point from the lower-numbered node to the higher one),
+  - **Options:** *directed* (arrowheads; a cycle and a wheel's rim run
+    around the ring, i → i+1 and the last node back to the first, so a
+    directed Cₙ is a cycle; wheel spokes point hub → rim; a tree points
+    parent → child; other families point from the lower-numbered node to the
+    higher one),
     *weighted* (each edge gets a random integer weight 1–9 as its label),
     and node names as *letters* (A…Z, AA…) or *numbers* (1…n).
   - **Edge list:** one item per line or comma. `A-B` is an undirected edge,

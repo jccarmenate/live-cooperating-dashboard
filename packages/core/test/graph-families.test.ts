@@ -36,9 +36,33 @@ describe('graph families', () => {
     expect(draft(familyGraph('grid', { ...P, m: 3, n: 4 }, plain)).cols).toBe(4);
   });
 
-  it('points directed edges from lower to higher (trees parent → child)', () => {
-    const cycle = draft(familyGraph('cycle', { ...P, n: 4 }, { ...plain, directed: true }));
-    expect(cycle.edges.every((e) => e.directed && e.from < e.to)).toBe(true);
+  it('points directed cycle and wheel rims around the ring, spokes hub → rim', () => {
+    const directed = { ...plain, directed: true };
+    const pairs = (d: GraphDraft) => d.edges.map((e) => [e.from, e.to]);
+    const cycle = draft(familyGraph('cycle', { ...P, n: 4 }, directed));
+    expect(cycle.edges.every((e) => e.directed)).toBe(true);
+    expect(pairs(cycle)).toEqual([
+      [0, 1],
+      [1, 2],
+      [2, 3],
+      [3, 0],
+    ]);
+    const wheel = draft(familyGraph('wheel', { ...P, n: 3 }, directed));
+    expect(pairs(wheel)).toEqual([
+      [0, 1],
+      [0, 2],
+      [0, 3],
+      [1, 2],
+      [2, 3],
+      [3, 1],
+    ]);
+    // Undirected, the closing edge keeps its lower → higher order.
+    expect(pairs(draft(familyGraph('cycle', { ...P, n: 4 }, plain))).at(-1)).toEqual([0, 3]);
+  });
+
+  it('points other directed families from lower to higher (trees parent → child)', () => {
+    const complete = draft(familyGraph('complete', { ...P, n: 4 }, { ...plain, directed: true }));
+    expect(complete.edges.every((e) => e.directed && e.from < e.to)).toBe(true);
     const tree = draft(familyGraph('tree', { ...P, k: 3, depth: 1 }, { ...plain, directed: true }));
     expect(tree.edges.map((e) => [e.from, e.to])).toEqual([
       [0, 1],

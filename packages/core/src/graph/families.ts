@@ -71,6 +71,9 @@ export function familyGraph(
   const pairs: [number, number][] = [];
   let count = 0;
   const hints: Pick<GraphDraft, 'layout' | 'center' | 'cols' | 'left'> = { layout: 'circle' };
+  // Directed cycles and wheel rims run around the ring (i → i+1 mod n); every other edge
+  // points from the lower to the higher node (spokes hub → rim, trees parent → child).
+  const ring = opts.directed && (kind === 'cycle' || kind === 'wheel');
   switch (kind) {
     case 'complete':
       count = n;
@@ -137,7 +140,8 @@ export function familyGraph(
     return { error: `The graph has ${pairs.length} edges (at most ${MAX_GRAPH_EDGES})` };
   }
   const edges = pairs.map(([a, b]): GraphEdge => {
-    const e: GraphEdge = { from: Math.min(a, b), to: Math.max(a, b), directed: opts.directed };
+    const [from, to]: [number, number] = ring ? [a, b] : [Math.min(a, b), Math.max(a, b)];
+    const e: GraphEdge = { from, to, directed: opts.directed };
     if (opts.weighted) e.label = String(1 + Math.floor(random() * 9));
     return e;
   });

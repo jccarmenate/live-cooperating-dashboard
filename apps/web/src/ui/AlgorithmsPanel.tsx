@@ -1,7 +1,8 @@
-import { type AlgorithmKind, type AlgorithmResult, readGraph } from '@relay/core';
+import { type AlgorithmKind, readGraph } from '@relay/core';
 import { useState } from 'react';
 import { useStore } from 'zustand';
 import type { BoardSession } from '../board/session';
+import { describeResult, shortName } from './graphText';
 
 const KINDS: { kind: AlgorithmKind; label: string }[] = [
   { kind: 'bfs', label: 'Breadth-first search' },
@@ -10,34 +11,6 @@ const KINDS: { kind: AlgorithmKind; label: string }[] = [
   { kind: 'mst', label: 'Minimum spanning tree' },
   { kind: 'components', label: 'Connected components' },
 ];
-
-/**
- * The result as text. Names come from the snapshot taken when it ran (a later selection or
- * move must not rename or renumber them); nodes deleted since are left out.
- */
-function describe(
-  result: AlgorithmResult,
-  names: Readonly<Record<string, string>>,
-  present: (id: string) => boolean,
-): string {
-  const list = (ids: string[]) =>
-    ids
-      .filter(present)
-      .map((id) => names[id] ?? '?')
-      .join(' → ');
-  switch (result.kind) {
-    case 'traversal':
-      return `Visit order: ${list(result.order)}`;
-    case 'path':
-      return `${list(result.nodes)} · cost ${result.cost}`;
-    case 'mst':
-      return `${result.edges.length} edge${result.edges.length === 1 ? '' : 's'} · total weight ${result.total}`;
-    case 'components':
-      return `${result.groups.length} component${result.groups.length === 1 ? '' : 's'}`;
-    case 'error':
-      return result.message;
-  }
-}
 
 export function AlgorithmsPanel({ session }: { session: BoardSession }) {
   const { controller } = session;
@@ -107,7 +80,7 @@ export function AlgorithmsPanel({ session }: { session: BoardSession }) {
           >
             {graph.nodes.map((n) => (
               <option key={n.id} value={n.id}>
-                {n.name}
+                {shortName(n.name)}
               </option>
             ))}
           </select>
@@ -124,7 +97,7 @@ export function AlgorithmsPanel({ session }: { session: BoardSession }) {
           >
             {graph.nodes.map((n) => (
               <option key={n.id} value={n.id}>
-                {n.name}
+                {shortName(n.name)}
               </option>
             ))}
           </select>
@@ -151,9 +124,9 @@ export function AlgorithmsPanel({ session }: { session: BoardSession }) {
       {result && (
         <p
           data-testid="algo-result"
-          className={`font-mono text-xs ${result.kind === 'error' ? 'text-flame' : ''}`}
+          className={`max-h-40 overflow-y-auto break-words font-mono text-xs ${result.kind === 'error' ? 'text-flame' : ''}`}
         >
-          {describe(result, resultNames, (id) => shapes[id] !== undefined)}
+          {describeResult(result, resultNames, (id) => shapes[id] !== undefined)}
         </p>
       )}
     </aside>
