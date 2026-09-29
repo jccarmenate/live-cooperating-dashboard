@@ -9,6 +9,7 @@ export * from './geometry/frames';
 export * from './geometry/minimap';
 export * from './geometry/rect';
 export * from './geometry/shapes';
+export * from './graph/algorithms';
 export * from './graph/edgeList';
 export * from './graph/families';
 export * from './graph/layout';
