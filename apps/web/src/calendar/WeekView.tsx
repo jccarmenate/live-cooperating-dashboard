@@ -283,7 +283,7 @@ export function WeekView({
           </div>
         ))}
       </div>
-      <div ref={scroller} className="relative min-h-0 flex-1 overflow-y-auto">
+      <div ref={scroller} data-week-scroller className="relative min-h-0 flex-1 overflow-y-auto">
         {/* biome-ignore lint/a11y/noStaticElementInteractions: the time grid is a drag surface; keyboard users create with N and open with Enter */}
         <div
           className="relative grid"

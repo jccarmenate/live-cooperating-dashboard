@@ -48,7 +48,7 @@ fotograma sale de la aplicación real, controlada por [`scripts/capture.mjs`](sc
   - **New graph…** genera un grafo completo, ciclo, camino, estrella, rueda, bipartito completo, cuadrícula, árbol k-ario o aleatorio G(n, p), dirigido o con pesos si se quiere. También lo construye a partir de una lista de aristas pegada (`A-B`, `A->B`, `A-B:5`) e indica los errores línea a línea. Cada familia tiene su propia disposición, y las listas de aristas usan una disposición por fuerzas determinista. Un grafo tiene como máximo 100 nodos y 500 aristas, y se deshace entero en un solo paso.
   - **Algorithms…** ejecuta BFS, DFS, camino más corto (Dijkstra), árbol generador mínimo (Kruskal) y componentes conexas sobre la selección, o sobre toda la página si no hay nada seleccionado. Si la etiqueta de un conector es un número, ese es el peso de la arista. Los resultados son una capa local (orden de visita, camino, árbol, colores por componente) que nunca se sincroniza; Escape o **Clear** la quitan. Los lectores también pueden ejecutar algoritmos.
 - **Calendarios.** Una página también puede ser un calendario compartido (**+** → **Calendar**), con vistas de mes y de semana:
-  - para crear un evento se hace clic en un día, se pulsa **New event** o `N`, o se arrastra en la cuadrícula semanal; los eventos se mueven y redimensionan arrastrando, en pasos de 15 minutos;
+  - para crear un evento se hace clic en un día, se pulsa **New event** o `N`, o se arrastra en la cuadrícula semanal; los eventos se mueven y redimensionan arrastrando, en pasos de 15 minutos. La rueda del ratón avanza semana a semana (la cuadrícula del mes se desplaza una fila cada vez), y Shift+rueda mueve las horas de la vista semanal;
   - los eventos se repiten cada día, cada semana (en los días elegidos), cada mes o cada año, con un intervalo y un final (nunca, en una fecha o tras N veces). Al actuar sobre una sola repetición se pregunta **Only this event** o **All events**, y "All events" aplica solo lo que has cambiado;
   - cada persona ve las horas en su propia zona horaria, y un evento con hora conserva la hora local de quien lo creó aunque cambie el horario de verano. Los eventos de día completo son fechas, iguales para todos;
   - las respuestas de asistencia (Going / Maybe / Not going) se actualizan en vivo, y unos puntos de color muestran qué personas tienen abierto un evento;
@@ -161,8 +161,8 @@ O con Docker: `docker compose up`.
 ## Tests
 
 ```bash
-npm test         # 830 tests unitarios, de propiedades y de integración (core 447 · web 357 · sync-server 26)
-npm run e2e      # 36 escenarios de Playwright con varios navegadores independientes
+npm test         # 840 tests unitarios, de propiedades y de integración (core 447 · web 367 · sync-server 26)
+npm run e2e      # 37 escenarios de Playwright con varios navegadores independientes
 npm run lint && npm run typecheck
 ```
 

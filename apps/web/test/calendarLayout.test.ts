@@ -2,7 +2,9 @@ import { type Occurrence, toInstant } from '@relay/core';
 import { describe, expect, it } from 'vitest';
 import {
   grabMove,
+  gridFocus,
   monthGrid,
+  monthGridFrom,
   monthLayout,
   moveTarget,
   periodTitle,
@@ -241,5 +243,29 @@ describe('titles and labels', () => {
     expect(periodTitle('week', '2026-01-01')).toBe('29 Dec 2025 – 4 Jan 2026');
     expect(timeLabel(9 * 60 + 5)).toBe('09:05');
     expect(timeLabel(0)).toBe('00:00');
+  });
+});
+
+describe('rolling month grid', () => {
+  it('builds 42 days from any Monday, dimming days outside the month of its third row', () => {
+    const cells = monthGridFrom('2026-09-07', '2026-09-28');
+    expect(cells).toHaveLength(42);
+    expect(cells[0]?.date).toBe('2026-09-07');
+    expect(cells[41]?.date).toBe('2026-10-18');
+    expect(gridFocus('2026-09-07')).toBe('2026-09-24');
+    expect(cells.filter((c) => c.inMonth).map((c) => c.date)).toHaveLength(24);
+    expect(cells.find((c) => c.date === '2026-10-01')?.inMonth).toBe(false);
+    expect(cells.find((c) => c.today)?.date).toBe('2026-09-28');
+  });
+
+  it('matches the calendar-month grid when the start is the grid of a month', () => {
+    expect(monthGridFrom('2026-08-31', '2026-09-28')).toEqual(monthGrid(2026, 9, '2026-09-28'));
+    expect(gridFocus('2026-08-31')).toBe('2026-09-17');
+  });
+
+  it('gives the rolled grid its own window', () => {
+    const w = viewWindow('month', '2026-09-24', 'Europe/Madrid', '2026-09-07');
+    expect(w.from).toBe(toInstant({ y: 2026, m: 9, d: 7, hh: 0, mm: 0 }, 'Europe/Madrid'));
+    expect(w.to).toBe(toInstant({ y: 2026, m: 10, d: 19, hh: 0, mm: 0 }, 'Europe/Madrid'));
   });
 });

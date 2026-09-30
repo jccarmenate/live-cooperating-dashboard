@@ -926,6 +926,15 @@ back to it.
     who have it open. Page-tab dots work as on other pages.
   - **Selection:** clicking an event selects it (local state); double-click
     or Enter opens the editor.
+  - **Mouse wheel:** it scrolls the calendar a week at a time, one mouse notch per week.
+    Trackpad deltas add up to whole weeks, and one wheel event moves at most 3 weeks.
+    - In the month view the 6-week grid rolls by one row. The title and the dimmed days
+      follow the month of the third row's Thursday. ‹ › and Today snap back to a month's
+      own grid.
+    - In the week view the wheel moves to the next or previous week, and Shift+wheel
+      scrolls the hours.
+    - Ctrl+wheel (browser zoom) and the wheel inside dialogs or the "+N more" list are left
+      alone.
 - **Editing** (editors only):
   - **Create:** clicking an empty day in the month view, or "New event", or
     `N`, opens the editor for a new event (all-day on that day, or today).

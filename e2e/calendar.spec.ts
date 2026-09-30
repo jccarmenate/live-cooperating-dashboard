@@ -204,3 +204,57 @@ test('sticky → calendar → open on board, then export and re-import the calen
   await expect(page.getByTestId('cal-import-summary')).toContainText('Imported 1 event');
   await ctx.close();
 });
+
+test('the mouse wheel scrolls the calendar a week at a time', async ({ page, request }) => {
+  const { roomId, editKey } = await newRoom(request);
+  await openBoard(page, `/r/${roomId}#k=${editKey}`);
+  await addCalendar(page);
+
+  // Month view: each notch rolls the 6-week grid by one row; the title follows its third row.
+  const firstCell = page.getByTestId('cal-day').first();
+  const start = (await firstCell.getAttribute('data-date')) as string;
+  const plusDays = (date: string, n: number) => {
+    const d = new Date(`${date}T00:00:00Z`);
+    d.setUTCDate(d.getUTCDate() + n);
+    return d;
+  };
+  const box = await page.getByTestId('cal-day').nth(15).boundingBox();
+  await page.mouse.move((box?.x ?? 0) + 30, (box?.y ?? 0) + 30);
+  await page.mouse.wheel(0, 100);
+  await expect(firstCell).toHaveAttribute(
+    'data-date',
+    plusDays(start, 7).toISOString().slice(0, 10),
+  );
+  for (let i = 0; i < 4; i++) await page.mouse.wheel(0, 100);
+  await expect(firstCell).toHaveAttribute(
+    'data-date',
+    plusDays(start, 35).toISOString().slice(0, 10),
+  );
+  const focus = plusDays(start, 35 + 17);
+  const month = focus.toLocaleString('en-GB', { month: 'long', timeZone: 'UTC' });
+  await expect(page.getByTestId('cal-title')).toHaveText(`${month} ${focus.getUTCFullYear()}`);
+  await page.mouse.wheel(0, -100);
+  await expect(firstCell).toHaveAttribute(
+    'data-date',
+    plusDays(start, 28).toISOString().slice(0, 10),
+  );
+
+  // Week view: the wheel changes the week; Shift+wheel scrolls the hours instead.
+  await page.getByTestId('cal-today').click();
+  await page.getByTestId('cal-view-week').click();
+  const title = page.getByTestId('cal-title');
+  const thisWeek = (await title.textContent()) as string;
+  const grid = page.locator('[data-week-scroller]');
+  const g = await grid.boundingBox();
+  await page.mouse.move((g?.x ?? 0) + (g?.width ?? 0) / 2, (g?.y ?? 0) + 150);
+  await page.mouse.wheel(0, 100);
+  await expect(title).not.toHaveText(thisWeek);
+  await page.mouse.wheel(0, -100);
+  await expect(title).toHaveText(thisWeek);
+  const top = await grid.evaluate((el) => el.scrollTop);
+  await page.keyboard.down('Shift');
+  await page.mouse.wheel(0, 200);
+  await page.keyboard.up('Shift');
+  await expect.poll(() => grid.evaluate((el) => el.scrollTop)).toBeGreaterThan(top);
+  await expect(title).toHaveText(thisWeek);
+});

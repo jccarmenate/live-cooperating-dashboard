@@ -5,9 +5,8 @@ import type { BoardSession } from '../board/session';
 import type { CalendarController } from './calendarController';
 import { EventDots } from './EventDots';
 import {
-  firstOfGrid,
   MONTH_LINES,
-  monthGrid,
+  monthGridFrom,
   monthLayout,
   occurrenceDays,
   timeLabel,
@@ -35,11 +34,12 @@ export function MonthView({
   const [popover, setPopover] = useState<{ date: string; anchor: string } | null>(null);
   const openDate = popover?.anchor === anchor ? popover.date : null;
   const now = useNow();
-  const a = parseDate(anchor) ?? { y: 1970, m: 1, d: 1 };
-  const cells = monthGrid(a.y, a.m, todayIn(now, ctl.zone));
+  // The grid starts on the controller's Monday: a month's own grid, or one the wheel rolled.
+  const monthStart = useStore(ctl.ui, (s) => s.monthStart);
+  const cells = monthGridFrom(monthStart, todayIn(now, ctl.zone));
   const layout = useMemo(
-    () => monthLayout(occurrences, firstOfGrid(a.y, a.m), ctl.zone),
-    [occurrences, a.y, a.m, ctl.zone],
+    () => monthLayout(occurrences, monthStart, ctl.zone),
+    [occurrences, monthStart, ctl.zone],
   );
   const drag = useEventDrag(ctl, canEdit);
   const isSel = (o: Occurrence) => selected?.eventId === o.eventId && selected.key === o.key;

@@ -41,7 +41,7 @@ import {
 } from '@relay/core';
 import { createStore, type StoreApi } from 'zustand/vanilla';
 import type { CalendarState } from '../store/calendarStore';
-import { viewWindow } from './layout';
+import { firstOfGrid, gridFocus, viewWindow } from './layout';
 
 export type CalView = 'month' | 'week';
 export type Scope = 'one' | 'all';
@@ -89,6 +89,11 @@ export interface CalendarUi {
   view: CalView;
   /** A date inside the shown period. */
   anchor: string;
+  /**
+   * The Monday the month view's 6-week grid starts on. The arrows and Today set it to a
+   * month's own grid; the mouse wheel rolls it a week at a time.
+   */
+  monthStart: string;
   selected: OccRef | null;
   editor: EditorState | null;
   question: SeriesQuestion | null;
@@ -115,6 +120,8 @@ export interface CalendarController {
   setView(view: CalView): void;
   today(): void;
   step(dir: -1 | 1): void;
+  /** Mouse wheel: the month grid rolls by `weeks` rows; the week view moves by `weeks` weeks. */
+  scrollWeeks(weeks: number): void;
   goTo(date: string): void;
   select(ref: OccRef | null): void;
   newEvent(at?: { date: string; start?: number; end?: number }): void;
@@ -236,9 +243,14 @@ function ruleKey(rule: Rule | undefined): string {
 export function createCalendarController(opts: CalendarControllerOptions): CalendarController {
   const zone = opts.zone;
   const newId = opts.newId ?? newEventId;
+  /** The anchor, and the month grid of the anchor's month. */
+  const at = (anchor: string) => {
+    const a = dateOf(anchor);
+    return { anchor, monthStart: firstOfGrid(a.y, a.m) };
+  };
   const ui = createStore<CalendarUi>(() => ({
     view: 'month',
-    anchor: todayIn(opts.now(), zone),
+    ...at(todayIn(opts.now(), zone)),
     selected: null,
     editor: null,
     question: null,
@@ -508,20 +520,31 @@ export function createCalendarController(opts: CalendarControllerOptions): Calen
     visible() {
       const cal = opts.calendar.getState().calendar;
       if (!cal) return { occurrences: [], truncated: false };
-      const { view, anchor } = ui.getState();
-      return expandAll(cal, viewWindow(view, anchor, zone));
+      const { view, anchor, monthStart } = ui.getState();
+      return expandAll(cal, viewWindow(view, anchor, zone, monthStart));
     },
     setView(view) {
       ui.setState({ view });
     },
     today() {
-      ui.setState({ anchor: todayIn(opts.now(), zone) });
+      ui.setState(at(todayIn(opts.now(), zone)));
     },
     step(dir) {
-      ui.setState({ anchor: shiftAnchor(dir) });
+      ui.setState(at(shiftAnchor(dir)));
+    },
+    scrollWeeks(weeks) {
+      const n = Math.trunc(weeks);
+      if (n === 0) return;
+      const { view, anchor, monthStart } = ui.getState();
+      if (view === 'week') {
+        ui.setState(at(formatDate(addDays(dateOf(anchor), n * 7))));
+        return;
+      }
+      const start = formatDate(addDays(dateOf(monthStart), n * 7));
+      ui.setState({ monthStart: start, anchor: gridFocus(start) });
     },
     goTo(date) {
-      if (parseDate(date)) ui.setState({ anchor: date });
+      if (parseDate(date)) ui.setState(at(date));
     },
     select(ref) {
       ui.setState({ selected: ref });
