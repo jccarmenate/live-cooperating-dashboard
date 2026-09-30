@@ -15,6 +15,7 @@ export interface PresencePublisher {
   setViewport(r: Rect | null): void;
   setPage(page: string): void;
   setSheet(s: SheetPresence | null): void;
+  setCalEvent(id: string | null): void;
   destroy(): void;
 }
 
@@ -27,6 +28,7 @@ export function createPresencePublisher(awareness: Awareness, user: Identity): P
     viewport: null,
     page: null,
     sheet: null,
+    calEvent: null,
   };
   awareness.setLocalState(initial);
   const setCursor = throttle((cursor: Point | null) => {
@@ -42,6 +44,7 @@ export function createPresencePublisher(awareness: Awareness, user: Identity): P
     setViewport,
     setPage: (page) => awareness.setLocalStateField('page', page),
     setSheet: (s) => awareness.setLocalStateField('sheet', s),
+    setCalEvent: (id) => awareness.setLocalStateField('calEvent', id),
     destroy() {
       setCursor.cancel();
       setViewport.cancel();

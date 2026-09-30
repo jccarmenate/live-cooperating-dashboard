@@ -14,6 +14,7 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
-      - run: npm test -w @relay/core -- convergence
+      # 10,000 fast-check runs per property take far longer than vitest's 5 s default.
+      - run: npm test -w @relay/core -- convergence --testTimeout=1200000
         env:
           RELAY_FC_RUNS: 10000

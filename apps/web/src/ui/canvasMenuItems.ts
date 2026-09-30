@@ -32,6 +32,8 @@ export interface CanvasMenuActions {
   create(type: 'sticky' | 'rect' | 'frame', at: Point): void;
   selectAll(): void;
   zoomToFit(): void;
+  /** Opens the "Add to calendar" dialog for a sticky. */
+  addToCalendar(shapeId: string): void;
 }
 
 const SEP: MenuEntry = { separator: true };
@@ -144,6 +146,13 @@ export function canvasMenu(ctx: CanvasMenuContext, a: CanvasMenuActions): MenuEn
     onSelect: () => a.comment(ctx.world, ctx.hitId),
     testId: 'menu-comment',
   });
+  if (shapes.length === 1 && connectors.length === 0 && shapes[0]?.type === 'sticky') {
+    items.push({
+      label: 'Add to calendar…',
+      onSelect: () => a.addToCalendar(shapes[0]?.id as string),
+      testId: 'menu-add-calendar',
+    });
+  }
   const hit = ctx.hitId ? ctx.shapes[ctx.hitId] : undefined;
   if (ctx.voteOpen && hit?.type === 'sticky') {
     items.push({

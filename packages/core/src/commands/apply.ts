@@ -1,5 +1,15 @@
 import { generateKeyBetween, generateNKeysBetween } from 'fractional-indexing';
 import * as Y from 'yjs';
+import {
+  type EventFields,
+  type Exception,
+  MAX_EVENT_NOTES,
+  MAX_EVENT_TITLE,
+  MAX_EVENTS,
+  MAX_EXCEPTIONS,
+  MAX_RSVP_NAME,
+  MAX_UID,
+} from '../calendar/model';
 import { MAX_CONNECTOR_LABEL } from '../schema/defaults';
 import { getRoots } from '../schema/doc';
 import { compareZ } from '../schema/normalize';
@@ -141,9 +151,61 @@ function deleteCellsOf(cells: Y.Map<unknown>, ids: ReadonlySet<string>, part: 0 
   }
 }
 
+/** A calendar page's events map; null when the page has no (well-formed) calendar. */
+function eventsOf(calendars: Y.Map<Y.Map<unknown>>, pageId: string): Y.Map<unknown> | null {
+  const cal: unknown = calendars.get(pageId);
+  if (!(cal instanceof Y.Map)) return null;
+  const events: unknown = cal.get('events');
+  return events instanceof Y.Map ? events : null;
+}
+
+function eventOf(
+  calendars: Y.Map<Y.Map<unknown>>,
+  pageId: string,
+  id: string,
+): Y.Map<unknown> | null {
+  const m: unknown = eventsOf(calendars, pageId)?.get(id);
+  return m instanceof Y.Map ? m : null;
+}
+
+function writeEvent(
+  events: Y.Map<unknown>,
+  id: string,
+  f: EventFields,
+  exceptions: Record<string, Exception> = {},
+): void {
+  if (events.has(id) || events.size >= MAX_EVENTS) return;
+  const m = new Y.Map<unknown>();
+  events.set(id, m);
+  m.set('title', f.title.slice(0, MAX_EVENT_TITLE));
+  if (f.notes) m.set('notes', f.notes.slice(0, MAX_EVENT_NOTES));
+  m.set('color', f.color);
+  m.set('when', f.when);
+  if (f.rule) m.set('rule', f.rule);
+  if (f.link) m.set('link', f.link);
+  if (f.uid) m.set('uid', f.uid.slice(0, MAX_UID));
+  m.set('createdBy', f.createdBy);
+  m.set('createdAt', f.createdAt);
+  const ex = new Y.Map<unknown>();
+  m.set('exceptions', ex);
+  for (const [key, value] of Object.entries(exceptions).slice(0, MAX_EXCEPTIONS))
+    ex.set(key, value);
+  m.set('rsvp', new Y.Map<unknown>());
+}
+
 function apply(doc: Y.Doc, cmd: Command): void {
-  const { shapes, connectors, session, votes, comments, pages, pageTombstones, meta, sheets } =
-    getRoots(doc);
+  const {
+    shapes,
+    connectors,
+    session,
+    votes,
+    comments,
+    pages,
+    pageTombstones,
+    meta,
+    sheets,
+    calendars,
+  } = getRoots(doc);
   switch (cmd.type) {
     case 'CreateShape': {
       const { text, z, columns, ...fields } = cmd.shape;
@@ -385,6 +447,11 @@ function apply(doc: Y.Doc, cmd: Command): void {
           cm.set('order', c.order);
         }
       }
+      if (cmd.page.type === 'calendar' && !calendars.has(cmd.page.id)) {
+        const calendar = new Y.Map<unknown>();
+        calendars.set(cmd.page.id, calendar);
+        calendar.set('events', new Y.Map<unknown>());
+      }
       return;
     }
     case 'RenamePage': {
@@ -400,6 +467,7 @@ function apply(doc: Y.Doc, cmd: Command): void {
       if (cmd.id !== MAIN_PAGE && !((pages.get(cmd.id) as unknown) instanceof Y.Map)) return;
       if (!pageTombstones.has(cmd.id)) pageTombstones.set(cmd.id, true);
       if (sheets.has(cmd.id)) sheets.delete(cmd.id);
+      if (calendars.has(cmd.id)) calendars.delete(cmd.id);
       const onPage = (item: Y.Map<unknown>) => pageIdOf(item.get('pageId')) === cmd.id;
       const removed = new Set<string>();
       for (const [id, s] of [...shapes.entries()]) {
@@ -481,6 +549,60 @@ function apply(doc: Y.Doc, cmd: Command): void {
     case 'SetColWidth': {
       const m: unknown = sheetMaps(sheets, cmd.pageId)?.cols.get(cmd.id);
       if (m instanceof Y.Map) m.set('width', clampWidth(cmd.width));
+      return;
+    }
+    case 'CreateEvent': {
+      const events = eventsOf(calendars, cmd.pageId);
+      if (events) writeEvent(events, cmd.id, cmd.fields);
+      return;
+    }
+    case 'UpdateEvent': {
+      const m = eventOf(calendars, cmd.pageId, cmd.id);
+      if (!m) return;
+      const p = cmd.patch;
+      if (p.title !== undefined) m.set('title', p.title.slice(0, MAX_EVENT_TITLE));
+      if (p.notes !== undefined) {
+        if (p.notes) m.set('notes', p.notes.slice(0, MAX_EVENT_NOTES));
+        else if (m.has('notes')) m.delete('notes');
+      }
+      if (p.color !== undefined) m.set('color', p.color);
+      if (p.when !== undefined) m.set('when', p.when);
+      if (p.rule === null) {
+        if (m.has('rule')) m.delete('rule');
+      } else if (p.rule !== undefined) m.set('rule', p.rule);
+      const ex: unknown = m.get('exceptions');
+      if (cmd.clearExceptions && ex instanceof Y.Map) for (const k of [...ex.keys()]) ex.delete(k);
+      return;
+    }
+    case 'DeleteEvent': {
+      const events = eventsOf(calendars, cmd.pageId);
+      if (events?.has(cmd.id)) events.delete(cmd.id);
+      return;
+    }
+    case 'SetOccurrence': {
+      const ex: unknown = eventOf(calendars, cmd.pageId, cmd.id)?.get('exceptions');
+      if (!(ex instanceof Y.Map)) return;
+      if (!ex.has(cmd.key) && ex.size >= MAX_EXCEPTIONS) return;
+      ex.set(cmd.key, cmd.value);
+      return;
+    }
+    case 'ClearOccurrence': {
+      const ex: unknown = eventOf(calendars, cmd.pageId, cmd.id)?.get('exceptions');
+      if (ex instanceof Y.Map && ex.has(cmd.key)) ex.delete(cmd.key);
+      return;
+    }
+    case 'ImportEvents': {
+      const events = eventsOf(calendars, cmd.pageId);
+      if (!events) return;
+      for (const e of cmd.events) writeEvent(events, e.id, e.fields, e.exceptions);
+      return;
+    }
+    case 'SetRsvp': {
+      const rsvp: unknown = eventOf(calendars, cmd.pageId, cmd.id)?.get('rsvp');
+      if (!(rsvp instanceof Y.Map)) return;
+      if (cmd.status === null) {
+        if (rsvp.has(cmd.userId)) rsvp.delete(cmd.userId);
+      } else rsvp.set(cmd.userId, { status: cmd.status, name: cmd.name.slice(0, MAX_RSVP_NAME) });
       return;
     }
     case 'RenameBoard':

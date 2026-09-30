@@ -48,6 +48,7 @@ function actions(): CanvasMenuActions {
     'create',
     'selectAll',
     'zoomToFit',
+    'addToCalendar',
   ] as const;
   return Object.fromEntries(names.map((n) => [n, vi.fn()])) as unknown as CanvasMenuActions;
 }
@@ -96,7 +97,36 @@ describe('canvasMenu', () => {
       'swatches',
       'menu-lock',
       'menu-comment',
+      'menu-add-calendar',
     ]);
+  });
+
+  it('one sticky can be added to a calendar', () => {
+    const a = actions();
+    const items = canvasMenu(ctx({ selection: ['s1'], hitId: 's1' }), a);
+    const entry = items.find((e) => 'label' in e && e.testId === 'menu-add-calendar');
+    expect(entry).toMatchObject({ label: 'Add to calendar…' });
+    if (entry && 'label' in entry) entry.onSelect();
+    expect(a.addToCalendar).toHaveBeenCalledWith('s1');
+  });
+
+  it('a single rectangle gets no Add to calendar', () => {
+    const shapes = { r1: shape('r1', { type: 'rect' }) };
+    const items = canvasMenu(ctx({ shapes, selection: ['r1'], hitId: 'r1' }), actions());
+    expect(ids(items)).not.toContain('menu-add-calendar');
+  });
+
+  it('two stickies, or a sticky with a connector, get no Add to calendar', () => {
+    const shapes = { s1: shape('s1'), s3: shape('s3') };
+    const two = canvasMenu(ctx({ shapes, selection: ['s1', 's3'], hitId: 's1' }), actions());
+    expect(ids(two)).not.toContain('menu-add-calendar');
+    const mixed = canvasMenu(ctx({ selection: ['s1', 'k1'], hitId: 's1' }), actions());
+    expect(ids(mixed)).not.toContain('menu-add-calendar');
+  });
+
+  it('a viewer gets no Add to calendar', () => {
+    const items = canvasMenu(ctx({ canEdit: false, selection: ['s1'], hitId: 's1' }), actions());
+    expect(ids(items)).not.toContain('menu-add-calendar');
   });
 
   it('an all-locked selection offers Unlock and disables cut, delete and fill', () => {

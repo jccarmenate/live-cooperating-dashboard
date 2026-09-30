@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useStore } from 'zustand';
+import { CalendarPage } from '../calendar/CalendarPage';
 import { Canvas } from '../render/Canvas';
 import { ColumnTitleEditor } from '../render/ColumnTitleEditor';
 import { CommentComposer } from '../render/CommentComposer';
@@ -13,6 +14,7 @@ import { RemoteCursors } from '../render/RemoteCursors';
 import { TextEditor } from '../render/TextEditor';
 import { SheetPage } from '../sheet/SheetPage';
 import { keyFromHash, pageFromHash } from '../sync/key';
+import { AddToCalendarDialog } from '../ui/AddToCalendarDialog';
 import { AlgorithmsPanel } from '../ui/AlgorithmsPanel';
 import { CanvasMenu } from '../ui/CanvasMenu';
 import { CommentsPanel } from '../ui/CommentsPanel';
@@ -58,11 +60,17 @@ function BoardView({ session }: { session: BoardSession }) {
           <CanvasMenu session={session} />
           <HelpDialog session={session} />
           <NewGraphDialog session={session} />
+          <AddToCalendarDialog session={session} />
           <StatusBanner session={session} />
         </div>
       ) : type === 'sheet' ? (
         <div className="relative min-h-0 flex-1">
           <SheetPage session={session} />
+          <StatusBanner session={session} />
+        </div>
+      ) : type === 'calendar' ? (
+        <div className="relative min-h-0 flex-1">
+          <CalendarPage session={session} />
           <StatusBanner session={session} />
         </div>
       ) : (

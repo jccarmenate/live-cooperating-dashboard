@@ -10,6 +10,7 @@ import {
   readShape,
   SESSION_ORIGIN,
 } from '../src';
+import { onlyUnder } from '../src/commands/undo';
 
 const shape = (id: string, type: 'rect' | 'sticky' = 'rect'): NewShape => ({
   id,
@@ -29,6 +30,77 @@ function read(doc: Y.Doc, id: string) {
   const m = getRoots(doc).shapes.get(id);
   return m ? readShape(id, m) : null;
 }
+
+describe('what an undo step touched', () => {
+  it('fails soft on shapes of Yjs internals it does not know', () => {
+    const root = { _item: null };
+    const child = { _item: { parent: root } };
+    expect(onlyUnder(() => [child, root], root)).toBe(true);
+    expect(onlyUnder(() => [], root)).toBe(false);
+    // Missing or odd links end the walk at a type that is not the root.
+    expect(onlyUnder(() => [{}, null, undefined, 7, { _item: { parent: 5 } }], root)).toBe(false);
+    // A cycle never loops forever.
+    const a: { _item: { parent: unknown } } = { _item: { parent: null } };
+    a._item.parent = { _item: { parent: a } };
+    expect(onlyUnder(() => [a], root)).toBe(false);
+    // Anything that throws reads as "not only calendars".
+    const throwing = {
+      get _item(): never {
+        throw new Error('internals changed');
+      },
+    };
+    expect(onlyUnder(() => [throwing], root)).toBe(false);
+    expect(
+      onlyUnder(() => {
+        throw new Error('no changedParentTypes');
+      }, root),
+    ).toBe(false);
+  });
+
+  it('tells when the last undo or redo changed only calendar events', () => {
+    const doc = new Y.Doc();
+    applyCommand(
+      doc,
+      {
+        type: 'CreatePage',
+        page: {
+          id: 'cal',
+          type: 'calendar',
+          title: 'C',
+          order: 'a1',
+          createdBy: 'u',
+          createdAt: 0,
+        },
+      },
+      SESSION_ORIGIN,
+    );
+    const undo = createUndo(doc);
+    applyCommand(
+      doc,
+      {
+        type: 'CreateEvent',
+        pageId: 'cal',
+        id: 'e1',
+        fields: {
+          title: 'T',
+          color: '#3B3BF5',
+          when: { allDay: true, start: '2026-10-01', end: '2026-10-01' },
+          createdBy: 'u',
+          createdAt: 0,
+        },
+      },
+      LOCAL_ORIGIN,
+    );
+    expect(undo.undo()).toBe(true);
+    expect(undo.lastOnlyCalendars()).toBe(true);
+    expect(undo.redo()).toBe(true);
+    expect(undo.lastOnlyCalendars()).toBe(true);
+    undo.stopCapturing();
+    applyCommand(doc, { type: 'CreateShape', shape: shape('a') }, LOCAL_ORIGIN);
+    expect(undo.undo()).toBe(true);
+    expect(undo.lastOnlyCalendars()).toBe(false);
+  });
+});
 
 describe('createUndo', () => {
   it('undoes and redoes local commands', () => {

@@ -15,6 +15,8 @@ export interface Roots {
   pageTombstones: Y.Map<boolean>;
   /** Sheet pages' grids, keyed by page id (created with the page). */
   sheets: Y.Map<Y.Map<unknown>>;
+  /** Calendar pages' events, keyed by page id (created with the page). */
+  calendars: Y.Map<Y.Map<unknown>>;
 }
 
 export function getRoots(doc: Y.Doc): Roots {
@@ -28,6 +30,7 @@ export function getRoots(doc: Y.Doc): Roots {
     pages: doc.getMap<Y.Map<unknown>>('pages'),
     pageTombstones: doc.getMap<boolean>('pageTombstones'),
     sheets: doc.getMap<Y.Map<unknown>>('sheets'),
+    calendars: doc.getMap<Y.Map<unknown>>('calendars'),
   };
 }
 
