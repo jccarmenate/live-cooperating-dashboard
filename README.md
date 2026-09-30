@@ -120,8 +120,8 @@ followed a written implementation plan, with a spec and code-quality review afte
 ```mermaid
 flowchart LR
   subgraph Browser["Browser (Next.js, client-only board)"]
-    UI[Toolbar · Menus · Overlays] --> FSM[Tool FSM<br/>@relay/core]
-    FSM -->|effects| CMD[applyCommand<br/>@relay/core]
+    UI[Toolbar · Menus · Overlays] --> FSM["Tool FSM<br/>@relay/core"]
+    FSM -->|effects| CMD["applyCommand<br/>@relay/core"]
     UI -->|menus, clipboard, pages| CMD
     CMD -->|transact LOCAL / SESSION| YD[(Y.Doc)]
     YD -->|observeDeep| Z[Zustand snapshots<br/>active page]
