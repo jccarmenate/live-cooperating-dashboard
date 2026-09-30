@@ -157,7 +157,7 @@ O con Docker: `docker compose up`.
 ## Tests
 
 ```bash
-npm test         # 825 tests unitarios, de propiedades y de integración (core 445 · web 354 · sync-server 26)
+npm test         # 830 tests unitarios, de propiedades y de integración (core 447 · web 357 · sync-server 26)
 npm run e2e      # 36 escenarios de Playwright con varios navegadores independientes
 npm run lint && npm run typecheck
 ```

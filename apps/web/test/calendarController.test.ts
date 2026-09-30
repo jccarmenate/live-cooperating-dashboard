@@ -239,6 +239,59 @@ describe('merge-safe saves', () => {
     expect(events()[0]).toMatchObject({ title: 'Renamed' });
     expect(events()[0]?.rule).toBeUndefined();
   });
+
+  it('keeps a rule a peer added to a single event while it was open (title-only save)', () => {
+    const { ctl, create, events, doc, page } = setup();
+    create('a', { when: { allDay: true, start: '2026-09-28', end: '2026-09-28' } });
+    ctl.openEditor({ eventId: 'a', key: '2026-09-28' });
+    applyCommand(doc, {
+      type: 'UpdateEvent',
+      pageId: page,
+      id: 'a',
+      patch: { rule: { freq: 'weekly', interval: 1 } },
+    });
+    ctl.save({ ...draftOf(ctl), title: 'Renamed' });
+    // Now a series, but the user did not touch the repeat: both scopes are offered.
+    expect(ctl.ui.getState().question).toEqual({ action: 'save', drops: 0 });
+    ctl.answer('all');
+    expect(ctl.ui.getState().editor).toBeNull();
+    expect(events()[0]).toMatchObject({
+      title: 'Renamed',
+      when: { allDay: true, start: '2026-09-28', end: '2026-09-28' },
+      rule: { freq: 'weekly', interval: 1 },
+    });
+  });
+
+  it("keeps a peer's change to a series' interval and days (title-only save)", () => {
+    const { ctl, create, events, doc, page } = setup();
+    const when = {
+      allDay: false,
+      start: '2026-09-28T09:00',
+      end: '2026-09-28T09:30',
+      tz: ZONE,
+    } as const;
+    create('s', { when, rule: { freq: 'weekly', interval: 1, byDay: [0] } });
+    applyCommand(doc, {
+      type: 'SetOccurrence',
+      pageId: page,
+      id: 's',
+      key: '2026-10-12',
+      value: { cancelled: true },
+    });
+    ctl.openEditor({ eventId: 's', key: '2026-09-28' });
+    const peerRule = { freq: 'weekly', interval: 2, byDay: [0, 2] } as const;
+    applyCommand(doc, {
+      type: 'UpdateEvent',
+      pageId: page,
+      id: 's',
+      patch: { rule: { ...peerRule, byDay: [...peerRule.byDay] } },
+    });
+    ctl.save({ ...draftOf(ctl), title: 'Renamed' });
+    expect(ctl.ui.getState().question).toEqual({ action: 'save', drops: 0 });
+    ctl.answer('all');
+    expect(events()[0]).toMatchObject({ title: 'Renamed', when, rule: peerRule });
+    expect(Object.keys(events()[0]?.exceptions ?? {})).toEqual(['2026-10-12']);
+  });
 });
 
 describe('the selection follows its occurrence', () => {
@@ -265,6 +318,29 @@ describe('the selection follows its occurrence', () => {
     expect(ctl.ui.getState().question).toBeNull();
     ctl.answer('one');
     expect(events()[0]?.exceptions).toEqual({});
+  });
+
+  it('drops an open series question when a peer removes the rule', () => {
+    const { ctl, create, doc, page, events } = setup();
+    // On a later occurrence: its ref is re-keyed to the now single event's day.
+    create('s', WEEKLY_MON);
+    ctl.openEditor({ eventId: 's', key: '2026-10-05' });
+    ctl.save({ ...draftOf(ctl), title: 'Renamed' });
+    expect(ctl.ui.getState().question).not.toBeNull();
+    applyCommand(doc, { type: 'UpdateEvent', pageId: page, id: 's', patch: { rule: null } });
+    expect(ctl.ui.getState().question).toBeNull();
+    expect(ctl.ui.getState().editor?.ref).toEqual({ eventId: 's', key: '2026-09-28' });
+    ctl.answer('one');
+    expect(events()[0]).toMatchObject({ title: 'T', exceptions: {} });
+    // On the first occurrence: the ref keeps its key, but the question is about a series.
+    create('t', WEEKLY_MON);
+    ctl.openEditor({ eventId: 't', key: '2026-09-28' });
+    ctl.save({ ...draftOf(ctl), title: 'Renamed' });
+    expect(ctl.ui.getState().question).not.toBeNull();
+    applyCommand(doc, { type: 'UpdateEvent', pageId: page, id: 't', patch: { rule: null } });
+    expect(ctl.ui.getState().question).toBeNull();
+    ctl.answer('all');
+    expect(events().find((e) => e.id === 't')).toMatchObject({ title: 'T' });
   });
 
   it('drops the selection when a peer cancels that occurrence, and keeps it for a moved one', () => {

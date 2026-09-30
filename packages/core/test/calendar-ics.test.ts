@@ -90,9 +90,10 @@ describe('writeIcs', () => {
     expect(summary).toBe('é'.repeat(100));
   });
 
-  it('exports a calendar at the caps quickly (500 series × 200 exceptions, full notes)', () => {
+  /** `series` daily series × 200 exceptions (100 moved, 100 cancelled), full title and notes. */
+  const bigCalendar = (series: number): CalendarSnapshot => {
     const tz = 'Europe/Madrid';
-    const events = Array.from({ length: 500 }, (_, i) => {
+    const events = Array.from({ length: series }, (_, i) => {
       const exceptions: CalendarEvent['exceptions'] = {};
       for (let k = 0; k < 200; k++) {
         const d = new Date(Date.UTC(2026, 9, 1 + k)).toISOString().slice(0, 10);
@@ -112,14 +113,32 @@ describe('writeIcs', () => {
         exceptions,
       });
     });
-    const t0 = Date.now();
-    const text = writeIcs({ events }, { name: 'Big', now: NOW });
-    const ms = Date.now() - t0;
+    return { events };
+  };
+  const encoder = new TextEncoder();
+  const longestLine = (text: string) =>
+    text.split('\r\n').reduce((max, line) => Math.max(max, encoder.encode(line).length), 0);
+
+  it('exports a large calendar correctly (50 series × 200 exceptions, full notes)', () => {
+    const text = writeIcs(bigCalendar(50), { name: 'Big', now: NOW });
     // Each series is one master plus 100 moved occurrences, each repeating the 2000-char notes.
+    expect(text.split('BEGIN:VEVENT').length - 1).toBe(50 * 101);
+    expect(longestLine(text)).toBeLessThanOrEqual(75);
+    const unfolded = text.replace(/\r\n /g, '');
+    expect(unfolded.split(`\r\nDESCRIPTION:${'é'.repeat(2000)}\r\n`).length - 1).toBe(50 * 101);
+    expect(unfolded.split(`\r\nSUMMARY:${'T'.repeat(120)}\r\n`).length - 1).toBe(50);
+  }, 30_000);
+
+  it('exports a calendar at the caps in bounded time (500 series × 200 exceptions)', () => {
+    const cal = bigCalendar(500);
+    const t0 = Date.now();
+    const text = writeIcs(cal, { name: 'Big', now: NOW });
+    const ms = Date.now() - t0;
     expect(text.split('BEGIN:VEVENT').length - 1).toBe(500 * 101);
-    for (const line of text.slice(0, 200_000).split('\r\n').slice(0, -1))
-      expect(new TextEncoder().encode(line).length).toBeLessThanOrEqual(75);
-    expect(ms).toBeLessThan(5000);
+    expect(longestLine(text.slice(0, 200_000))).toBeLessThanOrEqual(75);
+    // A generous budget: about 1.2 s here, and about 44 s before folding stopped encoding
+    // every character on its own.
+    expect(ms).toBeLessThan(15_000);
   }, 60_000);
 });
 

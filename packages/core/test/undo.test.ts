@@ -10,6 +10,7 @@ import {
   readShape,
   SESSION_ORIGIN,
 } from '../src';
+import { onlyUnder } from '../src/commands/undo';
 
 const shape = (id: string, type: 'rect' | 'sticky' = 'rect'): NewShape => ({
   id,
@@ -31,6 +32,31 @@ function read(doc: Y.Doc, id: string) {
 }
 
 describe('what an undo step touched', () => {
+  it('fails soft on shapes of Yjs internals it does not know', () => {
+    const root = { _item: null };
+    const child = { _item: { parent: root } };
+    expect(onlyUnder(() => [child, root], root)).toBe(true);
+    expect(onlyUnder(() => [], root)).toBe(false);
+    // Missing or odd links end the walk at a type that is not the root.
+    expect(onlyUnder(() => [{}, null, undefined, 7, { _item: { parent: 5 } }], root)).toBe(false);
+    // A cycle never loops forever.
+    const a: { _item: { parent: unknown } } = { _item: { parent: null } };
+    a._item.parent = { _item: { parent: a } };
+    expect(onlyUnder(() => [a], root)).toBe(false);
+    // Anything that throws reads as "not only calendars".
+    const throwing = {
+      get _item(): never {
+        throw new Error('internals changed');
+      },
+    };
+    expect(onlyUnder(() => [throwing], root)).toBe(false);
+    expect(
+      onlyUnder(() => {
+        throw new Error('no changedParentTypes');
+      }, root),
+    ).toBe(false);
+  });
+
   it('tells when the last undo or redo changed only calendar events', () => {
     const doc = new Y.Doc();
     applyCommand(

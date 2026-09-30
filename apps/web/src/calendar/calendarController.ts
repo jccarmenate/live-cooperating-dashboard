@@ -472,7 +472,12 @@ export function createCalendarController(opts: CalendarControllerOptions): Calen
       const ref = liveRef(selected);
       if (ref !== selected) patch.selected = ref;
     }
-    if (pending && !liveRef(pending.ref)) {
+    // A series question is about one occurrence of a series: it goes when that occurrence goes,
+    // and when its ref is re-keyed or the event stops repeating (a peer removed the rule).
+    if (
+      pending &&
+      (liveRef(pending.ref) !== pending.ref || !eventById(pending.ref.eventId)?.rule)
+    ) {
       pending = null;
       patch.question = null;
     }
@@ -655,17 +660,18 @@ export function createCalendarController(opts: CalendarControllerOptions): Calen
         JSON.stringify([...new Set(a)].sort((x, y) => x - y)) ===
         JSON.stringify([...new Set(b)].sort((x, y) => x - y));
       const keepDays = sameDays(draft.byDay, opened.byDay);
+      // Whether the user changed the repeat is read against the rule the editor opened with,
+      // not the live one: a peer's rule change made meanwhile is theirs and survives the save.
+      const userRule = ruleKey(rule) !== ruleKey(ruleOfDraft(opened));
       /** "All events": the new base, the rule to write and whether the exceptions clear. */
       const planAll = (cur: { ev: CalendarEvent; when: When }) => {
         const next = nextOf(cur.when);
         const c = changesOf(cur.when, next);
-        const userRule = ruleKey(rule) !== ruleKey(cur.ev.rule);
         // A user-edited rule is taken as is, except for untouched weekly days.
         const newRule = rotateRule(userRule ? rule : cur.ev.rule, keepDays ? c.dayDelta : 0);
         const ruleChanged = ruleKey(newRule) !== ruleKey(cur.ev.rule);
         return {
           when: editAll(cur.ev.when, cur.when, next),
-          userRule,
           newRule,
           ruleChanged,
           dayDelta: c.dayDelta,
@@ -676,7 +682,7 @@ export function createCalendarController(opts: CalendarControllerOptions): Calen
       const question: SeriesQuestion = {
         action: 'save',
         drops: plan.clears ? exceptionCount(ev) : 0,
-        ...(plan.userRule ? { allOnly: true as const } : {}),
+        ...(userRule ? { allOnly: true as const } : {}),
       };
       ask(ref, question, (scope) => {
         const cur = resolve(ref);
