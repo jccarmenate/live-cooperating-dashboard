@@ -1,8 +1,24 @@
-import { ChevronLeft, ChevronRight, Plus } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Ellipsis, Plus } from 'lucide-react';
+import { type ChangeEvent, useCallback, useRef, useState } from 'react';
 import { useStore } from 'zustand';
 import type { BoardSession } from '../board/session';
+import { ContextMenu, type MenuEntry } from '../ui/ContextMenu';
+import { toast } from '../ui/toasts';
 import type { CalendarController } from './calendarController';
+import { IcsImport, type IcsImportResult } from './IcsImport';
 import { periodTitle } from './layout';
+
+const MAX_FILE_BYTES = 1024 * 1024;
+
+/** Hands `text` to the browser as a download named `<title>.ics`. */
+function download(text: string, title: string) {
+  const url = URL.createObjectURL(new Blob([text], { type: 'text/calendar' }));
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${title.replace(/[^\w .-]+/g, '_') || 'calendar'}.ics`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
 
 /** A header button without a background: one bg class each, so none overrides another. */
 const base =
@@ -19,6 +35,50 @@ export function CalendarHeader({
   const view = useStore(ctl.ui, (s) => s.view);
   const anchor = useStore(ctl.ui, (s) => s.anchor);
   const canEdit = useStore(session.conn.clock, (c) => c.role === 'edit');
+  const title = useStore(
+    session.doc,
+    (d) => d.pages.find((p) => p.id === d.activePage)?.title ?? 'Calendar',
+  );
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  const [result, setResult] = useState<IcsImportResult | null>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
+  const closeMenu = useCallback(() => setMenu(null), []);
+  const closeResult = useCallback(() => setResult(null), []);
+
+  const onFile = async (e: ChangeEvent<HTMLInputElement>) => {
+    const input = e.target;
+    const file = input.files?.[0];
+    // Cleared at once, so choosing the same file again fires another change.
+    input.value = '';
+    if (!file) return;
+    if (file.size > MAX_FILE_BYTES) {
+      toast('This file is larger than 1 MB');
+      return;
+    }
+    const imported = ctl.importIcs(await file.text());
+    if (imported) setResult(imported);
+  };
+
+  const items: MenuEntry[] = [
+    {
+      label: 'Export .ics',
+      testId: 'cal-export',
+      onSelect: () => {
+        const text = ctl.exportIcs(title);
+        if (text !== null) download(text, title);
+      },
+    },
+    ...(canEdit
+      ? [
+          {
+            label: 'Import .ics…',
+            testId: 'cal-import',
+            onSelect: () => fileInput.current?.click(),
+          },
+        ]
+      : []),
+  ];
+
   return (
     <div className="flex flex-wrap items-center gap-2 border-b-2 border-ink bg-white px-3 py-2">
       <button
@@ -75,7 +135,34 @@ export function CalendarHeader({
         <span data-testid="cal-zone" className="font-mono text-[11px] text-ink/60">
           Times in {ctl.zone}
         </span>
+        <button
+          type="button"
+          data-testid="cal-menu"
+          aria-label="More calendar actions"
+          aria-haspopup="menu"
+          aria-expanded={menu !== null}
+          className={btn}
+          onClick={(e) => {
+            // The menu keeps itself inside the viewport, so it lines up under the button's right.
+            const r = e.currentTarget.getBoundingClientRect();
+            setMenu({ x: r.left, y: r.bottom + 4 });
+          }}
+        >
+          <Ellipsis size={14} />
+        </button>
       </div>
+      {canEdit && (
+        <input
+          ref={fileInput}
+          type="file"
+          accept=".ics,text/calendar"
+          data-testid="cal-import-input"
+          className="hidden"
+          onChange={(e) => void onFile(e)}
+        />
+      )}
+      {menu && <ContextMenu x={menu.x} y={menu.y} items={items} onClose={closeMenu} />}
+      <IcsImport result={result} onClose={closeResult} />
     </div>
   );
 }

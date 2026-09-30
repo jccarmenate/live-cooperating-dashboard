@@ -14,8 +14,10 @@ import {
   createUndo,
   DEFAULT_SIZE,
   type Effect,
+  EVENT_COLORS,
   fitBounds,
   type GraphDraft,
+  getRoots,
   graphPlan,
   type Identity,
   initialSheet,
@@ -24,6 +26,8 @@ import {
   isVoteOpen,
   LOCAL_ORIGIN,
   MAX_BOARD_TITLE,
+  MAX_EVENT_TITLE,
+  MAX_EVENTS,
   MAX_PAGE_TITLE,
   MAX_PASTE_BYTES,
   type NewConnector,
@@ -40,6 +44,7 @@ import {
   plainTextSticky,
   type Rect,
   type Routing,
+  readCalendar,
   readGraph,
   runAlgorithm as runGraphAlgorithm,
   SESSION_ORIGIN,
@@ -54,6 +59,7 @@ import {
   VOTES_PER_USER,
   voteKey,
   voteTallies,
+  type When,
   zoomAt,
 } from '@relay/core';
 import type * as Y from 'yjs';
@@ -120,6 +126,8 @@ export interface BoardUiState {
   graphNames: Record<string, string>;
   /** The document finished its first sync. */
   synced: boolean;
+  /** The sticky whose "Add to calendar" dialog is open. */
+  addToCalendar: string | null;
 }
 
 export interface BoardController {
@@ -235,6 +243,19 @@ export interface BoardController {
   /** Runs an algorithm on the selection (or the whole page) and shows its result as a local overlay. */
   runAlgorithm(kind: AlgorithmKind, start?: string, end?: string): AlgorithmResult;
   clearGraphResult(): void;
+  /** Opens (a sticky's id) or closes (null) the "Add to calendar" dialog. */
+  setAddToCalendar(id: string | null): void;
+  /**
+   * Creates an event linked to a sticky on the active page, on the calendar page `pageId` (null:
+   * a new calendar page), as one undo step (the new page itself is not undoable). Returns the
+   * calendar page id, or null when nothing was created.
+   */
+  addStickyToCalendar(input: {
+    pageId: string | null;
+    shapeId: string;
+    title: string;
+    when: When;
+  }): string | null;
   destroy(): void;
 }
 
@@ -288,6 +309,7 @@ export function createBoardController(opts: {
     algorithmsPanel: false,
     ...noGraphResult(),
     synced: false,
+    addToCalendar: null,
   }));
   const undoStack = createUndo(opts.doc, { captureTimeout: UNDO_CAPTURE_TIMEOUT });
 
@@ -454,6 +476,29 @@ export function createBoardController(opts: {
   };
   const copySelection = (): string | null => (copy() ? clip : null);
 
+  /** Appends a page of `type` after the last one (SESSION origin, never undoable). */
+  const createPage = (type: PageType): string => {
+    const pages = opts.docStore.getState().pages;
+    const id = newId();
+    const label = type === 'board' ? 'Board' : type === 'sheet' ? 'Sheet' : 'Calendar';
+    const taken = new Set(pages.map((p) => p.title));
+    let n = pages.filter((p) => p.type === type).length + 1;
+    while (taken.has(`${label} ${n}`)) n++;
+    commitPage({
+      type: 'CreatePage',
+      page: {
+        id,
+        type,
+        title: `${label} ${n}`.slice(0, MAX_PAGE_TITLE),
+        order: orderBetween(pages.at(-1)?.order ?? null, null),
+        createdBy: opts.user.id,
+        createdAt: now(),
+      },
+      ...(type === 'sheet' ? { sheet: initialSheet() } : {}),
+    });
+    return id;
+  };
+
   const unsubscribe = opts.docStore.subscribe((doc, prev) => {
     // A page change (local, or a remote fallback when the active page is deleted) starts
     // fresh: no gesture, editor or popover carries over, undo cannot reach the old page,
@@ -482,6 +527,7 @@ export function createBoardController(opts: {
         menu: null,
         graphMenu: false,
         graphDialog: false,
+        addToCalendar: null,
         ...noGraphResult(),
         camera: stored ?? { x: 0, y: 0, zoom: 1 },
       });
@@ -500,6 +546,9 @@ export function createBoardController(opts: {
     const { editingConnector } = ui.getState();
     if (editingConnector && !doc.connectors[editingConnector])
       ui.setState({ editingConnector: null });
+    // The Add to calendar dialog closes when its sticky is deleted.
+    const { addToCalendar } = ui.getState();
+    if (addToCalendar && !doc.shapes[addToCalendar]) ui.setState({ addToCalendar: null });
   });
 
   const dispatch = (event: ToolEvent) => {
@@ -683,27 +732,7 @@ export function createBoardController(opts: {
     setPage(id) {
       opts.setPage(id);
     },
-    createPage(type) {
-      const pages = opts.docStore.getState().pages;
-      const id = newId();
-      const label = type === 'board' ? 'Board' : type === 'sheet' ? 'Sheet' : 'Calendar';
-      const taken = new Set(pages.map((p) => p.title));
-      let n = pages.filter((p) => p.type === type).length + 1;
-      while (taken.has(`${label} ${n}`)) n++;
-      commitPage({
-        type: 'CreatePage',
-        page: {
-          id,
-          type,
-          title: `${label} ${n}`.slice(0, MAX_PAGE_TITLE),
-          order: orderBetween(pages.at(-1)?.order ?? null, null),
-          createdBy: opts.user.id,
-          createdAt: now(),
-        },
-        ...(type === 'sheet' ? { sheet: initialSheet() } : {}),
-      });
-      return id;
-    },
+    createPage,
     renamePage(id, title) {
       const text = title.trim().slice(0, MAX_PAGE_TITLE);
       if (text) commitPage({ type: 'RenamePage', id, title: text });
@@ -905,6 +934,40 @@ export function createBoardController(opts: {
     },
     clearGraphResult() {
       ui.setState(noGraphResult());
+    },
+    setAddToCalendar(id) {
+      ui.setState({ addToCalendar: id });
+    },
+    addStickyToCalendar(input) {
+      const shape = opts.docStore.getState().shapes[input.shapeId];
+      // Checked before a new page is made: mid-gesture nothing would be committed to it.
+      if (shape?.type !== 'sticky' || !idle()) return null;
+      const pageId = input.pageId ?? createPage('calendar');
+      const cal = readCalendar(getRoots(opts.doc).calendars.get(pageId));
+      if (!cal) return null;
+      if (cal.events.length >= MAX_EVENTS) {
+        opts.notify?.('This calendar is full (500 events)');
+        return null;
+      }
+      const done = commitStep({
+        type: 'CreateEvent',
+        pageId,
+        id: newId(),
+        fields: {
+          title: input.title.trim().slice(0, MAX_EVENT_TITLE) || 'Untitled',
+          color: EVENT_COLORS[0] as string,
+          when: input.when,
+          link: { pageId: activePage(), shapeId: input.shapeId },
+          createdBy: opts.user.id,
+          createdAt: now(),
+        },
+      });
+      if (!done) return null;
+      const title =
+        opts.docStore.getState().pages.find((p) => p.id === pageId)?.title ?? 'Calendar';
+      opts.notify?.(`Added to ${title}`);
+      ui.setState({ addToCalendar: null });
+      return pageId;
     },
     destroy() {
       throttledCommit.cancel();

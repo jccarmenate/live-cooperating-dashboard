@@ -1013,9 +1013,9 @@ back to it.
     summary dialog lists "Imported N events" and the warnings.
 - **Add to calendar** (board pages, editors): "Add to calendar…" in a single
   sticky's context menu opens a dialog to pick a calendar page (or "New
-  calendar page", which creates one titled "Calendar" at the end of the
-  tabs), a date (default today) and all-day (default) or a start and end
-  time. The title is the sticky's first line (capped at 120; "Untitled"
+  calendar page", which creates one at the end of the tabs, named like a
+  calendar made from "+" ("Calendar N")), a date (default today) and
+  all-day (default) or a start and end time. The title is the sticky's first line (capped at 120; "Untitled"
   when empty). The event stores `link { pageId, shapeId }` and a toast
   reads "Added to <calendar title>". In the editor, "Open on board"
   switches to that page, selects the sticky and centres the camera on it;

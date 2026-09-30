@@ -14,6 +14,7 @@ import { RemoteCursors } from '../render/RemoteCursors';
 import { TextEditor } from '../render/TextEditor';
 import { SheetPage } from '../sheet/SheetPage';
 import { keyFromHash, pageFromHash } from '../sync/key';
+import { AddToCalendarDialog } from '../ui/AddToCalendarDialog';
 import { AlgorithmsPanel } from '../ui/AlgorithmsPanel';
 import { CanvasMenu } from '../ui/CanvasMenu';
 import { CommentsPanel } from '../ui/CommentsPanel';
@@ -59,6 +60,7 @@ function BoardView({ session }: { session: BoardSession }) {
           <CanvasMenu session={session} />
           <HelpDialog session={session} />
           <NewGraphDialog session={session} />
+          <AddToCalendarDialog session={session} />
           <StatusBanner session={session} />
         </div>
       ) : type === 'sheet' ? (

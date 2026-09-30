@@ -687,3 +687,70 @@ describe('changes are measured against the draft the editor opened with', () => 
     expect(ctl.visible().occurrences.map((o) => o.key)).toEqual(['2026-09-29', '2026-10-01']);
   });
 });
+
+describe('.ics', () => {
+  const ICS = (uids: string[]) =>
+    [
+      'BEGIN:VCALENDAR',
+      ...uids.flatMap((u, i) => [
+        'BEGIN:VEVENT',
+        `UID:${u}`,
+        `DTSTART;VALUE=DATE:2026100${i + 1}`,
+        `SUMMARY:${u}`,
+        'END:VEVENT',
+      ]),
+      'END:VCALENDAR',
+    ].join('\r\n');
+
+  it('imports as one undo step, skips events already in the calendar and reports warnings', () => {
+    const { ctl, events, board } = setup();
+    const first = ctl.importIcs(ICS(['a@x', 'b@x']));
+    expect(first).toEqual({ imported: 2, skipped: 0, warnings: [] });
+    expect(
+      events()
+        .map((e) => e.uid)
+        .sort(),
+    ).toEqual(['a@x', 'b@x']);
+    const again = ctl.importIcs(`${ICS(['a@x', 'c@x'])}\r\nBEGIN:VEVENT\r\nUID:bad\r\nEND:VEVENT`);
+    expect(again?.imported).toBe(1);
+    expect(again?.skipped).toBe(1);
+    expect(again?.warnings.map((w) => w.message)).toEqual(['Event without a valid start; skipped']);
+    board.undo();
+    expect(
+      events()
+        .map((e) => e.uid)
+        .sort(),
+    ).toEqual(['a@x', 'b@x']);
+  });
+
+  it('refuses a file over 1 MB, an import past the event cap, and an import over the byte budget', () => {
+    const { ctl, notify, events } = setup();
+    expect(ctl.importIcs('x'.repeat(1024 * 1024 + 1))).toBeNull();
+    expect(notify).toHaveBeenLastCalledWith('This file is larger than 1 MB');
+    const many = Array.from({ length: 501 }, (_, i) => `u${i}@x`);
+    expect(
+      ctl.importIcs(ICS(many).replace(/DTSTART;VALUE=DATE:\d+/g, 'DTSTART;VALUE=DATE:20261001')),
+    ).toBeNull();
+    expect(notify).toHaveBeenLastCalledWith('This calendar is full (500 events)');
+    const heavy = Array.from({ length: 150 }, (_, i) =>
+      [
+        'BEGIN:VEVENT',
+        `UID:h${i}`,
+        'DTSTART;VALUE=DATE:20261001',
+        `DESCRIPTION:${'z'.repeat(1900)}`,
+        'END:VEVENT',
+      ].join('\r\n'),
+    ).join('\r\n');
+    expect(ctl.importIcs(`BEGIN:VCALENDAR\r\n${heavy}\r\nEND:VCALENDAR`)).toBeNull();
+    expect(notify).toHaveBeenLastCalledWith('Too much to paste at once');
+    expect(events()).toHaveLength(0);
+  });
+
+  it('exports what it can re-import', () => {
+    const { ctl, create } = setup();
+    create('a', { title: 'Trip', when: { allDay: true, start: '2026-10-01', end: '2026-10-03' } });
+    const text = ctl.exportIcs('Team') ?? '';
+    expect(text).toContain('SUMMARY:Trip');
+    expect(text).toContain('X-WR-CALNAME:Team');
+  });
+});

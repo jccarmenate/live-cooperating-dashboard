@@ -59,6 +59,7 @@ export function CanvasMenu({ session }: { session: BoardSession }) {
       create: (type, at) => controller.createAt(type, at),
       selectAll: () => controller.selectAll(),
       zoomToFit: () => controller.zoomToFit(),
+      addToCalendar: (id) => controller.setAddToCalendar(id),
     },
   );
   return <ContextMenu x={menu.screen.x} y={menu.screen.y} items={items} onClose={close} />;
