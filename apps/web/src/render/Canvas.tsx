@@ -1,6 +1,7 @@
 import {
   isHandle,
   PALETTE,
+  type Point,
   type PointerInfo,
   type Preview,
   panBy,
@@ -14,6 +15,7 @@ import type { BoardSession } from '../board/session';
 import { blurStrayFocus } from '../ui/typing';
 import { ConnectorView } from './ConnectorView';
 import { GraphOverlay } from './GraphOverlay';
+import { type PinchStart, pinchCamera, startPinch } from './pinch';
 import { SelectionLayer } from './SelectionLayer';
 import { ShapeView } from './ShapeView';
 
@@ -74,6 +76,11 @@ export function Canvas({ session }: { session: BoardSession }) {
   // Pan gestures bypass the tool FSM: the camera is view state, not a document edit.
   const pan = useRef<{ pointerId: number; x: number; y: number } | null>(null);
   const [panning, setPanning] = useState(false);
+  // Touch: fingers on the glass (canvas px). A second finger turns the gesture into a
+  // two-finger pan and pinch zoom; every finger involved stays out of the tool until it lifts.
+  const touches = useRef(new Map<number, Point>());
+  const pinch = useRef<{ ids: [number, number]; start: PinchStart } | null>(null);
+  const spent = useRef(new Set<number>());
 
   // Measure the canvas so the controller can fit, centre and publish the viewport.
   useEffect(() => {
@@ -135,6 +142,49 @@ export function Canvas({ session }: { session: BoardSession }) {
     return true;
   };
 
+  const local = (e: PointerEvent): Point => {
+    const b = svgRef.current?.getBoundingClientRect();
+    return { x: e.clientX - (b?.left ?? 0), y: e.clientY - (b?.top ?? 0) };
+  };
+
+  /** A finger lands; true when the tool must not see it. */
+  const touchDown = (e: PointerEvent<SVGSVGElement>): boolean => {
+    if (e.pointerType !== 'touch') return false;
+    const fingers = touches.current;
+    fingers.set(e.pointerId, local(e));
+    if (fingers.size === 1) return false;
+    spent.current.add(e.pointerId);
+    if (pinch.current || fingers.size > 2) return true;
+    // The second finger: the first one's tool gesture (a drag, a marquee, a drawing) gives way.
+    if (controller.ui.getState().tool.mode !== 'idle') controller.dispatch({ type: 'cancel' });
+    const ids = [...fingers.keys()] as [number, number];
+    for (const id of ids) spent.current.add(id);
+    const [a, b] = ids.map((id) => fingers.get(id) as Point) as [Point, Point];
+    pinch.current = { ids, start: startPinch(controller.ui.getState().camera, a, b) };
+    e.currentTarget.setPointerCapture(e.pointerId);
+    return true;
+  };
+
+  /** A finger moves; true when it belongs to a two-finger gesture, not the tool. */
+  const touchMove = (e: PointerEvent<SVGSVGElement>): boolean => {
+    if (e.pointerType !== 'touch' || !touches.current.has(e.pointerId)) return false;
+    touches.current.set(e.pointerId, local(e));
+    const p = pinch.current;
+    if (p?.ids.includes(e.pointerId)) {
+      const [a, b] = p.ids.map((id) => touches.current.get(id) as Point) as [Point, Point];
+      controller.setCamera(pinchCamera(p.start, a, b));
+    }
+    return spent.current.has(e.pointerId);
+  };
+
+  /** A finger lifts or is cancelled; true when the tool must not see it. */
+  const touchUp = (e: PointerEvent<SVGSVGElement>): boolean => {
+    if (e.pointerType !== 'touch') return false;
+    touches.current.delete(e.pointerId);
+    if (pinch.current?.ids.includes(e.pointerId)) pinch.current = null;
+    return spent.current.delete(e.pointerId);
+  };
+
   const info = (e: PointerEvent | MouseEvent): PointerInfo => {
     const bounds = svgRef.current?.getBoundingClientRect();
     const screen = { x: e.clientX - (bounds?.left ?? 0), y: e.clientY - (bounds?.top ?? 0) };
@@ -173,6 +223,7 @@ export function Canvas({ session }: { session: BoardSession }) {
         // The preventDefault calls below keep focus where it is; see blurStrayFocus. The
         // board-area editors keep their own focus rules below.
         blurStrayFocus(e.currentTarget.parentElement);
+        if (touchDown(e)) return;
         if (e.button === 1 || (e.button === 0 && controller.ui.getState().spaceHeld)) {
           e.preventDefault();
           e.currentTarget.setPointerCapture(e.pointerId);
@@ -201,6 +252,7 @@ export function Canvas({ session }: { session: BoardSession }) {
         controller.dispatch({ type: 'pointerDown', p });
       }}
       onPointerMove={(e) => {
+        if (touchMove(e)) return;
         const p = info(e);
         publisher.setCursor(p.world);
         controller.setPointer(p.world);
@@ -215,17 +267,17 @@ export function Canvas({ session }: { session: BoardSession }) {
       }}
       onPointerUp={(e) => {
         if (endPan(e)) return;
-        controller.dispatch({ type: 'pointerUp', p: info(e) });
+        if (!touchUp(e)) controller.dispatch({ type: 'pointerUp', p: info(e) });
         if (e.currentTarget.hasPointerCapture(e.pointerId)) {
           e.currentTarget.releasePointerCapture(e.pointerId);
         }
       }}
       onPointerCancel={(e) => {
-        if (endPan(e)) return;
+        if (endPan(e) || touchUp(e)) return;
         if (controller.ui.getState().tool.mode !== 'idle') controller.dispatch({ type: 'cancel' });
       }}
       onLostPointerCapture={(e) => {
-        if (endPan(e)) return;
+        if (endPan(e) || touchUp(e)) return;
         // Capture is also lost after every pointerUp: at rest a cancel changes nothing in the
         // tool, and must not reach the controller as an Escape (it clears algorithm results).
         if (controller.ui.getState().tool.mode !== 'idle') controller.dispatch({ type: 'cancel' });

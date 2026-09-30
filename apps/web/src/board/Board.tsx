@@ -38,7 +38,7 @@ function BoardView({ session }: { session: BoardSession }) {
   const hasPages = useStore(session.doc, (d) => d.pages.length > 0);
   const canEdit = useStore(session.conn.clock, (c) => c.role === 'edit');
   return (
-    <div className="fixed inset-0 flex flex-col bg-paper">
+    <div className="safe-area fixed inset-0 flex flex-col bg-paper">
       <Header session={session} />
       <PageTabs session={session} />
       {type === 'board' ? (

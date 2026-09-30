@@ -208,7 +208,9 @@ export function Toolbar({ session }: { session: BoardSession }) {
   return (
     <nav
       aria-label="Tools"
-      className="absolute left-3 top-3 flex flex-col gap-1.5 border-[3px] border-ink bg-white p-1.5 shadow-hard"
+      // One column while it fits; on short screens (landscape phones) the buttons wrap into a
+      // second column instead of running under the zoom controls and off the bottom.
+      className="absolute left-3 top-3 grid max-h-[calc(100%-4.5rem)] grid-flow-col grid-rows-[repeat(auto-fit,2.25rem)] gap-1.5 border-[3px] border-ink bg-white p-1.5 shadow-hard"
     >
       {BEFORE_SHAPES.map((tool) => (
         <ToolButton
@@ -228,14 +230,14 @@ export function Toolbar({ session }: { session: BoardSession }) {
         />
       ))}
       <GraphButton session={session} canEdit={role === 'edit'} />
-      <span className="my-0.5 h-px bg-ink/20" aria-hidden />
       <button
         type="button"
         data-testid="help-button"
         aria-label="Keyboard shortcuts (?)"
         title="Keyboard shortcuts (?)"
         onClick={() => session.controller.setHelp(true)}
-        className="grid size-9 place-items-center border-2 border-ink bg-white font-display text-sm hover:bg-paper"
+        // The divider above it lives in the grid gap, so it takes no row of its own.
+        className="relative grid size-9 place-items-center border-2 border-ink bg-white font-display text-sm before:absolute before:-inset-x-0.5 before:-top-[5px] before:h-px before:bg-ink/20 hover:bg-paper"
       >
         ?
       </button>

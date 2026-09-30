@@ -16,6 +16,19 @@
   --font-mono: var(--font-jetbrains-mono), ui-monospace, monospace;
 }
 
+/*
+ * Responsive breakpoints. Width uses Tailwind's defaults (`max-sm:` = phones, below 640px);
+ * touch uses the built-in `pointer-coarse:`. `short:` covers landscape phones and small laptop
+ * windows. Keep these in sync with MEDIA in src/ui/responsive.ts.
+ */
+@custom-variant short (@media (max-height: 559.98px));
+
+/* Keeps content clear of notches and home indicators (the viewport uses viewport-fit=cover). */
+@utility safe-area {
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom)
+    env(safe-area-inset-left);
+}
+
 html,
 body {
   height: 100%;

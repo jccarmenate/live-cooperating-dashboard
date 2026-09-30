@@ -122,7 +122,9 @@ export function PropertiesBar({ session }: { session: BoardSession }) {
       role="toolbar"
       aria-label="Selection properties"
       data-testid="props-bar"
-      className="absolute z-20 flex items-center gap-2 border-[3px] border-ink bg-white px-2 py-1 shadow-hard"
+      // Never wider than the board (barPosition keeps an 8px margin each side); on a phone the
+      // swatches and toggles scroll sideways instead of running off-screen.
+      className="absolute z-20 flex max-w-[calc(100%-1rem)] items-center gap-2 overflow-x-auto border-[3px] border-ink bg-white px-2 py-1 shadow-hard"
       style={{ left: pos.left, top: pos.top }}
     >
       {info.shapes.length > 0 && (

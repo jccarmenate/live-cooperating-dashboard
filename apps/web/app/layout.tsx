@@ -1,4 +1,4 @@
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import { Archivo_Black, JetBrains_Mono, Space_Grotesk } from 'next/font/google';
 import type { ReactNode } from 'react';
 import './globals.css';
@@ -14,6 +14,16 @@ const mono = JetBrains_Mono({ subsets: ['latin'], variable: '--font-jetbrains-mo
 export const metadata: Metadata = {
   title: 'Relay',
   description: 'A live multiplayer whiteboard where cursors, shapes and edits sync instantly.',
+};
+
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  // Draw under notches; the board pads itself back with the `safe-area` utility.
+  viewportFit: 'cover',
+  // The on-screen keyboard shrinks the layout, so fixed bars and the sheet stay above it.
+  interactiveWidget: 'resizes-content',
+  themeColor: '#f4f1ea',
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {

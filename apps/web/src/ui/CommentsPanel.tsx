@@ -25,7 +25,9 @@ export function CommentsPanel({ session }: { session: BoardSession }) {
     <aside
       data-testid="comments-panel"
       aria-label="Comments"
-      className="absolute top-3 right-3 bottom-44 z-10 flex w-72 flex-col border-[3px] border-ink bg-white shadow-hard"
+      // Above the selection's properties bar. Phones and short screens: clear of the toolbar on
+      // the left and the zoom controls below, covering the minimap while open.
+      className="absolute top-3 right-3 bottom-44 z-20 flex w-72 flex-col border-[3px] border-ink bg-white shadow-hard max-sm:left-20 max-sm:w-auto max-sm:bottom-16 short:bottom-16"
     >
       <div className="flex border-b-2 border-ink">
         <button

@@ -13,14 +13,18 @@ import {
 import { type PointerEvent, useRef } from 'react';
 import { useStore } from 'zustand';
 import type { BoardSession } from '../board/session';
+import { MEDIA, useMediaQuery } from '../ui/responsive';
 import { blurStrayFocus } from '../ui/typing';
 import { onPage } from './pageFilter';
 
-const W = 200;
-const H = 140;
+const SIZE = { w: 200, h: 140 };
+/** Phones and short screens: small enough to leave the board room. */
+const COMPACT = { w: 120, h: 84 };
 
 export function Minimap({ session }: { session: BoardSession }) {
   const { controller } = session;
+  const compact = useMediaQuery(`${MEDIA.compact}, ${MEDIA.short}`);
+  const { w: W, h: H } = compact ? COMPACT : SIZE;
   const shapes = useStore(session.doc, (s) => s.shapes);
   const order = useStore(session.doc, (s) => s.order);
   const camera = useStore(controller.ui, (s) => s.camera);

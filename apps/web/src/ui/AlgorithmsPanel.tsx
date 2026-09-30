@@ -36,8 +36,10 @@ export function AlgorithmsPanel({ session }: { session: BoardSession }) {
   return (
     <aside
       data-testid="algorithms-panel"
+      data-scroll-region
       aria-label="Graph algorithms"
-      className="absolute top-3 right-3 z-10 flex w-72 flex-col gap-3 border-[3px] border-ink bg-white p-3 shadow-hard"
+      // Above the selection's properties bar; scrolls when the screen is shorter than the panel.
+      className="absolute top-3 right-3 z-20 flex max-h-[calc(100%-1.5rem)] w-72 flex-col gap-3 overflow-y-auto border-[3px] border-ink bg-white p-3 shadow-hard max-sm:left-20 max-sm:w-auto"
     >
       <div className="flex items-center justify-between">
         <h2 className="font-display text-sm uppercase">Algorithms</h2>
