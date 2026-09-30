@@ -12,11 +12,14 @@ No sign-up: open a link and you are in.
 
 [Leer en español](README.es.md)
 
-![Two anonymous users editing the same board at the same time](docs/demo.gif)
+![Two anonymous users touring one room: a retro board, a spreadsheet, a graph and a calendar](docs/demo.gif)
 
-*Two independent browsers, two anonymous users, one board. Every frame of the GIF comes from
-the real app, driven by [`scripts/capture.mjs`](scripts/capture.mjs). The recording dates
-from the first milestone, and later features are listed below.*
+*Two independent browsers, two anonymous users (one in Madrid, one in Havana), one room. They
+write a retro board with live cursors; add a sheet where one user's edit updates the other's
+`=SUM`; generate a graph from an edge list and highlight a shortest path (visible only to
+whoever ran it); then drag a weekly 09:00 standup onto a calendar, which Havana sees at 03:00
+and answers "Going" live. Every frame comes from the real app, driven by
+[`scripts/capture.mjs`](scripts/capture.mjs).*
 
 ## What it does
 
@@ -170,6 +173,7 @@ private window. **SHARE** gives you an edit link and a read-only link.
 ```bash
 npm run demo:bot -- --role writer            # creates a room and writes a retro board
 npm run demo:bot -- --role mover <board-url> # joins and moves / +1s shapes
+npm run demo:capture                         # re-records docs/demo.gif (needs ffmpeg and npm run dev)
 ```
 
 Or run it in Docker: `docker compose up`.

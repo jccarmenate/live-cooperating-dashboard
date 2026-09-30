@@ -13,8 +13,8 @@ export default function Home() {
         </p>
         <ul className="mt-5 grid gap-2 font-mono text-xs leading-relaxed">
           <li>▸ Stickies, shapes, connectors and frames — edited together, live.</li>
-          <li>▸ Board and spreadsheet pages per room, pinned comments, timed dot voting.</li>
-          <li>▸ Right-click anything, copy between boards, press ? for every shortcut.</li>
+          <li>▸ Board, spreadsheet and calendar pages per room; graphs with live algorithms.</li>
+          <li>▸ Pinned comments, timed dot voting, right-click menus, ? for board shortcuts.</li>
           <li>▸ No accounts: share an edit link or a read-only view link.</li>
         </ul>
         <div className="mt-8 flex flex-wrap items-start gap-3">

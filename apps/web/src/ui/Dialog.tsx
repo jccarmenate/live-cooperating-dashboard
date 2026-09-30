@@ -80,7 +80,8 @@ export function Dialog({
             first.focus();
           }
         }}
-        className={`w-full ${wide ? 'max-w-2xl' : 'max-w-md'} border-[3px] border-ink bg-white p-5 shadow-hard`}
+        // A dialog taller than the window (the event editor on a short screen) scrolls inside.
+        className={`max-h-[calc(100dvh-2rem)] w-full overflow-y-auto ${wide ? 'max-w-2xl' : 'max-w-md'} border-[3px] border-ink bg-white p-5 shadow-hard`}
       >
         <h2 className="font-display text-lg uppercase">{title}</h2>
         <div className="mt-3">{children}</div>

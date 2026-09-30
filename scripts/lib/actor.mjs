@@ -144,6 +144,104 @@ export function createActor(page) {
       return true;
     },
 
+    /** Clears the selection by clicking empty canvas at a fraction of the canvas. */
+    async deselect(fx, fy) {
+      await tool('select');
+      const p = await at(fx, fy);
+      await glide(p);
+      await page.mouse.click(p.x, p.y);
+    },
+
+    // ---- Pages, sheets, graphs and calendars (outside the canvas: plain element clicks) ----
+
+    /** Adds a page of a kind from the "+" menu: 'board' | 'sheet' | 'calendar'. */
+    async addPage(kind) {
+      await page.getByTestId('page-add').click();
+      await sleep(350);
+      await page.getByTestId(`page-add-${kind}`).click();
+      const ready = { board: 'canvas', sheet: 'sheet-page', calendar: 'calendar-page' }[kind];
+      await page.getByTestId(ready).waitFor();
+      if (kind === 'board') cursor = await at(0.5, 0.5);
+    },
+
+    /** Switches to the n-th page tab (0-based) and waits for its content. */
+    async openTab(n, ready) {
+      await page.getByTestId('page-tab').nth(n).click();
+      if (ready) await page.getByTestId(ready).waitFor();
+      if (ready === 'canvas') cursor = await at(0.5, 0.5);
+    },
+
+    /** Types into sheet cells, starting at `address` and moving down with Enter. */
+    async fillColumn(address, values) {
+      await page.getByTestId(`cell-${address}`).click();
+      for (const v of values) {
+        await sleep(250);
+        await typeLikeAPerson(v);
+        await page.keyboard.press('Enter');
+      }
+    },
+
+    /** Generates a graph from an edge list through the Graph menu (G). */
+    async graphFromEdges(edges) {
+      await page.keyboard.press('g');
+      await page.getByTestId('graph-new').click();
+      await page.getByTestId('graph-tab-edges').click();
+      // The field starts with an example: replace it.
+      await page.getByTestId('graph-edges').click();
+      await page.keyboard.press('Control+a');
+      await typeLikeAPerson(edges);
+      await sleep(400);
+      await page.getByTestId('graph-create').click();
+      await page.getByTestId('graph-dialog').waitFor({ state: 'detached' });
+    },
+
+    /** Runs "shortest path" between two nodes in the Algorithms panel. */
+    async shortestPath(from, to) {
+      await press('tool-graph');
+      await page.getByTestId('graph-algorithms').click();
+      await page.getByTestId('algo-kind').selectOption('path');
+      await sleep(300);
+      await page.getByTestId('algo-start').selectOption({ label: from });
+      await page.getByTestId('algo-end').selectOption({ label: to });
+      await sleep(300);
+      await page.getByTestId('algo-run').click();
+      await page.getByTestId('algo-result').waitFor();
+    },
+
+    /**
+     * Drags a timed event in the week view on the `day`-th column (0 = Monday) from `from` to
+     * `to` (hours), then names it in the editor and saves it, optionally repeating weekly.
+     */
+    async dragEvent(day, from, to, title, { weekly = false } = {}) {
+      const col = page.getByTestId('cal-week-col').nth(day);
+      const box = await col.boundingBox();
+      if (!box) throw new Error('week column not visible');
+      const y = (h) => box.y + h * 48;
+      const x = box.x + box.width / 2;
+      await page.mouse.move(x, y(from) + 2);
+      await page.mouse.down();
+      for (let i = 1; i <= 10; i++) {
+        await page.mouse.move(x, y(from) + ((y(to) - y(from)) * i) / 10);
+        await sleep(30);
+      }
+      await page.mouse.up();
+      await page.getByTestId('cal-title-input').click();
+      await typeLikeAPerson(title);
+      if (weekly) await page.getByTestId('cal-repeat').selectOption('weekly');
+      await sleep(400);
+      await page.getByTestId('cal-save').click();
+      await page.getByTestId('cal-editor').waitFor({ state: 'detached' });
+    },
+
+    /** Opens the first event titled `title`, answers Going, and closes the editor. */
+    async rsvpGoing(title) {
+      await page.getByTestId('cal-event').filter({ hasText: title }).first().dblclick();
+      await page.getByTestId('cal-rsvp-yes').click();
+      await page.getByTestId('cal-rsvp-summary').filter({ hasText: '1 going' }).waitFor();
+      await sleep(900);
+      await page.getByTestId('cal-cancel').click();
+    },
+
     /** Double-clicks the n-th shape and appends text to it. */
     async appendText(n, text) {
       const shapes = page.locator('[data-shape-id]');

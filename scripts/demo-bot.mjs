@@ -63,7 +63,8 @@ async function writer() {
   await actor.sticky(0.5, 0.62, TO_IMPROVE[1]);
   await actor.rect(0.68, 0.18, 0.92, 0.32, 'Intake');
   await actor.rect(0.68, 0.42, 0.92, 0.56, 'Build');
-  await actor.sticky(0.8, 0.78, ACTIONS[0]);
+  // Kept clear of the minimap (bottom right) and the zoom controls (bottom left).
+  await actor.sticky(0.56, 0.8, ACTIONS[0]);
   await actor.heading(0.42, 0.93, 'Who owns the release notes?');
   // Afterwards keep the cursor alive and add the occasional note.
   let i = 0;
