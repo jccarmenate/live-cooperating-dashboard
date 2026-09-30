@@ -9,8 +9,6 @@ import {
 
 const SYNC = 'http://localhost:8787';
 
-test.use({ viewport: { width: 375, height: 740 }, hasTouch: true, isMobile: true });
-
 async function newBoard(page: Page, request: APIRequestContext) {
   const res = await request.post(`${SYNC}/api/rooms`);
   const { roomId, editKey } = (await res.json()) as { roomId: string; editKey: string };
@@ -456,4 +454,93 @@ test('on a phone the month view creates on a tap and opens the selected event on
   await page.waitForTimeout(600);
   await tap(e.x + e.width / 2, e.y + e.height / 2);
   await expect(page.getByTestId('cal-title-input')).toHaveValue('Retro');
+});
+
+test('on a phone header menus move rows and columns, and a swipe rolls the month', async ({
+  page,
+  context,
+  request,
+}) => {
+  await newBoard(page, request);
+  const { touch } = await fingers(page, context);
+  const center = async (id: string): Promise<[number, number]> => {
+    const b = await page.getByTestId(id).boundingBox();
+    if (!b) throw new Error(`no ${id}`);
+    return [b.x + b.width / 2, b.y + b.height / 2];
+  };
+  const hold = async (id: string) => {
+    await touch('touchStart', [await center(id)]);
+    await page.waitForTimeout(700);
+    await touch('touchEnd', []);
+  };
+
+  // Rows and columns move from their header menus.
+  await page.getByTestId('page-add').tap();
+  await page.getByTestId('page-add-sheet').tap();
+  // A1 starts selected, so one tap edits it.
+  await page.getByTestId('cell-A1').tap();
+  await expect(page.getByTestId('cell-editor')).toBeFocused();
+  await page.keyboard.type('top');
+  await page.keyboard.press('Enter');
+  await hold('row-header-1');
+  await expect(page.getByTestId('sheet-menu-move-up')).toBeDisabled();
+  await page.getByTestId('sheet-menu-move-down').tap();
+  await expect(page.getByTestId('cell-A2')).toHaveText('top');
+  await hold('col-header-A');
+  await expect(page.getByTestId('sheet-menu-move-left')).toBeDisabled();
+  await page.getByTestId('sheet-menu-move-right').tap();
+  await expect(page.getByTestId('cell-B2')).toHaveText('top');
+
+  // A swipe up the month grid shows later weeks, a row per week.
+  await page.getByTestId('page-add').tap();
+  await page.getByTestId('page-add-calendar').tap();
+  const first = page.getByTestId('cal-day').first();
+  const before = (await first.getAttribute('data-date')) ?? '';
+  const row = ((await page.getByTestId('cal-day').first().boundingBox())?.height ?? 0) + 1;
+  const x = 200;
+  const y = 600;
+  await touch('touchStart', [[x, y]]);
+  for (let i = 1; i <= 8; i++) await touch('touchMove', [[x, y - (i * row * 2.2) / 8]]);
+  await touch('touchEnd', []);
+  const days = (a: string, b: string) => (Date.parse(b) - Date.parse(a)) / 86_400_000;
+  await expect
+    .poll(async () => days(before, (await first.getAttribute('data-date')) ?? ''))
+    .toBe(14);
+  await expect(page.getByTestId('cal-editor')).toHaveCount(0);
+});
+
+test('in landscape comments stay on the board, and sheet and calendar bars keep to one row', async ({
+  page,
+  request,
+}) => {
+  await page.setViewportSize({ width: 740, height: 360 });
+  await newBoard(page, request);
+
+  // A comment at the right edge: the composer and its thread open inside the screen.
+  await page.getByTestId('tool-comment').tap();
+  const board = await page.getByTestId('canvas').boundingBox();
+  if (!board) throw new Error('no canvas');
+  await page.touchscreen.tap(board.x + board.width - 30, board.y + board.height / 2);
+  await onScreen(page, page.getByTestId('comment-composer').locator('..'));
+  await page.getByTestId('comment-composer').fill('Edge case');
+  await page.keyboard.press('Enter');
+  await onScreen(page, page.getByTestId('comment-thread'));
+
+  // Sheet: the format and formula bars share a row.
+  await page.keyboard.press('Escape');
+  await page.getByTestId('page-add').tap();
+  await page.getByTestId('page-add-sheet').tap();
+  const bold = await page.getByTestId('sheet-bold').boundingBox();
+  const formula = await page.getByTestId('formula-bar').boundingBox();
+  expect(Math.abs((bold?.y ?? 0) - (formula?.y ?? 100))).toBeLessThan(20);
+
+  // Calendar: one header row; the time zone moves into the ⋯ menu.
+  await page.getByTestId('page-add').tap();
+  await page.getByTestId('page-add-calendar').tap();
+  const prev = await page.getByTestId('cal-prev').boundingBox();
+  const add = await page.getByTestId('cal-new').boundingBox();
+  expect(Math.abs((prev?.y ?? 0) - (add?.y ?? 100))).toBeLessThan(4);
+  await expect(page.getByTestId('cal-zone')).toBeHidden();
+  await page.getByTestId('cal-menu').tap();
+  await expect(page.getByTestId('cal-menu-zone')).toContainText('Times in');
 });

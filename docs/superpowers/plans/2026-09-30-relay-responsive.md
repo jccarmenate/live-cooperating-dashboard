@@ -109,12 +109,34 @@ found:
   fail on the previous code. The taps that open an event are 600 ms apart, so Chromium's own
   double-tap `dblclick` cannot make them pass.
 
+## Done: the remaining steps and a last audit
+
+- **Sheet:** row and column header menus gain Move up/down and Move left/right. By touch a
+  header drag scrolls the grid, so moving has to go through the menu. It works with a mouse too.
+- **Month view:** a vertical swipe on the grid rolls it a week per row, as the mouse wheel does
+  (`useCalendarSwipe`). The grid is `touch-none` on touch screens so the browser never takes the
+  swipe. Swipes that start on an event are drags, and swipes in "+N more" scroll the list.
+- **CI:** Playwright has a `phone` project (a Pixel 7 profile pinned to 375 × 740) that runs
+  `e2e/responsive.spec.ts`; the desktop project skips it. `npm run e2e` runs both.
+- **Last audit** (375 × 740 and 740 × 360) of what had not been checked:
+  - **Bug:** a comment placed near the right edge opened its composer off-screen (x 367 of 375)
+    and its thread off the board. Both are now kept inside the board (`popover.ts`). A thread
+    opens on the side of its pin with more room, and its list shrinks to fit.
+  - **Bug:** an open thread was drawn under the minimap and zoom controls: the pin's
+    `transform` made it a stacking context, so the thread's own z-index had no effect.
+  - The calendar header took two rows in landscape. On phones and short screens the time zone
+    moves into the ⋯ menu, so the header keeps to one row.
+  - On short screens the sheet's format and formula bars share one row, leaving room for cells.
+  - The New graph, Add to calendar, Share and event editor dialogs fit at both sizes.
+- **Tests:** swipe and placement unit tests; two phone e2e scenarios (header menus and the
+  month swipe; comments at the edge and the landscape bars). Each fails on the previous code.
+
 ## Next steps
 
-1. **Sheet:** moving rows and columns by touch (header drag scrolls instead); add Move up/down
-   and Move left/right to the header menus.
-2. **Month view:** a vertical swipe could roll the grid by weeks, as the mouse wheel does.
-3. **CI:** add a `Pixel 7` Playwright project for the responsive spec.
-4. **Real devices:** everything above was checked in Chromium's touch emulation. Check iOS Safari
-   (double tap, long press, tap-to-edit keyboard, input zoom, week scrolling) and Android Chrome
-   on hardware.
+1. **Real devices:** everything above was checked in Chromium's touch emulation. Check iOS
+   Safari (double tap, long press, tap-to-edit keyboard, input zoom, week scrolling, month swipe)
+   and Android Chrome on hardware. Playwright's WebKit is not iOS Safari, so it does not replace
+   this.
+2. **Comment pins at the edge:** a pin anchored within ~40px of the right edge is clipped; pan
+   to reach it. A pin could keep itself inside the board.
+3. **Sheet:** a multi-row selection's menu moves only the row that was pressed.

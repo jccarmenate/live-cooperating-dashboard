@@ -69,6 +69,19 @@ export function useSheetHeaders(session: BoardSession, ctl: SheetController, can
               disabled: full,
               onSelect: () => ctl.insertRows('below'),
             },
+            // Moving by menu works by touch, where a header drag scrolls the grid instead.
+            {
+              label: 'Move row up',
+              testId: 'sheet-menu-move-up',
+              disabled: index === 0,
+              onSelect: () => ctl.moveRow(id, index - 1),
+            },
+            {
+              label: 'Move row down',
+              testId: 'sheet-menu-move-down',
+              disabled: !s || index >= s.rows.length - 1,
+              onSelect: () => ctl.moveRow(id, index + 1),
+            },
             {
               label: 'Delete rows',
               testId: 'sheet-menu-delete-rows',
@@ -88,6 +101,18 @@ export function useSheetHeaders(session: BoardSession, ctl: SheetController, can
               testId: 'sheet-menu-insert-right',
               disabled: full,
               onSelect: () => ctl.insertCols('right'),
+            },
+            {
+              label: 'Move column left',
+              testId: 'sheet-menu-move-left',
+              disabled: index === 0,
+              onSelect: () => ctl.moveCol(id, index - 1),
+            },
+            {
+              label: 'Move column right',
+              testId: 'sheet-menu-move-right',
+              disabled: !s || index >= s.cols.length - 1,
+              onSelect: () => ctl.moveCol(id, index + 1),
             },
             {
               label: 'Delete columns',

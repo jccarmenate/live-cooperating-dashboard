@@ -18,7 +18,7 @@ export function FormatBar({ session, ctl }: { session: BoardSession; ctl: SheetC
     <div
       role="toolbar"
       aria-label="Cell format"
-      className="flex h-10 shrink-0 items-center gap-1 border-b-2 border-ink bg-white px-2"
+      className="flex h-10 shrink-0 items-center gap-1 border-b-2 border-ink bg-white px-2 short:border-r-2 short:border-b-0"
     >
       <button
         type="button"

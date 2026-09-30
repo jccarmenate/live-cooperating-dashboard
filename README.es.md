@@ -161,8 +161,8 @@ O con Docker: `docker compose up`.
 ## Tests
 
 ```bash
-npm test         # 851 tests unitarios, de propiedades y de integración (core 447 · web 378 · sync-server 26)
-npm run e2e      # 47 escenarios de Playwright con varios navegadores independientes
+npm test         # 858 tests unitarios, de propiedades y de integración (core 447 · web 385 · sync-server 26)
+npm run e2e      # 49 escenarios de Playwright con varios navegadores independientes (12 en un teléfono táctil)
 npm run lint && npm run typecheck
 ```
 
@@ -187,6 +187,7 @@ Se construye por fases, cada una desplegable; los detalles están en la spec.
   - [x] **P3 páginas de hoja de cálculo:** filas y columnas con ids estables, motor de fórmulas, copiar y pegar compatible con Excel, relleno, formatos, rangos de los demás en vivo
   - [x] **P4 grafos:** familias de grafos y listas de aristas con disposición automática, etiquetas en conectores, capas locales de algoritmos, el desplegable Shapes
   - [x] **P5 páginas de calendario:** vistas de mes y de semana, eventos repetidos con excepciones por repetición, zona horaria de cada persona, asistencia en vivo, exportar e importar `.ics`, Add to calendar desde una nota
+  - [x] **Responsive y táctil:** diseños para teléfono y horizontal; desplazar y hacer zoom con dos dedos, menús con pulsación larga, doble toque y tocar para editar, selección de rangos táctil en las hojas, semana desplazable y mes deslizable en los calendarios ([plan](docs/superpowers/plans/2026-09-30-relay-responsive.md))
 - [ ] **F5 — Publicación** (la siguiente): sala demo que se reinicia cada noche, endurecimiento del protocolo, despliegue (Vercel + Workers), pulido offline
 - [ ] **F6 — IA:** "Cluster & summarize" para retros. El agrupamiento es determinista (embeddings más clustering aglomerativo) y corre en Workers AI. La salida del LLM se valida con un esquema y se mide con el Adjusted Rand Index.
 
