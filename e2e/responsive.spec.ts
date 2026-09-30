@@ -334,3 +334,126 @@ test('on a phone the tab row shows it scrolls, and a vote fits the header', asyn
   }
   await expect(page.getByTestId('share-open')).toHaveText('Share');
 });
+
+test('on a phone the week scrolls both ways, taps create and open events, a hold moves one', async ({
+  page,
+  context,
+  request,
+}) => {
+  await newBoard(page, request);
+  const { touch, tap } = await fingers(page, context);
+  await page.getByTestId('page-add').tap();
+  await page.getByTestId('page-add-calendar').tap();
+  await page.getByTestId('cal-view-week').tap();
+  const scroller = page.locator('[data-week-scroller]');
+  const today = await page.evaluate(() => {
+    const d = new Date();
+    const p = (n: number) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+  });
+  const col = page.locator(`[data-testid="cal-week-col"][data-date="${today}"]`);
+
+  // Day columns keep a usable width, the days scroll sideways, and today is in view.
+  const c = await col.boundingBox();
+  if (!c) throw new Error('no column');
+  expect(c.width).toBeGreaterThanOrEqual(80);
+  expect(await scroller.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true);
+  expect(c.x).toBeGreaterThanOrEqual(56);
+  expect(c.x + c.width).toBeLessThanOrEqual(375);
+  // The hour labels stay put when the days scroll.
+  const labelsLeft = await scroller.evaluate((el) => {
+    const before = el.scrollLeft;
+    el.scrollLeft = before === 150 ? 100 : 150;
+    const labels = el.querySelector('[data-testid="cal-week-col"]')?.previousElementSibling;
+    const left = (labels?.getBoundingClientRect().left ?? -1) - el.getBoundingClientRect().left;
+    el.scrollLeft = before;
+    return left;
+  });
+  expect(labelsLeft).toBe(0);
+
+  // A vertical swipe scrolls the hours; it creates nothing.
+  const at = async (): Promise<[number, number]> => {
+    const b = await col.boundingBox();
+    if (!b) throw new Error('no column');
+    return [b.x + b.width / 2, 0];
+  };
+  const [x] = await at();
+  const top = await scroller.evaluate((el) => el.scrollTop);
+  await touch('touchStart', [[x, 600]]);
+  for (const y of [570, 520, 460, 400, 360]) await touch('touchMove', [[x, y]]);
+  await touch('touchEnd', []);
+  await expect.poll(() => scroller.evaluate((el) => el.scrollTop)).toBeGreaterThan(top + 100);
+  await expect(page.getByTestId('cal-editor')).toHaveCount(0);
+  await expect(page.getByTestId('cal-drag-preview')).toHaveCount(0);
+
+  // A tap on an empty slot creates a one-hour event there.
+  await tap(x, 450);
+  await expect(page.getByTestId('cal-editor')).toBeVisible();
+  const start = await page.getByTestId('cal-start-time').inputValue();
+  const end = await page.getByTestId('cal-end-time').inputValue();
+  const minutes = (t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
+  expect(minutes(end) - minutes(start)).toBe(60);
+  await page.getByTestId('cal-title-input').fill('Standup');
+  await page.getByTestId('cal-save').tap();
+  await expect(page.getByTestId('cal-editor')).toHaveCount(0);
+  const event = page.getByTestId('cal-event').filter({ hasText: 'Standup' });
+  await expect(event).toBeVisible();
+
+  // A saved event starts selected: clear that, then a tap selects it and a second opens it.
+  await page.keyboard.press('Escape');
+  await expect(event).not.toHaveAttribute('data-selected', 'true');
+  const e1 = await event.boundingBox();
+  if (!e1) throw new Error('no event');
+  await tap(e1.x + e1.width / 2, e1.y + 10);
+  await expect(event).toHaveAttribute('data-selected', 'true');
+  await expect(page.getByTestId('cal-editor')).toHaveCount(0);
+  await page.waitForTimeout(600);
+  await tap(e1.x + e1.width / 2, e1.y + 10);
+  await expect(page.getByTestId('cal-editor')).toBeVisible();
+  await page.getByTestId('cal-cancel').tap();
+  await expect(page.getByTestId('cal-editor')).toHaveCount(0);
+
+  // Press, hold and drag: the event moves one hour later.
+  const from: [number, number] = [e1.x + e1.width / 2, e1.y + 10];
+  await touch('touchStart', [from]);
+  await page.waitForTimeout(700);
+  for (const dy of [12, 24, 36, 48]) await touch('touchMove', [[from[0], from[1] + dy]]);
+  await touch('touchEnd', []);
+  await expect.poll(async () => (await event.boundingBox())?.y ?? 0).toBeGreaterThan(e1.y + 40);
+  await tap(from[0], from[1] + 58);
+  await tap(from[0], from[1] + 58);
+  await expect(page.getByTestId('cal-start-time')).toHaveValue(
+    `${String(Math.floor((minutes(start) + 60) / 60)).padStart(2, '0')}:${start.slice(3, 5)}`,
+  );
+});
+
+test('on a phone the month view creates on a tap and opens the selected event on a second', async ({
+  page,
+  context,
+  request,
+}) => {
+  await newBoard(page, request);
+  const { tap } = await fingers(page, context);
+  await page.getByTestId('page-add').tap();
+  await page.getByTestId('page-add-calendar').tap();
+  const day = page.getByTestId('cal-day').nth(16);
+  const d = await day.boundingBox();
+  if (!d) throw new Error('no day');
+  await tap(d.x + d.width / 2, d.y + d.height - 8);
+  await page.getByTestId('cal-title-input').fill('Retro');
+  await page.getByTestId('cal-save').tap();
+  const event = page.getByTestId('cal-event').filter({ hasText: 'Retro' });
+  await expect(event).toBeVisible();
+  const e = await event.boundingBox();
+  if (!e) throw new Error('no event');
+  // A saved event starts selected: clear that first.
+  await page.keyboard.press('Escape');
+  await expect(event).not.toHaveAttribute('data-selected', 'true');
+  await tap(e.x + e.width / 2, e.y + e.height / 2);
+  await expect(event).toHaveAttribute('data-selected', 'true');
+  await expect(page.getByTestId('cal-editor')).toHaveCount(0);
+  // Later than a double tap: the browser's dblclick plays no part.
+  await page.waitForTimeout(600);
+  await tap(e.x + e.width / 2, e.y + e.height / 2);
+  await expect(page.getByTestId('cal-title-input')).toHaveValue('Retro');
+});

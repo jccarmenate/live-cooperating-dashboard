@@ -54,7 +54,7 @@ export function MonthView({
     onPointerUp: drag.onPointerUp,
     onPointerCancel: drag.onPointerCancel,
     onLostPointerCapture: drag.onLostPointerCapture,
-    onDoubleClick: () => ctl.openEditor({ eventId: o.eventId, key: o.key }),
+    onDoubleClick: drag.onDoubleClick(o),
   });
   const popIndex = openDate ? cells.findIndex((c) => c.date === openDate) : -1;
   /** Every occurrence on a day, including those hidden behind "+N more". */

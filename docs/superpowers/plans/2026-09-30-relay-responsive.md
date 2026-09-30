@@ -89,13 +89,32 @@ found:
 - **Tests:** two phone e2e scenarios (sheet by touch; tab fades and the vote header). Both fail
   on the previous code.
 
+## Done: calendar by touch
+
+- **Bug:** in the week view the time grid and its events were `touch-none`, so a finger could not
+  scroll the hours at all: every touch started creating (or moving) an event.
+- **Week view by touch:** a drag scrolls. A tap on an empty slot creates a one-hour event there.
+  A tap selects an event, and a tap on the selected event opens it. Press and hold (500 ms), then
+  drag, creates, moves or resizes as a mouse drag does. A non-passive `touchmove` stops the
+  scroll under a held finger. The resize handle is taller on touch screens.
+- **Week view on phones:** day columns are at least 5.5rem wide (`--day-min`), so about three and
+  a half days show at once. One scroller now scrolls both axes, with the day header and all-day
+  row sticky on top and the hour labels sticky on the left. Each week opens on today when the
+  days scroll sideways. On desktop it looks as before.
+- **Month view and all-day bars:** a tap on the selected event opens it. The browser's own
+  `dblclick` after a finger is ignored (`useEventDrag.onDoubleClick`). Month chips still drag at
+  once: the month grid does not scroll, so nothing competes with the drag.
+- **Tests:** two phone e2e scenarios, one for the week (scroll both ways, tap to create, tap to
+  select and open, hold to move) and one for the month (tap to create, select and open). Both
+  fail on the previous code. The taps that open an event are 600 ms apart, so Chromium's own
+  double-tap `dblclick` cannot make them pass.
+
 ## Next steps
 
-1. **Calendar on phones.** Month view fits. Week view gets 7 columns about 45px wide on a phone.
-   Offer a 3-day or 1-day view on `max-sm:`. Check drag-to-create and drag-to-move by touch, and
-   make "+N more" and the event editor sheet-style.
-2. **Sheet:** moving rows and columns by touch (header drag scrolls instead); add Move up/down
+1. **Sheet:** moving rows and columns by touch (header drag scrolls instead); add Move up/down
    and Move left/right to the header menus.
+2. **Month view:** a vertical swipe could roll the grid by weeks, as the mouse wheel does.
 3. **CI:** add a `Pixel 7` Playwright project for the responsive spec.
 4. **Real devices:** everything above was checked in Chromium's touch emulation. Check iOS Safari
-   (double tap, long press, tap-to-edit keyboard, input zoom) and Android Chrome on hardware.
+   (double tap, long press, tap-to-edit keyboard, input zoom, week scrolling) and Android Chrome
+   on hardware.

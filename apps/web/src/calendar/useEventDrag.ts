@@ -54,8 +54,12 @@ interface DayDrag {
  */
 export function useEventDrag(ctl: CalendarController, canEdit: boolean) {
   const drag = useRef<DayDrag | null>(null);
+  // A finger opens the selected event with a second tap (iOS fires no reliable dblclick), so
+  // the browser's own dblclick after a finger is ignored.
+  const lastPointer = useRef('mouse');
   const mine = (e: React.PointerEvent) => drag.current?.pointerId === e.pointerId;
   const onPointerDown = (o: Occurrence) => (e: React.PointerEvent) => {
+    lastPointer.current = e.pointerType;
     if (e.button !== 0) return;
     e.stopPropagation();
     drag.current = {
@@ -79,7 +83,10 @@ export function useEventDrag(ctl: CalendarController, canEdit: boolean) {
     if (!d || !mine(e)) return;
     drag.current = null;
     if (!d.moved) {
-      ctl.select(d.ref);
+      const sel = ctl.ui.getState().selected;
+      const again = sel?.eventId === d.ref.eventId && sel.key === d.ref.key;
+      if (e.pointerType === 'touch' && again) ctl.openEditor(d.ref);
+      else ctl.select(d.ref);
       return;
     }
     if (!canEdit) return;
@@ -89,11 +96,15 @@ export function useEventDrag(ctl: CalendarController, canEdit: boolean) {
   const onCancel = (e: React.PointerEvent) => {
     if (mine(e)) drag.current = null;
   };
+  const onDoubleClick = (o: Occurrence) => () => {
+    if (lastPointer.current !== 'touch') ctl.openEditor({ eventId: o.eventId, key: o.key });
+  };
   return {
     onPointerDown,
     onPointerMove,
     onPointerUp,
     onPointerCancel: onCancel,
     onLostPointerCapture: onCancel,
+    onDoubleClick,
   };
 }
