@@ -1,8 +1,10 @@
 import { type CellValue, cellKey, colLetters, defaultAlign, formatValue } from '@relay/core';
 import { memo, type ReactNode, useEffect, useRef, useState } from 'react';
+import { flushSync } from 'react-dom';
 import { useStore } from 'zustand';
 import type { BoardSession } from '../board/session';
 import { onPage } from '../render/pageFilter';
+import { LONG_PRESS_MS, moved } from '../render/touch';
 import { colOffsets, HEADER_H, ROW_H, ROW_HEADER_W, rangeBox, visibleRows } from './layout';
 import { type CellPos, rangeOf, type SheetController } from './sheetController';
 
@@ -74,6 +76,36 @@ export function SheetGrid({
   const scroller = useRef<HTMLDivElement>(null);
   const [view, setView] = useState({ top: 0, height: 800 });
   const dragging = useRef(false);
+  // Touch: a drag scrolls the grid. A tap selects a cell and a tap on the selected cell edits
+  // it; a finger held still starts a range selection that follows it.
+  const touch = useRef<{
+    pointerId: number;
+    cell: CellPos;
+    start: { x: number; y: number };
+    range: boolean;
+    timer: number;
+  } | null>(null);
+  // After a finger, the browser's own dblclick is ignored: the second tap already edits.
+  const lastPointer = useRef('mouse');
+
+  const endTouch = () => {
+    if (touch.current) window.clearTimeout(touch.current.timer);
+    touch.current = null;
+  };
+
+  // Non-passive, so a range selection can stop the grid scrolling under the finger.
+  useEffect(() => {
+    const el = scroller.current;
+    if (!el) return;
+    const onMove = (e: TouchEvent) => {
+      if (touch.current?.range) e.preventDefault();
+    };
+    el.addEventListener('touchmove', onMove, { passive: false });
+    return () => {
+      el.removeEventListener('touchmove', onMove);
+      if (touch.current) window.clearTimeout(touch.current.timer);
+    };
+  }, []);
 
   useEffect(() => {
     const el = scroller.current;
@@ -121,6 +153,7 @@ export function SheetGrid({
         setView({ top: e.currentTarget.scrollTop, height: e.currentTarget.clientHeight })
       }
       onPointerDown={(e) => {
+        lastPointer.current = e.pointerType;
         if (e.button !== 0) return;
         const p = cellFromPoint(e.clientX, e.clientY);
         if (!p) return;
@@ -138,11 +171,44 @@ export function SheetGrid({
         if (active instanceof HTMLElement && active !== document.body) active.blur();
         // Keyboard focus follows the click onto the grid, not a leftover button or select.
         e.currentTarget.focus({ preventScroll: true });
+        if (e.pointerType === 'touch') {
+          // No mouse events after the finger: their mousedown would take focus off the
+          // editor a tap opens. What the tap does waits for the finger to lift.
+          e.preventDefault();
+          endTouch();
+          const id = e.pointerId;
+          const timer = window.setTimeout(() => {
+            const t = touch.current;
+            if (t?.pointerId !== id) return;
+            t.range = true;
+            ctl.select(t.cell, false);
+          }, LONG_PRESS_MS);
+          touch.current = {
+            pointerId: id,
+            cell: p,
+            start: { x: e.clientX, y: e.clientY },
+            range: false,
+            timer,
+          };
+          return;
+        }
         ctl.select(p, e.shiftKey);
         dragging.current = true;
         e.currentTarget.setPointerCapture(e.pointerId);
       }}
       onPointerMove={(e) => {
+        const t = touch.current;
+        if (t?.pointerId === e.pointerId) {
+          const at = { x: e.clientX, y: e.clientY };
+          if (!t.range) {
+            // Moving before the hold completes is a scroll, not a press.
+            if (moved(t.start, at)) endTouch();
+            return;
+          }
+          const p = cellFromPoint(at.x, at.y);
+          if (p) ctl.select(p, true);
+          return;
+        }
         if (!dragging.current) return;
         const p = cellFromPoint(e.clientX, e.clientY);
         if (p) ctl.select(p, true);
@@ -151,9 +217,24 @@ export function SheetGrid({
         dragging.current = false;
         if (e.currentTarget.hasPointerCapture(e.pointerId))
           e.currentTarget.releasePointerCapture(e.pointerId);
+        const t = touch.current;
+        if (t?.pointerId !== e.pointerId) return;
+        endTouch();
+        if (t.range) return;
+        const { anchor, focus } = ctl.ui.getState();
+        const here = (c: CellPos | null) => c?.row === t.cell.row && c?.col === t.cell.col;
+        // flushSync: the editor takes focus inside the tap, or iOS shows no keyboard.
+        if (canEdit && here(anchor) && here(focus)) flushSync(() => ctl.startEdit());
+        else ctl.select(t.cell, false);
+      }}
+      onPointerCancel={() => {
+        // The browser took the finger for a scroll or a pinch.
+        dragging.current = false;
+        endTouch();
       }}
       onDoubleClick={(e) => {
-        if (!canEdit || !cellFromPoint(e.clientX, e.clientY)) return;
+        if (!canEdit || lastPointer.current === 'touch' || !cellFromPoint(e.clientX, e.clientY))
+          return;
         ctl.startEdit();
       }}
     >

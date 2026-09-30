@@ -30,7 +30,9 @@ export function VoteControl({ session }: { session: BoardSession }) {
     return (
       <div className="flex items-center gap-1.5">
         <span data-testid="vote-status" className={`${pill} bg-sun`}>
-          {`VOTE OPEN · ${mm}:${ss}${remaining}`}
+          {/* Phones show the timer and votes left; the words stay for screen readers. */}
+          <span className="max-sm:sr-only">VOTE OPEN · </span>
+          {`${mm}:${ss}${remaining}`}
         </span>
         {canEdit && (
           <button

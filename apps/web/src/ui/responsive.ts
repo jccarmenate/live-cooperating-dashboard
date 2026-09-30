@@ -41,3 +41,8 @@ export function withMaximumScale(content: string): string {
     .filter((s) => s && !s.startsWith('maximum-scale'));
   return [...parts, 'maximum-scale=1'].join(', ');
 }
+
+/** Which edges of a horizontal scroller hide content (1px of rounding is ignored). */
+export function overflowEdges(scrollLeft: number, clientWidth: number, scrollWidth: number) {
+  return { left: scrollLeft > 1, right: scrollLeft + clientWidth < scrollWidth - 1 };
+}

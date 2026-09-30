@@ -15,6 +15,7 @@ import {
 import { useStore } from 'zustand';
 import type { BoardSession } from '../board/session';
 import { ContextMenu, type MenuItem } from '../ui/ContextMenu';
+import { useLongPress } from '../ui/useLongPress';
 import { colOffsets, HEADER_H, ROW_H, ROW_HEADER_W, rangeBox } from './layout';
 import { cellFromPoint } from './SheetGrid';
 import { rangeOf, type SheetController } from './sheetController';
@@ -30,6 +31,7 @@ export function useSheetHeaders(session: BoardSession, ctl: SheetController, can
   const [resize, setResize] = useState<{ id: string; width: number } | null>(null);
   const drag = useRef<Drag | null>(null);
   const closeMenu = useCallback(() => setMenu(null), []);
+  const longPress = useLongPress();
 
   const inSelection = (kind: 'row' | 'col', index: number) => {
     const r = ctl.range();
@@ -97,49 +99,61 @@ export function useSheetHeaders(session: BoardSession, ctl: SheetController, can
     setMenu({ x, y, items });
   };
 
-  const pointerHandlers = (kind: 'row' | 'col', id: string) => ({
-    onPointerDown: (e: ReactPointerEvent<HTMLDivElement>) => {
-      if (e.button !== 0) return;
-      e.stopPropagation();
-      // A stale page-text selection would make Ctrl+C copy that text instead of the cells.
-      window.getSelection()?.removeAllRanges();
-      if (ctl.ui.getState().editing) {
-        ctl.commitEdit();
-        // A refused commit keeps the edit open: stay in it rather than move its draft.
+  const pointerHandlers = (kind: 'row' | 'col', index: number, id: string) => {
+    // Touch: press and hold opens the header menu (iOS has no long-press contextmenu).
+    const hold = longPress((at) => openMenu(kind, index, id, at.x, at.y));
+    return {
+      onPointerDown: (e: ReactPointerEvent<HTMLDivElement>) => {
+        hold.onPointerDown(e);
+        if (e.button !== 0) return;
+        e.stopPropagation();
+        // A stale page-text selection would make Ctrl+C copy that text instead of the cells.
+        window.getSelection()?.removeAllRanges();
         if (ctl.ui.getState().editing) {
-          e.preventDefault();
-          return;
+          ctl.commitEdit();
+          // A refused commit keeps the edit open: stay in it rather than move its draft.
+          if (ctl.ui.getState().editing) {
+            e.preventDefault();
+            return;
+          }
         }
-      }
-      // Keyboard focus stays on the grid (not a leftover button, tab or editor).
-      document.querySelector<HTMLElement>('[data-sheet-grid]')?.focus({ preventScroll: true });
-      drag.current = { kind, id, startX: e.clientX, startY: e.clientY, moved: false };
-      e.currentTarget.setPointerCapture(e.pointerId);
-      if (kind === 'row') ctl.selectRow(id, e.shiftKey);
-      else ctl.selectCol(id, e.shiftKey);
-    },
-    onPointerMove: (e: ReactPointerEvent<HTMLDivElement>) => {
-      const d = drag.current;
-      if (!d || !canEdit) return;
-      if (!d.moved && Math.hypot(e.clientX - d.startX, e.clientY - d.startY) < DRAG_PX) return;
-      d.moved = true;
-    },
-    onPointerUp: (e: ReactPointerEvent<HTMLDivElement>) => {
-      const d = drag.current;
-      drag.current = null;
-      if (e.currentTarget.hasPointerCapture(e.pointerId))
-        e.currentTarget.releasePointerCapture(e.pointerId);
-      if (!d?.moved || !canEdit || !sheet) return;
-      // Drop onto the row or column header under the pointer: the moved one takes its index.
-      const el = document
-        .elementFromPoint(e.clientX, e.clientY)
-        ?.closest<HTMLElement>('[data-header-index]');
-      const index = el?.dataset.headerKind === d.kind ? Number(el.dataset.headerIndex) : -1;
-      if (index < 0) return;
-      if (d.kind === 'row') ctl.moveRow(d.id, index);
-      else ctl.moveCol(d.id, index);
-    },
-  });
+        // Keyboard focus stays on the grid (not a leftover button, tab or editor).
+        document.querySelector<HTMLElement>('[data-sheet-grid]')?.focus({ preventScroll: true });
+        drag.current = { kind, id, startX: e.clientX, startY: e.clientY, moved: false };
+        e.currentTarget.setPointerCapture(e.pointerId);
+        if (kind === 'row') ctl.selectRow(id, e.shiftKey);
+        else ctl.selectCol(id, e.shiftKey);
+      },
+      onPointerMove: (e: ReactPointerEvent<HTMLDivElement>) => {
+        hold.onPointerMove(e);
+        const d = drag.current;
+        if (!d || !canEdit) return;
+        if (!d.moved && Math.hypot(e.clientX - d.startX, e.clientY - d.startY) < DRAG_PX) return;
+        d.moved = true;
+      },
+      onPointerUp: (e: ReactPointerEvent<HTMLDivElement>) => {
+        hold.onPointerUp();
+        const d = drag.current;
+        drag.current = null;
+        if (e.currentTarget.hasPointerCapture(e.pointerId))
+          e.currentTarget.releasePointerCapture(e.pointerId);
+        if (!d?.moved || !canEdit || !sheet) return;
+        // Drop onto the row or column header under the pointer: the moved one takes its index.
+        const el = document
+          .elementFromPoint(e.clientX, e.clientY)
+          ?.closest<HTMLElement>('[data-header-index]');
+        const to = el?.dataset.headerKind === d.kind ? Number(el.dataset.headerIndex) : -1;
+        if (to < 0) return;
+        if (d.kind === 'row') ctl.moveRow(d.id, to);
+        else ctl.moveCol(d.id, to);
+      },
+      // The browser took the finger for a scroll: no reorder, no menu.
+      onPointerCancel: () => {
+        hold.onPointerCancel();
+        drag.current = null;
+      },
+    };
+  };
 
   const headers = {
     col(index: number, id: string, width: number): ReactNode {
@@ -158,7 +172,7 @@ export function useSheetHeaders(session: BoardSession, ctl: SheetController, can
             e.preventDefault();
             openMenu('col', index, id, e.clientX, e.clientY);
           }}
-          {...pointerHandlers('col', id)}
+          {...pointerHandlers('col', index, id)}
         >
           {letters}
           {canEdit && (
@@ -222,7 +236,7 @@ export function useSheetHeaders(session: BoardSession, ctl: SheetController, can
             e.preventDefault();
             openMenu('row', index, id, e.clientX, e.clientY);
           }}
-          {...pointerHandlers('row', id)}
+          {...pointerHandlers('row', index, id)}
         >
           {index + 1}
         </div>
@@ -250,7 +264,9 @@ export function FillHandle({ session, ctl }: { session: BoardSession; ctl: Sheet
     <div
       data-testid="fill-handle"
       aria-hidden
-      className="absolute z-20 size-2.5 cursor-crosshair border border-white bg-cobalt"
+      // Touch: the drag is the handle's own (no scroll), and a pseudo-element widens the
+      // 10px square into a target a finger can hit.
+      className="absolute z-20 size-2.5 cursor-crosshair touch-none border border-white bg-cobalt pointer-coarse:before:absolute pointer-coarse:before:-inset-3"
       style={{ left: box.left + box.width - 5, top: box.top + box.height - 5 }}
       onPointerDown={(e) => {
         e.stopPropagation();

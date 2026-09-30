@@ -68,17 +68,34 @@ found:
 - **Tests:** unit tests for the gesture rules and the viewport string; e2e scenarios for lift,
   long press, double tap, the toggle, the tab menu and help. Each fails on the previous code.
 
+## Done: sheet, tabs, header and toasts
+
+- **Sheet by touch:**
+  - A drag scrolls the grid without moving the selection. Selection used to follow the finger
+    until the browser took it for a scroll, and `pointercancel` was not handled.
+  - A tap selects a cell, and a tap on the selected cell edits it. The editor takes focus inside
+    the tap (`flushSync`), which iOS needs to show the keyboard. The browser's own `dblclick`
+    after a finger is ignored.
+  - Press and hold (500 ms), then drag, selects a range. A non-passive `touchmove` stops the grid
+    scrolling under the finger.
+  - Row and column headers open their menu on a long press.
+  - The fill handle is `touch-none`, with a 34px hit area on touch screens.
+- **Page tabs:** fades on the edges that hide tabs, and the active tab scrolls into view with
+  room for the fade (`scroll-mx-8`).
+- **Header while voting:** on phones the vote pill shows "2:59 · 3 left" and Share is an icon.
+  The full words stay in the DOM.
+- **Toasts:** clear of the home indicator (`env(safe-area-inset-bottom)`), and wrap within the
+  screen.
+- **Tests:** two phone e2e scenarios (sheet by touch; tab fades and the vote header). Both fail
+  on the previous code.
+
 ## Next steps
 
-1. **Page tabs:** a fade at the overflow edge, so it shows that more tabs scroll into view.
-2. **Sheet on phones.** The grid scrolls, but the format bar and formula bar take a lot of height.
-   Collapse the format bar into a menu on `max-sm:`. Range selection by touch-drag needs its own
-   gesture, because a drag should scroll. Column and row header menus need a long press too.
-3. **Calendar on phones.** Month view fits. Week view gets 7 columns about 45px wide on a phone.
-   Offer a 3-day or 1-day view on `max-sm:`, and make "+N more" and the event editor sheet-style.
-4. **Header overflow while voting.** "VOTE OPEN · mm:ss · N left" is wide. On `max-sm:` show only
-   the timer.
-5. **Toasts and dialogs:** add `env(safe-area-inset-bottom)` to the toast offset.
-6. **CI:** add a `Pixel 7` Playwright project for the responsive spec.
-7. **Real devices:** everything above was checked in Chromium's touch emulation. Check iOS Safari
-   (double tap, long press, input zoom) and Android Chrome on hardware.
+1. **Calendar on phones.** Month view fits. Week view gets 7 columns about 45px wide on a phone.
+   Offer a 3-day or 1-day view on `max-sm:`. Check drag-to-create and drag-to-move by touch, and
+   make "+N more" and the event editor sheet-style.
+2. **Sheet:** moving rows and columns by touch (header drag scrolls instead); add Move up/down
+   and Move left/right to the header menus.
+3. **CI:** add a `Pixel 7` Playwright project for the responsive spec.
+4. **Real devices:** everything above was checked in Chromium's touch emulation. Check iOS Safari
+   (double tap, long press, tap-to-edit keyboard, input zoom) and Android Chrome on hardware.

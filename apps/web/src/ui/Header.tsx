@@ -1,5 +1,5 @@
 import { initials, onlineUsers } from '@relay/core';
-import { MessageCircle } from 'lucide-react';
+import { MessageCircle, Share2 } from 'lucide-react';
 import { useCallback, useState } from 'react';
 import { useStore } from 'zustand';
 import type { BoardSession } from '../board/session';
@@ -83,10 +83,11 @@ export function Header({ session }: { session: BoardSession }) {
         <button
           type="button"
           data-testid="share-open"
-          className="border-2 border-ink bg-cobalt px-2 py-0.5 font-mono text-[11px] font-bold uppercase text-white hover:brightness-110"
+          className="flex items-center border-2 border-ink bg-cobalt px-2 py-0.5 font-mono text-[11px] font-bold uppercase text-white hover:brightness-110"
           onClick={() => setSharing(true)}
         >
-          Share
+          <Share2 aria-hidden className="size-3.5 sm:hidden" />
+          <span className="max-sm:sr-only">Share</span>
         </button>
         <div className="flex -space-x-1 max-sm:hidden">
           {users.slice(0, 5).map((u) => (

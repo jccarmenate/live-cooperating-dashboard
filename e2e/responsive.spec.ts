@@ -247,3 +247,90 @@ test('tabs open their menu on a long press and move without dragging; help lists
   await expect(page.getByRole('dialog', { name: 'Gestures and shortcuts' })).toBeVisible();
   await expect(page.getByTestId('help-dialog')).toContainText('Pan and pinch to zoom');
 });
+
+test('on a phone taps select and edit cells, drags scroll, and a held finger selects a range', async ({
+  page,
+  context,
+  request,
+}) => {
+  await newBoard(page, request);
+  const { touch, tap } = await fingers(page, context);
+  await page.getByTestId('page-add').tap();
+  await page.getByTestId('page-add-sheet').tap();
+  const address = page.getByTestId('sheet-address');
+  const center = async (id: string): Promise<[number, number]> => {
+    const b = await page.getByTestId(id).boundingBox();
+    if (!b) throw new Error(`no ${id}`);
+    return [b.x + b.width / 2, b.y + b.height / 2];
+  };
+
+  // A tap selects; a second tap on the selected cell edits it, with the keyboard's focus.
+  const b2 = await center('cell-B2');
+  await tap(...b2);
+  await expect(address).toHaveText('B2');
+  await expect(page.getByTestId('cell-editor')).toHaveCount(0);
+  await tap(...b2);
+  await expect(page.getByTestId('cell-editor')).toBeFocused();
+  await page.keyboard.type('42');
+  await page.keyboard.press('Enter');
+  await expect(page.getByTestId('cell-B2')).toHaveText('42');
+  await expect(address).toHaveText('B3');
+
+  // Press, hold and drag: a range from A2 to B4.
+  const a2 = await center('cell-A2');
+  const b4 = await center('cell-B4');
+  await touch('touchStart', [a2]);
+  await page.waitForTimeout(700);
+  await touch('touchMove', [[(a2[0] + b4[0]) / 2, (a2[1] + b4[1]) / 2]]);
+  await touch('touchMove', [b4]);
+  await touch('touchEnd', []);
+  await expect(address).toHaveText('A2');
+  const sel = await page.getByTestId('sheet-selection').boundingBox();
+  const cell = await page.getByTestId('cell-A2').boundingBox();
+  expect(Math.round((sel?.height ?? 0) / (cell?.height ?? 1))).toBe(3);
+  expect(sel?.width ?? 0).toBeGreaterThan((cell?.width ?? 0) * 1.5);
+
+  // Press and hold on a row header: its menu.
+  await touch('touchStart', [await center('row-header-3')]);
+  await expect(page.getByTestId('sheet-menu-insert-above')).toBeVisible();
+  await touch('touchEnd', []);
+  await page.keyboard.press('Escape');
+
+  // A drag scrolls the grid and leaves the selection where it was.
+  await tap(...(await center('cell-A1')));
+  await expect(address).toHaveText('A1');
+  const grid = page.getByTestId('sheet-grid');
+  await touch('touchStart', [[200, 600]]);
+  for (const y of [560, 500, 420, 340, 300]) await touch('touchMove', [[200, y]]);
+  await touch('touchEnd', []);
+  await expect.poll(() => grid.evaluate((el) => el.scrollTop)).toBeGreaterThan(100);
+  await expect(address).toHaveText('A1');
+});
+
+test('on a phone the tab row shows it scrolls, and a vote fits the header', async ({
+  page,
+  request,
+}) => {
+  await newBoard(page, request);
+  for (let i = 0; i < 5; i++) {
+    await page.getByTestId('page-add').tap();
+    await page.getByTestId('page-add-board').tap();
+  }
+  const tabs = page.getByTestId('page-tab');
+  await expect(tabs).toHaveCount(6);
+  // The new, active tab is scrolled into view; earlier tabs hide on the left.
+  await onScreen(page, tabs.nth(5));
+  await expect(page.getByTestId('tabs-more-left')).toBeVisible();
+  await tabs.nth(5).evaluate((el) => el.closest('nav')?.scrollTo({ left: 0 }));
+  await expect(page.getByTestId('tabs-more-right')).toBeVisible();
+  await expect(page.getByTestId('tabs-more-left')).toHaveCount(0);
+
+  await page.getByTestId('vote-start').tap();
+  await page.getByTestId('vote-3m').tap();
+  await expect(page.getByTestId('vote-status')).toContainText('VOTE OPEN · 2:5');
+  for (const id of ['vote-status', 'vote-end', 'comments-toggle', 'share-open', 'online-count']) {
+    const b = await onScreen(page, page.getByTestId(id));
+    expect(b.height).toBeLessThan(32);
+  }
+  await expect(page.getByTestId('share-open')).toHaveText('Share');
+});
