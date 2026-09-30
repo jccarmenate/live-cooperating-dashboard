@@ -1,7 +1,7 @@
 'use client';
 
 import { viewerZone } from '@relay/core';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from 'zustand';
 import type { BoardSession } from '../board/session';
 import { toast } from '../ui/toasts';
@@ -11,6 +11,7 @@ import { EventEditor } from './EventEditor';
 import { MonthView } from './MonthView';
 import { SeriesDialog } from './SeriesDialog';
 import { useCalendarKeys } from './useCalendarKeys';
+import { useCalendarWheel } from './useCalendarWheel';
 import { WeekView } from './WeekView';
 
 export function CalendarPage({ session }: { session: BoardSession }) {
@@ -59,13 +60,19 @@ export function CalendarPage({ session }: { session: BoardSession }) {
 
 function CalendarBody({ session, ctl }: { session: BoardSession; ctl: CalendarController }) {
   useCalendarKeys(session, ctl);
+  const root = useRef<HTMLDivElement>(null);
+  useCalendarWheel(root, ctl);
   const view = useStore(ctl.ui, (s) => s.view);
   const anchor = useStore(ctl.ui, (s) => s.anchor);
+  const monthStart = useStore(ctl.ui, (s) => s.monthStart);
   const calendar = useStore(session.calendar, (s) => s.calendar);
   // biome-ignore lint/correctness/useExhaustiveDependencies: recomputed when the calendar or the period changes
-  const { occurrences, truncated } = useMemo(() => ctl.visible(), [ctl, calendar, view, anchor]);
+  const { occurrences, truncated } = useMemo(
+    () => ctl.visible(),
+    [ctl, calendar, view, anchor, monthStart],
+  );
   return (
-    <div data-testid="calendar-page" className="flex h-full min-h-0 flex-col">
+    <div ref={root} data-testid="calendar-page" className="flex h-full min-h-0 flex-col">
       <CalendarHeader session={session} ctl={ctl} />
       {truncated && (
         <p

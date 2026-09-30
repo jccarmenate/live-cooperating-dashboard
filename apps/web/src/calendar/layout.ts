@@ -33,13 +33,25 @@ export function firstOfGrid(y: number, m: number): string {
   return formatDate(addDays(first, -weekday(first)));
 }
 
-export function monthGrid(y: number, m: number, today: string): MonthCell[] {
-  const start = dayNumber(dateOf(firstOfGrid(y, m)));
+/**
+ * The date that names a 6-week grid starting on `start`: the Thursday of its third row. For a
+ * month's own grid it always falls on days 12–18 of that month.
+ */
+export const gridFocus = (start: string): string => formatDate(addDays(dateOf(start), 17));
+
+/** The 42 days from `start` (a Monday); days outside the month of `gridFocus` are dimmed. */
+export function monthGridFrom(start: string, today: string): MonthCell[] {
+  const first = dayNumber(dateOf(start));
+  const focus = dateOf(gridFocus(start));
   return Array.from({ length: 42 }, (_, i) => {
-    const d = fromDayNumber(start + i);
+    const d = fromDayNumber(first + i);
     const date = formatDate(d);
-    return { date, day: d.d, inMonth: d.m === m && d.y === y, today: date === today };
+    return { date, day: d.d, inMonth: d.m === focus.m && d.y === focus.y, today: date === today };
   });
+}
+
+export function monthGrid(y: number, m: number, today: string): MonthCell[] {
+  return monthGridFrom(firstOfGrid(y, m), today);
 }
 
 export function weekDates(anchor: string): string[] {
@@ -48,9 +60,16 @@ export function weekDates(anchor: string): string[] {
   return Array.from({ length: 7 }, (_, i) => formatDate(fromDayNumber(monday + i)));
 }
 
-export function viewWindow(view: 'month' | 'week', anchor: string, zone: string) {
+/** The instants a view shows; a month view scrolled by weeks passes its grid's first Monday. */
+export function viewWindow(
+  view: 'month' | 'week',
+  anchor: string,
+  zone: string,
+  monthStart?: string,
+) {
   const a = dateOf(anchor);
-  const first = view === 'month' ? firstOfGrid(a.y, a.m) : (weekDates(anchor)[0] as string);
+  const first =
+    view === 'month' ? (monthStart ?? firstOfGrid(a.y, a.m)) : (weekDates(anchor)[0] as string);
   const days = view === 'month' ? 42 : 7;
   return {
     from: midnight(first, zone),

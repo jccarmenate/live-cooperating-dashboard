@@ -63,7 +63,8 @@ and answers "Going" live. Every frame comes from the real app, driven by
     colours) that is never synced; Escape or **Clear** removes it. Viewers can run algorithms too.
 - **Calendar pages.** A page can also be a shared calendar (**+** → **Calendar**) with month and week views:
   - click a day, press **New event** or `N`, or drag in the week grid to create an event; drag an
-    event to move or resize it, snapped to 15 minutes;
+    event to move or resize it, snapped to 15 minutes. The mouse wheel scrolls week by week (the
+    month grid rolls a row at a time); Shift+wheel scrolls the week view's hours;
   - events repeat daily, weekly (on chosen weekdays), monthly or yearly, with an interval and an
     end (never, on a date or after N times). Acting on one occurrence asks **Only this event** or
     **All events**, and "All events" applies only what you changed;
@@ -181,8 +182,8 @@ Or run it in Docker: `docker compose up`.
 ## Tests
 
 ```bash
-npm test         # 830 unit, property and integration tests (core 447 · web 357 · sync-server 26)
-npm run e2e      # 36 Playwright scenarios with several independent browsers
+npm test         # 840 unit, property and integration tests (core 447 · web 367 · sync-server 26)
+npm run e2e      # 37 Playwright scenarios with several independent browsers
 npm run lint && npm run typecheck
 ```
 

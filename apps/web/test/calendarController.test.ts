@@ -1095,3 +1095,42 @@ describe('.ics', () => {
     expect(text).toContain('X-WR-CALNAME:Team');
   });
 });
+
+describe('scrolling by weeks (mouse wheel)', () => {
+  it('rolls the month grid one week at a time and follows the month of its third row', () => {
+    const { ctl } = setup();
+    expect(ctl.ui.getState().monthStart).toBe('2026-08-31');
+    ctl.scrollWeeks(1);
+    expect(ctl.ui.getState()).toMatchObject({ monthStart: '2026-09-07', anchor: '2026-09-24' });
+    ctl.scrollWeeks(2);
+    expect(ctl.ui.getState()).toMatchObject({ monthStart: '2026-09-21', anchor: '2026-10-08' });
+    ctl.scrollWeeks(-3);
+    expect(ctl.ui.getState()).toMatchObject({ monthStart: '2026-08-31', anchor: '2026-09-17' });
+  });
+
+  it('lists the occurrences of the rolled grid', () => {
+    const { ctl, create } = setup();
+    create('a', { when: { allDay: true, start: '2026-10-14', end: '2026-10-14' } });
+    expect(ctl.visible().occurrences).toHaveLength(0);
+    ctl.scrollWeeks(1);
+    expect(ctl.visible().occurrences.map((o) => o.key)).toEqual(['2026-10-14']);
+  });
+
+  it('moves a week at a time in week view and keeps the month grid on that month', () => {
+    const { ctl } = setup();
+    ctl.setView('week');
+    ctl.scrollWeeks(1);
+    expect(ctl.ui.getState()).toMatchObject({ anchor: '2026-10-05', monthStart: '2026-09-28' });
+    ctl.scrollWeeks(-2);
+    expect(ctl.ui.getState()).toMatchObject({ anchor: '2026-09-21', monthStart: '2026-08-31' });
+  });
+
+  it('snaps back to whole months with the arrows and Today', () => {
+    const { ctl } = setup();
+    ctl.scrollWeeks(2);
+    ctl.step(1);
+    expect(ctl.ui.getState()).toMatchObject({ anchor: '2026-11-01', monthStart: '2026-10-26' });
+    ctl.today();
+    expect(ctl.ui.getState()).toMatchObject({ anchor: '2026-09-28', monthStart: '2026-08-31' });
+  });
+});
