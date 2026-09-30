@@ -21,7 +21,7 @@ from the first milestone, and later features are listed below.*
 ## What it does
 
 - **Real-time collaboration.** Everything syncs live: shapes, connectors, frames, text, votes,
-  comments, pages and spreadsheet cells. Text merges character by character, so two people can
+  comments, pages, spreadsheet cells and calendar events. Text merges character by character, so two people can
   type in the same sticky note at once.
 - **Board tools.** The board has:
   - Shapes: rectangles, ellipses, lines, text, sticky notes and code blocks. Rectangle, ellipse
@@ -58,6 +58,19 @@ from the first milestone, and later features are listed below.*
     connected components on the selection, or on the whole page when nothing is selected. A numeric connector label is
     the edge weight. Results appear as a local overlay (visit order, path, tree, component
     colours) that is never synced; Escape or **Clear** removes it. Viewers can run algorithms too.
+- **Calendar pages.** A page can also be a shared calendar (**+** → **Calendar**) with month and week views:
+  - click a day, press **New event** or `N`, or drag in the week grid to create an event; drag an
+    event to move or resize it, snapped to 15 minutes;
+  - events repeat daily, weekly (on chosen weekdays), monthly or yearly, with an interval and an
+    end (never, on a date or after N times). Acting on one occurrence asks **Only this event** or
+    **All events**, and "All events" applies only what you changed;
+  - every viewer sees times in their own time zone, while a timed event keeps its creator's wall
+    time across DST changes. All-day events are dates, the same for everyone;
+  - RSVP (Going / Maybe / Not going) updates live, and coloured dots show which peers have an event open;
+  - `.ics` export works for everyone. Import (editors) reads a bounded subset of the format, warns
+    with line numbers about what it skips, and never duplicates an event whose UID is already on the page;
+  - **Add to calendar…** in a sticky's context menu creates a linked event, and **Open on board**
+    jumps back to the sticky. Viewers can read and export, but not edit or RSVP.
 - **Presence.** You see named, coloured remote cursors and selections. A "typing…" tag shows who is editing a shape. Dots on each page tab show who is on that page.
 - **Sharing.** There are no accounts. A room link carries an HMAC key that grants either edit or view access, and the server enforces it. The Share dialog gives both links.
 - **Help.** `?` lists every shortcut. An empty page shows a starter hint.
@@ -82,6 +95,7 @@ it**.
 | Text editing | A `<textarea>` overlay is diffed into `Y.Text`. The diff never splits UTF-16 surrogate pairs, and the caret is remapped on remote edits. | Emoji and simultaneous typing stay intact. |
 | Sheet model | Rows and columns are nested maps with a fractional order, and cells sit in one flat map keyed by row and column id. Formulas store references by id, and evaluation is a pure, deterministic row-major pass with a depth cap. | Inserting or moving a row never rewrites a formula, and a concurrent move and delete cannot resurrect a row. |
 | Graphs | A graph is made of ordinary ellipses and connectors, and the algorithms are pure functions in the core package. | Collaboration, undo, clipboard and styling work on graphs for free, and every algorithm is tested without a browser. |
+| Calendar time | Timed events store wall time plus an IANA zone. Conversion uses `Intl` only (no date library, with a cached offset per zone), with explicit rules for DST gaps and overlaps. Recurrence expansion is pure and bounded, and jumps straight to the visible window. | A weekly 09:00 meeting stays at 09:00 through DST changes, every viewer sees their own local time, and the engine is pure and property-tested (fast-check). |
 | Local preview | Drags and resizes render from a local overlay every frame, while commits to the CRDT are throttled to 50 ms. | Smooth 60 fps gestures without flooding peers or the free-tier request quota. |
 
 The full reasoning, including rejected alternatives (tldraw, Canvas 2D, y-websocket on a Node
@@ -95,7 +109,8 @@ followed a written implementation plan, with a spec and code-quality review afte
 [F4 P1](docs/superpowers/plans/2026-09-27-relay-p1-pages.md) ·
 [F4 P2](docs/superpowers/plans/2026-09-27-relay-p2-canvas-ux.md) ·
 [F4 P3](docs/superpowers/plans/2026-09-28-relay-p3-sheets.md) ·
-[F4 P4](docs/superpowers/plans/2026-09-29-relay-p4-graphs.md).
+[F4 P4](docs/superpowers/plans/2026-09-29-relay-p4-graphs.md) ·
+[F4 P5](docs/superpowers/plans/2026-09-29-relay-p5-calendar.md).
 
 ## Architecture
 
@@ -119,7 +134,7 @@ flowchart LR
 
 ```
 relay/
-├─ packages/core       Platform-neutral TypeScript: schema, commands, geometry, tool FSM, clipboard, presence, formulas, graphs
+├─ packages/core       Platform-neutral TypeScript: schema, commands, geometry, tool FSM, clipboard, presence, formulas, graphs, calendar (zones, recurrence, .ics)
 ├─ apps/sync-server    Cloudflare Worker + one Durable Object per room (y-partyserver)
 ├─ apps/web            Next.js 16 App Router, Tailwind 4, Zustand
 ├─ e2e/                Playwright, independent browser contexts per user
@@ -162,17 +177,17 @@ Or run it in Docker: `docker compose up`.
 ## Tests
 
 ```bash
-npm test         # 659 unit, property and integration tests (core 370 · web 263 · sync-server 26)
-npm run e2e      # 32 Playwright scenarios with several independent browsers
+npm test         # 800 unit, property and integration tests (core 441 · web 333 · sync-server 26)
+npm run e2e      # 36 Playwright scenarios with several independent browsers
 npm run lint && npm run typecheck
 ```
 
 | Suite | What it proves |
 |---|---|
-| `packages/core` (Vitest + fast-check) | Geometry, the tool FSM transition tables (including locks), commands on a real `Y.Doc`, clipboard validation and id remapping, text diffs with emoji, per-user undo, vote tallies, page tombstones, the formula parser and evaluator, graph families, layouts and algorithms, and three-replica convergence for shapes, session data, pages and sheets |
+| `packages/core` (Vitest + fast-check) | Geometry, the tool FSM transition tables (including locks), commands on a real `Y.Doc`, clipboard validation and id remapping, text diffs with emoji, per-user undo, vote tallies, page tombstones, the formula parser and evaluator, graph families, layouts and algorithms, calendar zones, recurrence and `.ics` round trips, and three-replica convergence for shapes, session data, pages and sheets |
 | `apps/sync-server` (Vitest + real `wrangler dev`) | Sync between editors, read-only viewers, 4401 on bad keys, a spoofed role header, message and awareness limits, the size cap, server time, and persistence across a server restart |
-| `apps/web` (Vitest) | The Yjs → Zustand projection per page, the board controller (throttled drags, clipboard, z-order, style, lock, menus, undo steps), shortcuts and role gating, voting timers, share links, toasts, the sheet controller and keys, and graph creation |
-| `e2e/` (Playwright) | These scenarios: two users seeing each other's edits and cursors; connectors and frames; zoom, the minimap and camera restore; voting and comments across users; pages being created, reordered and deleted, and hash links; context menus, clipboard, lock, help and viewer restrictions; spreadsheet editing between users; graph families, edge lists, labels and algorithm overlays |
+| `apps/web` (Vitest) | The Yjs → Zustand projection per page, the board controller (throttled drags, clipboard, z-order, style, lock, menus, undo steps), shortcuts and role gating, voting timers, share links, toasts, the sheet controller and keys, graph creation, and the calendar store, layout and controller |
+| `e2e/` (Playwright) | These scenarios: two users seeing each other's edits and cursors; connectors and frames; zoom, the minimap and camera restore; voting and comments across users; pages being created, reordered and deleted, and hash links; context menus, clipboard, lock, help and viewer restrictions; spreadsheet editing between users; graph families, edge lists, labels and algorithm overlays; calendars across time zones, series exceptions, live RSVP and `.ics` |
 
 ## Roadmap
 
@@ -182,13 +197,13 @@ The work is built in phases that can each be deployed; the spec has the details.
 - [x] **F1 — MVP:** live shapes, sticky notes and text, cursors, presence, persistence, capability links
 - [x] **F2 — Editing and structure:** per-user undo/redo, resize, marquee, ellipses, lines, code blocks, anchored connectors, frames with columns
 - [x] **F3 — Navigation and session:** zoom and pan, an interactive minimap, remote selections and "typing…", server time, dot voting, comments
-- [ ] **F4 — Workspace**
+- [x] **F4 — Workspace**
   - [x] **P1 pages:** tabs, per-page content and presence, the Share dialog, an editable title
   - [x] **P2 canvas UX:** context menus, system clipboard, properties bar, z-order, lock, help, polish
   - [x] **P3 spreadsheet pages:** id-stable rows and columns, a formula engine, Excel-compatible copy and paste, fill, formats, live peer ranges
   - [x] **P4 graphs:** graph families and edge lists with layouts, connector labels, local algorithm overlays, the Shapes flyout
-  - [ ] **P5 calendar page** (month and week), next
-- [ ] **F5 — Ship:** a nightly-reset demo room, protocol hardening, deploy (Vercel + Workers), offline polish
+  - [x] **P5 calendar pages:** month and week views, repeating events with per-occurrence exceptions, per-viewer time zones, live RSVP, `.ics` export and import, Add to calendar from a sticky
+- [ ] **F5 — Ship** (next): a nightly-reset demo room, protocol hardening, deploy (Vercel + Workers), offline polish
 - [ ] **F6 — AI:** "Cluster & summarize" for retro boards. Clustering is deterministic (embeddings plus agglomerative clustering) and runs on Workers AI. The LLM output is schema-validated and measured with the Adjusted Rand Index.
 
 **Known limitations (tracked for F5):**
