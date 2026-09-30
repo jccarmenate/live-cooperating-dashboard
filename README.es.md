@@ -12,11 +12,14 @@ entre todos los miembros de una sala. Sin registro: abres el enlace y ya estás 
 
 [Read in English](README.md)
 
-![Dos usuarios anónimos editando el mismo tablero a la vez](docs/demo.gif)
+![Dos usuarios anónimos recorriendo una sala: un tablero de retro, una hoja de cálculo, un grafo y un calendario](docs/demo.gif)
 
-*Dos navegadores independientes, dos usuarios anónimos, un solo tablero. Cada fotograma del
-GIF sale de la aplicación real, controlada por [`scripts/capture.mjs`](scripts/capture.mjs). La
-grabación es del primer hito; más abajo están las funciones posteriores.*
+*Dos navegadores independientes, dos usuarios anónimos (uno en Madrid y otro en La Habana), una
+sola sala. Escriben una retro en el tablero con cursores en vivo; crean una hoja donde lo que
+edita uno actualiza el `=SUM` del otro; generan un grafo desde una lista de aristas y resaltan
+un camino más corto (solo lo ve quien lo ejecutó); y arrastran al calendario un standup semanal
+a las 09:00, que en La Habana aparece a las 03:00 y se responde con "Going" en vivo. Cada
+fotograma sale de la aplicación real, controlada por [`scripts/capture.mjs`](scripts/capture.mjs).*
 
 ## Qué hace
 
@@ -150,6 +153,7 @@ ventana privada. **SHARE** te da un enlace de edición y otro de solo lectura.
 ```bash
 npm run demo:bot -- --role writer              # crea una sala y escribe una retro
 npm run demo:bot -- --role mover <url-tablero> # se une, mueve formas y añade "+1"
+npm run demo:capture                           # vuelve a grabar docs/demo.gif (necesita ffmpeg y npm run dev)
 ```
 
 O con Docker: `docker compose up`.
