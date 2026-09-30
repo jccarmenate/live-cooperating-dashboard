@@ -6,7 +6,9 @@ import type { BoardSession } from '../board/session';
 import { onPage } from '../render/pageFilter';
 import { ContextMenu, type MenuItem } from './ContextMenu';
 import { ConfirmDialog } from './Dialog';
+import { MEDIA, useMediaQuery } from './responsive';
 import { toast } from './toasts';
+import { useLongPress } from './useLongPress';
 
 type Menu = { x: number; y: number; items: MenuItem[] } | null;
 
@@ -25,6 +27,7 @@ export function PageTabs({ session }: { session: BoardSession }) {
   useStore(session.presence, (s) => peerDotsSignature(s.peers));
   const peers = session.presence.getState().peers;
   const canEdit = useStore(session.conn.clock, (c) => c.role === 'edit');
+  const touch = useMediaQuery(MEDIA.coarse);
   const [renaming, setRenaming] = useState<string | null>(null);
   const [menu, setMenu] = useState<Menu>(null);
   const [confirm, setConfirm] = useState<PageInfo | null>(null);
@@ -44,6 +47,43 @@ export function PageTabs({ session }: { session: BoardSession }) {
   const startRename = (id: string) => {
     renameFinished.current = false;
     setRenaming(id);
+  };
+
+  const longPress = useLongPress();
+
+  /** The tab's menu (right-click or press and hold). Moving works by touch, unlike dragging. */
+  const openTabMenu = (page: PageInfo, index: number, at: { x: number; y: number }) => {
+    if (!canEdit) return;
+    setMenu({
+      x: at.x,
+      y: at.y,
+      items: [
+        {
+          label: 'Rename',
+          testId: 'page-menu-rename',
+          onSelect: () => startRename(page.id),
+        },
+        {
+          label: 'Move left',
+          testId: 'page-menu-left',
+          disabled: index === 0,
+          onSelect: () => controller.movePage(page.id, index - 1),
+        },
+        {
+          label: 'Move right',
+          testId: 'page-menu-right',
+          disabled: index === pages.length - 1,
+          onSelect: () => controller.movePage(page.id, index + 1),
+        },
+        {
+          label: 'Delete',
+          testId: 'page-menu-delete',
+          danger: true,
+          disabled: pages.length <= 1,
+          onSelect: () => setConfirm(page),
+        },
+      ],
+    });
   };
 
   /** Ends the rename of `page`, committing `value` unless it is null, empty or unchanged. */
@@ -75,7 +115,8 @@ export function PageTabs({ session }: { session: BoardSession }) {
               key={p.id}
               role="presentation"
               className="flex"
-              draggable={canEdit && renaming !== p.id}
+              // Not on touch screens: a held finger there opens the tab menu (Move left/right).
+              draggable={canEdit && !touch && renaming !== p.id}
               onDragStart={(e) => {
                 e.dataTransfer.setData('text/plain', p.id);
                 setDragId(p.id);
@@ -121,26 +162,9 @@ export function PageTabs({ session }: { session: BoardSession }) {
                   onDoubleClick={() => canEdit && startRename(p.id)}
                   onContextMenu={(e) => {
                     e.preventDefault();
-                    if (!canEdit) return;
-                    setMenu({
-                      x: e.clientX,
-                      y: e.clientY,
-                      items: [
-                        {
-                          label: 'Rename',
-                          testId: 'page-menu-rename',
-                          onSelect: () => startRename(p.id),
-                        },
-                        {
-                          label: 'Delete',
-                          testId: 'page-menu-delete',
-                          danger: true,
-                          disabled: pages.length <= 1,
-                          onSelect: () => setConfirm(p),
-                        },
-                      ],
-                    });
+                    openTabMenu(p, index, { x: e.clientX, y: e.clientY });
                   }}
+                  {...longPress((at) => openTabMenu(p, index, at))}
                 >
                   <span className="truncate">{p.title}</span>
                   {here.slice(0, 3).map((peer) => (

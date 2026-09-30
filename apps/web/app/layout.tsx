@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next';
 import { Archivo_Black, JetBrains_Mono, Space_Grotesk } from 'next/font/google';
 import type { ReactNode } from 'react';
+import { IosInputZoom } from '@/ui/IosInputZoom';
 import './globals.css';
 
 const display = Archivo_Black({
@@ -29,7 +30,10 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en" className={`${display.variable} ${sans.variable} ${mono.variable}`}>
-      <body className="bg-paper font-sans text-ink antialiased">{children}</body>
+      <body className="bg-paper font-sans text-ink antialiased">
+        <IosInputZoom />
+        {children}
+      </body>
     </html>
   );
 }

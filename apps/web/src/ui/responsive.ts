@@ -29,3 +29,15 @@ export function useMediaQuery(query: string): boolean {
     () => false,
   );
 }
+
+/**
+ * The viewport settings with `maximum-scale=1`. iOS Safari zooms into any focused field under
+ * 16px and never zooms back; with this it doesn't, and it still lets people pinch-zoom the page.
+ */
+export function withMaximumScale(content: string): string {
+  const parts = content
+    .split(',')
+    .map((s) => s.trim())
+    .filter((s) => s && !s.startsWith('maximum-scale'));
+  return [...parts, 'maximum-scale=1'].join(', ');
+}

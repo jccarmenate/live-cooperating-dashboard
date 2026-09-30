@@ -2,21 +2,25 @@ import { Fragment, useCallback } from 'react';
 import { useStore } from 'zustand';
 import type { BoardSession } from '../board/session';
 import { Dialog } from './Dialog';
-import { SHORTCUT_GROUPS } from './shortcutList';
+import { MEDIA, useMediaQuery } from './responsive';
+import { SHORTCUT_GROUPS, TOUCH_GROUP } from './shortcutList';
 
 export function HelpDialog({ session }: { session: BoardSession }) {
   const { controller } = session;
   const open = useStore(controller.ui, (s) => s.help);
   const close = useCallback(() => controller.setHelp(false), [controller]);
+  const touch = useMediaQuery(MEDIA.coarse);
   if (!open) return null;
+  // Touch screens lead with the gestures; the keys still apply to an attached keyboard.
+  const groups = touch ? [TOUCH_GROUP, ...SHORTCUT_GROUPS] : SHORTCUT_GROUPS;
   return (
-    <Dialog title="Keyboard shortcuts" onClose={close} wide>
+    <Dialog title={touch ? 'Gestures and shortcuts' : 'Keyboard shortcuts'} onClose={close} wide>
       <div
         data-testid="help-dialog"
         data-scroll-region
         className="grid max-h-[60vh] gap-5 overflow-y-auto sm:grid-cols-2"
       >
-        {SHORTCUT_GROUPS.map((group) => (
+        {groups.map((group) => (
           <section key={group.title}>
             <h3 className="font-mono text-[10px] font-bold uppercase tracking-wider text-ink/60">
               {group.title}

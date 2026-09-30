@@ -47,32 +47,38 @@ found:
   properties bar, the landscape toolbar and pinch versus one-finger drawing. All three scenarios
   fail on the code before these fixes.
 
+## Done: touch gestures (steps 1–3)
+
+- **Long press** (500 ms, finger within 10px) opens the canvas menu, the same way on iOS and
+  Android. The browser's own `contextmenu` and `dblclick` after a finger are ignored, so nothing
+  opens twice. Page tabs open their menu the same way (`useLongPress`).
+- **Double tap** (300 ms, 24px) edits text, as a double-click does.
+- **Add to selection:** a toolbar toggle, on `pointer-coarse` only, stands in for Shift+click
+  (never on resize handles, where Shift locks the aspect ratio).
+- **Single-press tools** (sticky, text, code, comment) wait for the finger to lift, so a pinch
+  or a long press never drops a shape.
+- **Help** leads with a Touch group on touch screens ("Gestures and shortcuts").
+- **Page tabs:** Move left and Move right in the tab menu. Tabs are not `draggable` on touch
+  screens, where a held finger would start a native drag instead of the menu.
+- **iOS input zoom:** on iOS only, `maximum-scale=1` is added to the viewport (`IosInputZoom`).
+  iOS then stops zooming into small fields and still allows pinch zoom. Android is left alone,
+  where the same setting would block pinch zoom.
+- **Bug found by the new tests:** on a phone the properties bar was placed over the toolbar, so
+  no tool could be tapped while something was selected. It now stays right of the toolbar.
+- **Tests:** unit tests for the gesture rules and the viewport string; e2e scenarios for lift,
+  long press, double tap, the toggle, the tab menu and help. Each fails on the previous code.
+
 ## Next steps
 
-1. **Touch equivalents for keyboard and mouse gestures.** These have no touch path today:
-   - Space-drag pan: covered by two fingers now.
-   - Shift-click to add to the selection: add a "multi-select" toggle to the toolbar.
-   - Double-click to edit text: check double-tap on iOS Safari.
-   - Right-click menus: long-press fires `contextmenu` on Android Chrome, but not on iOS. Add a
-     long-press timer, or a "⋯" button on the properties bar.
-   - Keyboard shortcuts: the Help dialog lists keys a phone does not have. Hide it on
-     `pointer-coarse` or show touch gestures instead.
-2. **Tool on pointer-down.** Sticky, text, code and comment create their shape on pointer-down.
-   A pinch that starts with one of these tools creates one shape before the second finger lands.
-   Defer creation to pointer-up for touch pointers.
-3. **iOS input zoom.** Inputs under 16px (sheet cell editor, page rename, title) make iOS Safari
-   zoom in on focus. Use 16px on `pointer-coarse`. The canvas text editor needs care: it is
-   scaled with the camera.
-4. **Page tabs.** Tabs scroll sideways but show no sign that they overflow. Drag-to-reorder uses
-   HTML5 drag and drop, which does not work with touch. Add a fade at the overflow edge and
-   Move left/right to the tab menu.
-5. **Sheet on phones.** The grid scrolls, but the format bar and formula bar take a lot of height.
+1. **Page tabs:** a fade at the overflow edge, so it shows that more tabs scroll into view.
+2. **Sheet on phones.** The grid scrolls, but the format bar and formula bar take a lot of height.
    Collapse the format bar into a menu on `max-sm:`. Range selection by touch-drag needs its own
-   gesture, because a drag should scroll.
-6. **Calendar on phones.** Month view fits. Week view gets 7 columns about 45px wide on a phone.
+   gesture, because a drag should scroll. Column and row header menus need a long press too.
+3. **Calendar on phones.** Month view fits. Week view gets 7 columns about 45px wide on a phone.
    Offer a 3-day or 1-day view on `max-sm:`, and make "+N more" and the event editor sheet-style.
-7. **Header overflow while voting.** "VOTE OPEN · mm:ss · N left" is wide. On `max-sm:` show only
+4. **Header overflow while voting.** "VOTE OPEN · mm:ss · N left" is wide. On `max-sm:` show only
    the timer.
-8. **Toasts and dialogs:** add `env(safe-area-inset-bottom)` to the toast offset.
-9. **CI:** add a `Pixel 7` Playwright project for the responsive spec, or run the whole suite
-   there once the touch paths above exist.
+5. **Toasts and dialogs:** add `env(safe-area-inset-bottom)` to the toast offset.
+6. **CI:** add a `Pixel 7` Playwright project for the responsive spec.
+7. **Real devices:** everything above was checked in Chromium's touch emulation. Check iOS Safari
+   (double tap, long press, input zoom) and Android Chrome on hardware.

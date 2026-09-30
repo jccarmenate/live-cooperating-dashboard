@@ -128,6 +128,8 @@ export interface BoardUiState {
   synced: boolean;
   /** The sticky whose "Add to calendar" dialog is open. */
   addToCalendar: string | null;
+  /** Touch stand-in for Shift: presses add to (or toggle in) the selection. */
+  multiSelect: boolean;
 }
 
 export interface BoardController {
@@ -232,6 +234,7 @@ export interface BoardController {
   /** Fits the active page's content into the viewport. */
   zoomToFit(): void;
   setHelp(open: boolean): void;
+  setMultiSelect(on: boolean): void;
   /** The toolbar's Graph menu. */
   setGraphMenu(open: boolean): void;
   /** The New graph dialog (opening it closes the menu). */
@@ -310,6 +313,7 @@ export function createBoardController(opts: {
     ...noGraphResult(),
     synced: false,
     addToCalendar: null,
+    multiSelect: false,
   }));
   const undoStack = createUndo(opts.doc, { captureTimeout: UNDO_CAPTURE_TIMEOUT });
 
@@ -895,6 +899,9 @@ export function createBoardController(opts: {
     },
     setHelp(open) {
       ui.setState({ help: open });
+    },
+    setMultiSelect(on) {
+      ui.setState({ multiSelect: on });
     },
     setGraphMenu(open) {
       ui.setState({ graphMenu: open });

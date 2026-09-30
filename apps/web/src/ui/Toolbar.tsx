@@ -9,6 +9,7 @@ import {
   Network,
   Slash,
   Square,
+  SquareDashedMousePointer,
   StickyNote,
   Type,
 } from 'lucide-react';
@@ -203,11 +204,14 @@ function GraphButton({ session, canEdit }: { session: BoardSession; canEdit: boo
 
 export function Toolbar({ session }: { session: BoardSession }) {
   const active = useStore(session.controller.ui, (s) => s.tool.tool);
+  const multiSelect = useStore(session.controller.ui, (s) => s.multiSelect);
   const role = useStore(session.conn.clock, (c) => c.role);
   const pick = (id: ToolId) => session.controller.dispatch({ type: 'setTool', tool: id });
   return (
     <nav
       aria-label="Tools"
+      // The properties bar keeps right of this.
+      data-toolbar
       // One column while it fits; on short screens (landscape phones) the buttons wrap into a
       // second column instead of running under the zoom controls and off the bottom.
       className="absolute left-3 top-3 grid max-h-[calc(100%-4.5rem)] grid-flow-col grid-rows-[repeat(auto-fit,2.25rem)] gap-1.5 border-[3px] border-ink bg-white p-1.5 shadow-hard"
@@ -220,6 +224,18 @@ export function Toolbar({ session }: { session: BoardSession }) {
           onPick={() => pick(tool.id)}
         />
       ))}
+      {/* Touch screens only: the stand-in for Shift+click, which a finger cannot do. */}
+      <button
+        type="button"
+        data-testid="multi-select"
+        aria-label="Add to selection"
+        aria-pressed={multiSelect}
+        title="Add to selection"
+        onClick={() => session.controller.setMultiSelect(!multiSelect)}
+        className={`hidden pointer-coarse:grid ${buttonClass(multiSelect)}`}
+      >
+        <SquareDashedMousePointer className="size-4" />
+      </button>
       <ShapesButton session={session} active={active} />
       {AFTER_SHAPES.filter((t) => t.id !== 'comment' || role === 'edit').map((tool) => (
         <ToolButton

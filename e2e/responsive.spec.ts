@@ -1,4 +1,11 @@
-import { type APIRequestContext, expect, type Locator, type Page, test } from '@playwright/test';
+import {
+  type APIRequestContext,
+  type BrowserContext,
+  expect,
+  type Locator,
+  type Page,
+  test,
+} from '@playwright/test';
 
 const SYNC = 'http://localhost:8787';
 
@@ -40,19 +47,20 @@ test('on a phone the header, panels and properties bar fit the screen', async ({
   await expect(page.getByTestId('comments-toggle')).toHaveText('Comments · 0');
   await expect(page.getByTestId('online-count')).toHaveText('1 online');
 
-  // A selected sticky: the properties bar stays inside the screen.
   await page.getByTestId('tool-sticky').tap();
   await page.touchscreen.tap(260, 320);
   await page.keyboard.type('hi');
   await page.keyboard.press('Escape');
   await page.getByTestId('tool-select').tap();
   await page.locator('[data-shape-id]').first().tap();
-  await onScreen(page, page.getByTestId('props-bar'));
+  // A selected sticky: the properties bar stays inside the screen and off the toolbar.
+  const bar = await onScreen(page, page.getByTestId('props-bar'));
+  const tools = await onScreen(page, page.getByRole('navigation', { name: 'Tools' }));
+  expect(bar.x).toBeGreaterThanOrEqual(tools.x + tools.width);
 
   // The comments panel sits beside the toolbar and above the properties bar.
   await page.getByTestId('comments-toggle').tap();
   const panel = await onScreen(page, page.getByTestId('comments-panel'));
-  const tools = await onScreen(page, page.getByRole('navigation', { name: 'Tools' }));
   expect(panel.x).toBeGreaterThanOrEqual(tools.x + tools.width);
   const zIndex = (l: Locator) => l.evaluate((el) => Number(getComputedStyle(el).zIndex));
   expect(await zIndex(page.getByTestId('comments-panel'))).toBeGreaterThanOrEqual(
@@ -119,4 +127,123 @@ test('two fingers pan and pinch-zoom the board instead of drawing', async ({
   await touch('touchMove', [[240, 400]]);
   await touch('touchEnd', []);
   await expect(page.locator('[data-shape-id]')).toHaveCount(1);
+});
+
+/** Raw touch input through CDP: fingers get ids by their position in `points`. */
+async function fingers(page: Page, context: BrowserContext) {
+  const cdp = await context.newCDPSession(page);
+  const touch = (type: string, points: [number, number][]) =>
+    cdp.send('Input.dispatchTouchEvent', {
+      type,
+      touchPoints: points.map(([x, y], id) => ({ x, y, id })),
+    });
+  return {
+    touch,
+    async tap(x: number, y: number) {
+      await touch('touchStart', [[x, y]]);
+      await touch('touchEnd', []);
+    },
+  };
+}
+
+test('a finger places stickies on lift, holds for the menu and double-taps to edit', async ({
+  page,
+  context,
+  request,
+}) => {
+  await newBoard(page, request);
+  const { touch, tap } = await fingers(page, context);
+  const shapes = page.locator('[data-shape-id]');
+
+  // The sticky tool waits for the finger to lift.
+  await page.getByTestId('tool-sticky').tap();
+  await touch('touchStart', [[250, 260]]);
+  await page.waitForTimeout(100);
+  await expect(shapes).toHaveCount(0);
+  await touch('touchEnd', []);
+  await expect(shapes).toHaveCount(1);
+  await expect(page.getByTestId('text-editor')).toBeFocused();
+  await page.keyboard.type('Plan');
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('text-editor')).toHaveCount(0);
+
+  // Press and hold on the sticky: the canvas menu, which stays open after the finger lifts.
+  await touch('touchStart', [[250, 260]]);
+  await expect(page.getByTestId('context-menu')).toBeVisible();
+  await touch('touchEnd', []);
+  await expect(page.getByTestId('context-menu')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('context-menu')).toHaveCount(0);
+
+  // Holding with the sticky tool opens the menu and places nothing.
+  await page.getByTestId('tool-sticky').tap();
+  await touch('touchStart', [[250, 520]]);
+  await expect(page.getByTestId('context-menu')).toBeVisible();
+  await touch('touchEnd', []);
+  await expect(shapes).toHaveCount(1);
+  await page.keyboard.press('Escape');
+
+  // A double tap edits the sticky's text.
+  await page.getByTestId('tool-select').tap();
+  await tap(250, 260);
+  await tap(250, 260);
+  await expect(page.getByTestId('text-editor')).toBeFocused();
+  await expect(page.getByTestId('text-editor')).toHaveValue('Plan');
+});
+
+test('the Add to selection toggle stands in for Shift on touch screens', async ({
+  page,
+  context,
+  request,
+}) => {
+  await newBoard(page, request);
+  const { tap } = await fingers(page, context);
+  for (const y of [260, 520]) {
+    await page.getByTestId('tool-sticky').tap();
+    await tap(250, y);
+    await page.keyboard.press('Escape');
+  }
+  await expect(page.locator('[data-shape-id]')).toHaveCount(2);
+  const outlines = page.getByTestId('selection-outline');
+
+  await page.getByTestId('tool-select').tap();
+  await tap(250, 260);
+  await tap(250, 520);
+  await expect(outlines).toHaveCount(1);
+
+  const toggle = page.getByTestId('multi-select');
+  await toggle.tap();
+  await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+  await tap(250, 260);
+  await expect(outlines).toHaveCount(2);
+  await toggle.tap();
+  await tap(250, 260);
+  await expect(outlines).toHaveCount(1);
+});
+
+test('tabs open their menu on a long press and move without dragging; help lists gestures', async ({
+  page,
+  context,
+  request,
+}) => {
+  await newBoard(page, request);
+  const { touch } = await fingers(page, context);
+  await page.getByTestId('page-add').tap();
+  await page.getByTestId('page-add-board').tap();
+  const tabs = page.getByTestId('page-tab');
+  await expect(tabs).toHaveCount(2);
+  await expect(tabs.nth(0)).not.toHaveAttribute('draggable', 'true');
+
+  const main = (await tabs.nth(0).textContent()) ?? '';
+  const first = await tabs.nth(0).boundingBox();
+  if (!first) throw new Error('no tab');
+  await touch('touchStart', [[first.x + 20, first.y + 10]]);
+  await expect(page.getByTestId('page-menu-left')).toBeDisabled();
+  await touch('touchEnd', []);
+  await page.getByTestId('page-menu-right').tap();
+  await expect(tabs.nth(1)).toHaveText(main);
+
+  await page.getByTestId('help-button').tap();
+  await expect(page.getByRole('dialog', { name: 'Gestures and shortcuts' })).toBeVisible();
+  await expect(page.getByTestId('help-dialog')).toContainText('Pan and pinch to zoom');
 });

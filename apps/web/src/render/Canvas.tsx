@@ -18,6 +18,7 @@ import { GraphOverlay } from './GraphOverlay';
 import { type PinchStart, pinchCamera, startPinch } from './pinch';
 import { SelectionLayer } from './SelectionLayer';
 import { ShapeView } from './ShapeView';
+import { heldUntilLift, isDoubleTap, LONG_PRESS_MS, moved, type Tap } from './touch';
 
 function PreviewShape({ preview, zoom }: { preview: Preview; zoom: number }) {
   const { kind, rect: r } = preview;
@@ -76,11 +77,26 @@ export function Canvas({ session }: { session: BoardSession }) {
   // Pan gestures bypass the tool FSM: the camera is view state, not a document edit.
   const pan = useRef<{ pointerId: number; x: number; y: number } | null>(null);
   const [panning, setPanning] = useState(false);
-  // Touch: fingers on the glass (canvas px). A second finger turns the gesture into a
-  // two-finger pan and pinch zoom; every finger involved stays out of the tool until it lifts.
-  const touches = useRef(new Map<number, Point>());
+  // Touch: fingers on the glass (canvas px). One finger uses the tool, except that a
+  // single-press tool waits for it to lift, and holding it still opens the menu. A second finger
+  // turns the gesture into a two-finger pan and pinch zoom. A finger that took part in a pinch
+  // or a long press stays out of the tool until it lifts.
+  const fingers = useRef(new Map<number, { start: Point; at: Point }>());
   const pinch = useRef<{ ids: [number, number]; start: PinchStart } | null>(null);
   const spent = useRef(new Set<number>());
+  const held = useRef<{ pointerId: number; p: PointerInfo } | null>(null);
+  const longPress = useRef<{ pointerId: number; timer: number } | null>(null);
+  const lastTap = useRef<Tap | null>(null);
+  // After a finger, the browser's own dblclick and contextmenu are ignored: the double tap and
+  // long press above stand in for them the same way everywhere (iOS fires neither reliably).
+  const lastPointer = useRef('mouse');
+
+  useEffect(
+    () => () => {
+      if (longPress.current) window.clearTimeout(longPress.current.timer);
+    },
+    [],
+  );
 
   // Measure the canvas so the controller can fit, centre and publish the viewport.
   useEffect(() => {
@@ -147,42 +163,130 @@ export function Canvas({ session }: { session: BoardSession }) {
     return { x: e.clientX - (b?.left ?? 0), y: e.clientY - (b?.top ?? 0) };
   };
 
-  /** A finger lands; true when the tool must not see it. */
+  /** The tool's pointerDown, closing any editor the press lands outside of. */
+  const press = (p: PointerInfo) => {
+    const { editingId, editingColumn, editingConnector, multiSelect } = controller.ui.getState();
+    if (editingId && p.hitId !== editingId) {
+      controller.stopEditing();
+      (document.activeElement as HTMLElement | null)?.blur();
+    }
+    // The column title and connector label inputs commit through their own blur.
+    if (editingColumn || editingConnector) {
+      (document.activeElement as HTMLElement | null)?.blur();
+    }
+    // Touch has no Shift: the toolbar's multi-select toggle stands in for it, except on a
+    // resize handle, where Shift would lock the aspect ratio.
+    const shift = p.shift || (multiSelect && !p.handle);
+    controller.dispatch({ type: 'pointerDown', p: { ...p, shift } });
+  };
+
+  const doubleClick = (p: PointerInfo) => {
+    // A double-click on a connector (not on a shape) edits its label; editors only.
+    if (!p.hitId && p.connectorId && session.conn.clock.getState().role === 'edit') {
+      controller.editConnectorLabel(p.connectorId);
+      return;
+    }
+    controller.dispatch({ type: 'doubleClick', p });
+  };
+
+  const openMenuAt = (screen: Point, p: PointerInfo) =>
+    controller.openMenu({
+      screen,
+      world: p.world,
+      hitId: p.hitId,
+      connectorId: p.connectorId ?? null,
+    });
+
+  const cancelLongPress = () => {
+    if (!longPress.current) return;
+    window.clearTimeout(longPress.current.timer);
+    longPress.current = null;
+  };
+
+  /** Stops tracking a finger; true when it was kept from the tool (a pinch or a long press). */
+  const forget = (id: number): boolean => {
+    fingers.current.delete(id);
+    if (longPress.current?.pointerId === id) cancelLongPress();
+    if (pinch.current?.ids.includes(id)) pinch.current = null;
+    if (held.current?.pointerId === id) held.current = null;
+    return spent.current.delete(id);
+  };
+
+  /** A finger lands; true when the tool must not see it (yet). */
   const touchDown = (e: PointerEvent<SVGSVGElement>): boolean => {
     if (e.pointerType !== 'touch') return false;
-    const fingers = touches.current;
-    fingers.set(e.pointerId, local(e));
-    if (fingers.size === 1) return false;
-    spent.current.add(e.pointerId);
-    if (pinch.current || fingers.size > 2) return true;
+    const id = e.pointerId;
+    const at = local(e);
+    fingers.current.set(id, { start: at, at });
+    if (fingers.current.size === 1) {
+      const p = info(e);
+      const screen = { x: e.clientX, y: e.clientY };
+      const timer = window.setTimeout(() => {
+        // Held still: the menu, as a right-click would open it. The finger is done.
+        longPress.current = null;
+        held.current = null;
+        spent.current.add(id);
+        if (controller.ui.getState().tool.mode !== 'idle') controller.dispatch({ type: 'cancel' });
+        openMenuAt(screen, p);
+      }, LONG_PRESS_MS);
+      longPress.current = { pointerId: id, timer };
+      if (!heldUntilLift(controller.ui.getState().tool.tool)) return false;
+      e.preventDefault();
+      e.currentTarget.setPointerCapture(id);
+      held.current = { pointerId: id, p };
+      return true;
+    }
+    cancelLongPress();
+    held.current = null;
+    spent.current.add(id);
+    if (pinch.current || fingers.current.size > 2) return true;
     // The second finger: the first one's tool gesture (a drag, a marquee, a drawing) gives way.
     if (controller.ui.getState().tool.mode !== 'idle') controller.dispatch({ type: 'cancel' });
-    const ids = [...fingers.keys()] as [number, number];
-    for (const id of ids) spent.current.add(id);
-    const [a, b] = ids.map((id) => fingers.get(id) as Point) as [Point, Point];
+    const ids = [...fingers.current.keys()] as [number, number];
+    for (const f of ids) spent.current.add(f);
+    const [a, b] = ids.map((f) => fingers.current.get(f)?.at as Point) as [Point, Point];
     pinch.current = { ids, start: startPinch(controller.ui.getState().camera, a, b) };
-    e.currentTarget.setPointerCapture(e.pointerId);
+    e.currentTarget.setPointerCapture(id);
     return true;
   };
 
-  /** A finger moves; true when it belongs to a two-finger gesture, not the tool. */
+  /** A finger moves; true when the tool must not see it. */
   const touchMove = (e: PointerEvent<SVGSVGElement>): boolean => {
-    if (e.pointerType !== 'touch' || !touches.current.has(e.pointerId)) return false;
-    touches.current.set(e.pointerId, local(e));
-    const p = pinch.current;
-    if (p?.ids.includes(e.pointerId)) {
-      const [a, b] = p.ids.map((id) => touches.current.get(id) as Point) as [Point, Point];
-      controller.setCamera(pinchCamera(p.start, a, b));
+    const finger = e.pointerType === 'touch' ? fingers.current.get(e.pointerId) : undefined;
+    if (!finger) return false;
+    finger.at = local(e);
+    if (longPress.current?.pointerId === e.pointerId && moved(finger.start, finger.at)) {
+      cancelLongPress();
     }
-    return spent.current.has(e.pointerId);
+    const pz = pinch.current;
+    if (pz?.ids.includes(e.pointerId)) {
+      const [a, b] = pz.ids.map((f) => fingers.current.get(f)?.at as Point) as [Point, Point];
+      controller.setCamera(pinchCamera(pz.start, a, b));
+    }
+    return spent.current.has(e.pointerId) || held.current?.pointerId === e.pointerId;
   };
 
-  /** A finger lifts or is cancelled; true when the tool must not see it. */
+  /**
+   * A finger lifts: a held press lands now, then the tool's pointerUp, then a second tap in
+   * the same spot counts as a double-click. False for anything but a finger.
+   */
   const touchUp = (e: PointerEvent<SVGSVGElement>): boolean => {
     if (e.pointerType !== 'touch') return false;
-    touches.current.delete(e.pointerId);
-    if (pinch.current?.ids.includes(e.pointerId)) pinch.current = null;
-    return spent.current.delete(e.pointerId);
+    const finger = fingers.current.get(e.pointerId);
+    const pending = held.current?.pointerId === e.pointerId ? held.current.p : null;
+    if (forget(e.pointerId)) return true;
+    const p = info(e);
+    if (pending) press(pending);
+    controller.dispatch({ type: 'pointerUp', p });
+    const at = local(e);
+    const tap = finger && !moved(finger.start, at) ? { ...at, t: e.timeStamp } : null;
+    if (tap && isDoubleTap(lastTap.current, tap)) {
+      lastTap.current = null;
+      doubleClick(p);
+    } else {
+      lastTap.current = tap;
+    }
+    return true;
   };
 
   const info = (e: PointerEvent | MouseEvent): PointerInfo => {
@@ -220,6 +324,7 @@ export function Canvas({ session }: { session: BoardSession }) {
         if (e.button === 1) e.preventDefault();
       }}
       onPointerDown={(e) => {
+        lastPointer.current = e.pointerType;
         // The preventDefault calls below keep focus where it is; see blurStrayFocus. The
         // board-area editors keep their own focus rules below.
         blurStrayFocus(e.currentTarget.parentElement);
@@ -238,18 +343,7 @@ export function Canvas({ session }: { session: BoardSession }) {
         // outside the shape currently being edited.
         e.preventDefault();
         e.currentTarget.setPointerCapture(e.pointerId);
-        const p = info(e);
-        const { editingId } = controller.ui.getState();
-        if (editingId && p.hitId !== editingId) {
-          controller.stopEditing();
-          (document.activeElement as HTMLElement | null)?.blur();
-        }
-        // The column title and connector label inputs commit through their own blur.
-        const { editingColumn, editingConnector } = controller.ui.getState();
-        if (editingColumn || editingConnector) {
-          (document.activeElement as HTMLElement | null)?.blur();
-        }
-        controller.dispatch({ type: 'pointerDown', p });
+        press(info(e));
       }}
       onPointerMove={(e) => {
         if (touchMove(e)) return;
@@ -273,11 +367,11 @@ export function Canvas({ session }: { session: BoardSession }) {
         }
       }}
       onPointerCancel={(e) => {
-        if (endPan(e) || touchUp(e)) return;
+        if (endPan(e) || (e.pointerType === 'touch' && forget(e.pointerId))) return;
         if (controller.ui.getState().tool.mode !== 'idle') controller.dispatch({ type: 'cancel' });
       }}
       onLostPointerCapture={(e) => {
-        if (endPan(e) || touchUp(e)) return;
+        if (endPan(e) || (e.pointerType === 'touch' && forget(e.pointerId))) return;
         // Capture is also lost after every pointerUp: at rest a cancel changes nothing in the
         // tool, and must not reach the controller as an Escape (it clears algorithm results).
         if (controller.ui.getState().tool.mode !== 'idle') controller.dispatch({ type: 'cancel' });
@@ -289,25 +383,13 @@ export function Canvas({ session }: { session: BoardSession }) {
       onDoubleClick={(e) => {
         // A pan never dispatches tool events: with Space held, Space's auto-repeat
         // would otherwise type spaces into the editor this just opened.
-        if (controller.ui.getState().spaceHeld) return;
-        const p = info(e);
-        // A double-click on a connector (not on a shape) edits its label; editors only.
-        if (!p.hitId && p.connectorId && session.conn.clock.getState().role === 'edit') {
-          controller.editConnectorLabel(p.connectorId);
-          return;
-        }
-        controller.dispatch({ type: 'doubleClick', p });
+        if (controller.ui.getState().spaceHeld || lastPointer.current === 'touch') return;
+        doubleClick(info(e));
       }}
       onContextMenu={(e) => {
         e.preventDefault();
-        if (controller.ui.getState().spaceHeld) return;
-        const p = info(e);
-        controller.openMenu({
-          screen: { x: e.clientX, y: e.clientY },
-          world: p.world,
-          hitId: p.hitId,
-          connectorId: p.connectorId ?? null,
-        });
+        if (controller.ui.getState().spaceHeld || lastPointer.current === 'touch') return;
+        openMenuAt({ x: e.clientX, y: e.clientY }, info(e));
       }}
     >
       <defs>
