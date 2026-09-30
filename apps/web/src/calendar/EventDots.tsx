@@ -1,6 +1,6 @@
 import { useStore } from 'zustand';
 import type { BoardSession } from '../board/session';
-import { onPage } from '../render/pageFilter';
+import { peerColorsByEvent } from './peerColors';
 
 /**
  * Up to 3 dots in the colours of peers who have this event open. It owns its presence
@@ -8,13 +8,11 @@ import { onPage } from '../render/pageFilter';
  */
 export function EventDots({ session, eventId }: { session: BoardSession; eventId: string }) {
   const page = useStore(session.doc, (d) => d.activePage);
-  // A string, not an array: presence ticks that change nothing here do not re-render.
-  const colors = useStore(session.presence, (p) =>
-    p.peers
-      .filter((peer) => onPage(peer, page) && peer.calEvent === eventId)
-      .slice(0, 3)
-      .map((peer) => peer.user.color)
-      .join(','),
+  // A string, not an array: presence ticks that change nothing here do not re-render. The map
+  // is built once per presence state for every dot in the view.
+  const colors = useStore(
+    session.presence,
+    (p) => peerColorsByEvent(p.peers, page).get(eventId) ?? '',
   );
   if (!colors) return null;
   return (

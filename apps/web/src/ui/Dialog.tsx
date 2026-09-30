@@ -1,4 +1,5 @@
 import { type ReactNode, useEffect, useRef } from 'react';
+import { pushDialog } from './dialogStack';
 
 const FOCUSABLE =
   'a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
@@ -25,15 +26,23 @@ export function Dialog({
     };
   }, []);
   // Escape still closes the dialog when focus is not inside the panel (e.g. it never entered,
-  // or the focused control was removed and focus fell back to the page body). A backdrop
-  // click closes the dialog on its own.
+  // or the focused control was removed and focus fell back to the page body), but only the
+  // topmost of stacked dialogs. A backdrop click closes the dialog on its own.
+  const close = useRef(onClose);
   useEffect(() => {
+    close.current = onClose;
+  }, [onClose]);
+  useEffect(() => {
+    const entry = pushDialog();
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      if (e.key === 'Escape' && entry.isTop()) close.current();
     };
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      entry.remove();
+    };
+  }, []);
   return (
     <div
       className="fixed inset-0 z-40 grid place-items-center bg-ink/30 px-4"

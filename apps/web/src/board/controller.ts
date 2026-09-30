@@ -374,7 +374,15 @@ export function createBoardController(opts: {
     if (ui.getState().editingColumn) ui.setState({ editingColumn: null });
     ui.setState({ overlay: null, preview: null });
     const done = direction === 'undo' ? undoStack.undo() : undoStack.redo();
-    if (done) opts.notify?.(direction === 'undo' ? 'Undone' : 'Redone');
+    if (!done) return;
+    // A step that changed only calendar events is off-screen anywhere but a calendar page
+    // (e.g. "Add to calendar…" from a sticky): say what it was.
+    const { pages } = opts.docStore.getState();
+    const offPage =
+      undoStack.lastOnlyCalendars() &&
+      pages.find((p) => p.id === activePage())?.type !== 'calendar';
+    const word = direction === 'undo' ? 'Undone' : 'Redone';
+    opts.notify?.(offPage ? `${word} (calendar event)` : word);
   };
 
   // The initial fit happens once: after the first sync, once the canvas is measured, and

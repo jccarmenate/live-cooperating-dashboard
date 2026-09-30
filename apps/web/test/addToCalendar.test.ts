@@ -62,6 +62,20 @@ describe('Add to calendar', () => {
     expect(docs.store.getState().activePage).toBe('main');
     board.undo();
     expect(events(cal)).toHaveLength(0);
+    // The step changed only the calendar, which is not on screen: the toast says so.
+    expect(notify).toHaveBeenLastCalledWith('Undone (calendar event)');
+    board.redo();
+    expect(notify).toHaveBeenLastCalledWith('Redone (calendar event)');
+    // On the calendar page itself, a plain "Undone".
+    board.setPage(cal);
+    board.commit({
+      type: 'CreateEvent',
+      pageId: cal,
+      id: 'e2',
+      fields: { title: 'X', color: '#3B3BF5', when, createdBy: 'u1', createdAt: 0 },
+    });
+    board.undo();
+    expect(notify).toHaveBeenLastCalledWith('Undone');
   });
 
   it('creates a new calendar page when asked, and refuses a missing sticky', () => {

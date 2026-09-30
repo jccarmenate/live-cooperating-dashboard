@@ -1,7 +1,8 @@
 import { applyCommand } from '@relay/core';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import * as Y from 'yjs';
 import { createBoardController } from '../src/board/controller';
+import { openOnBoard } from '../src/calendar/openOnBoard';
 import { createActivityStore } from '../src/store/activityStore';
 import { createDocStore } from '../src/store/docStore';
 
@@ -111,5 +112,19 @@ describe('revealShape', () => {
     const { camera } = board.ui.getState();
     expect((1090 + camera.x) * camera.zoom).toBeCloseTo(400);
     expect((2070 + camera.y) * camera.zoom).toBeCloseTo(300);
+  });
+});
+
+describe('Open on board', () => {
+  it('closes the editor and says so when the sticky has gone', () => {
+    const { docs, board } = setup();
+    const cal = board.createPage('calendar');
+    board.setPage(cal);
+    const closeEditor = vi.fn();
+    const notify = vi.fn();
+    openOnBoard({ closeEditor }, board, { pageId: 'main', shapeId: 'ghost' }, notify);
+    expect(closeEditor).toHaveBeenCalled();
+    expect(notify).toHaveBeenCalledWith('Sticky deleted');
+    expect(docs.store.getState().activePage).toBe(cal);
   });
 });

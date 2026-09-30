@@ -211,4 +211,9 @@ describe('calendar presence', () => {
     expect(parsePresence({ user: alice, calEvent: 7 })?.calEvent).toBeUndefined();
     expect(parsePresence({ user: alice, calEvent: null })?.calEvent).toBeUndefined();
   });
+
+  it('accepts ids of 1 to 64 characters', () => {
+    expect(parsePresence({ user: alice, calEvent: '' })?.calEvent).toBeUndefined();
+    expect(parsePresence({ user: alice, calEvent: 'x'.repeat(64) })?.calEvent).toBe('x'.repeat(64));
+  });
 });

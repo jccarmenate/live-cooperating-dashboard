@@ -7,6 +7,7 @@ import {
   parseDate,
   toInstant,
   toWall,
+  type When,
   weekday,
   type Ymd,
 } from '@relay/core';
@@ -103,7 +104,6 @@ export function monthLayout(occs: Occurrence[], firstDate: string, zone: string)
   const first = dayNumber(dateOf(firstDate));
   const rowLanes = [0, 0, 0, 0, 0, 0];
   const days = Array.from({ length: 42 }, () => ({ chips: [] as Occurrence[], more: 0 }));
-  const barsOnDay = Array.from({ length: 42 }, () => 0);
   const bars: MonthBar[] = [];
   for (let row = 0; row < 6; row++) {
     const lo = row * 7;
@@ -117,10 +117,8 @@ export function monthLayout(occs: Occurrence[], firstDate: string, zone: string)
       });
     for (const { item, lane } of packLanes(segs)) {
       rowLanes[row] = Math.max(rowLanes[row] as number, lane + 1);
-      for (let i = item.start; i <= item.end; i++) {
-        if (lane >= MONTH_LINES) (days[i] as { more: number }).more++;
-        barsOnDay[i] = (barsOnDay[i] as number) + 1;
-      }
+      if (lane >= MONTH_LINES)
+        for (let i = item.start; i <= item.end; i++) (days[i] as { more: number }).more++;
       if (lane < MONTH_LINES)
         bars.push({ occ: item.occ, row, startCol: item.start - lo, endCol: item.end - lo, lane });
     }
@@ -196,7 +194,10 @@ export function weekLayout(occs: Occurrence[], days: string[], zone: string): We
                 const x = toWall(e, zone);
                 return x.hh * 60 + x.mm;
               })();
-        return { occ: o, top, bottom: Math.max(bottom, top + SNAP_MIN) };
+        // Boxes are drawn in wall minutes. On a fall-back day a part can end at an earlier wall
+        // time than it starts (02:30 CEST → 02:10 CET): the floor of SNAP_MIN keeps it visible.
+        // On a spring-forward day the skipped hour simply has no events. No box passes midnight.
+        return { occ: o, top, bottom: Math.min(1440, Math.max(bottom, top + SNAP_MIN)) };
       })
       .sort((a, b) => a.top - b.top || b.bottom - a.bottom);
     // Clusters of transitively overlapping boxes share the day's width.
@@ -226,6 +227,47 @@ export function weekLayout(occs: Occurrence[], days: string[], zone: string): We
   };
 }
 
+const DAY_MIN = 24 * 60;
+
+/** A week-view move gesture: where the pointer grabbed the event, in minutes. */
+export interface MoveGrab {
+  /** Minutes from the event's real start to the grab point (past midnight on a later day). */
+  offset: number;
+  /** The event's whole length in minutes (at least SNAP_MIN). */
+  length: number;
+  /** An event that fits its day stays in it; one already crossing midnight may keep crossing. */
+  fits: boolean;
+}
+
+/** The move grab of `occ` pressed at `pointer` minutes in the column of `date` (viewer's zone). */
+export function grabMove(occ: Occurrence, date: string, zone: string, pointer: number): MoveGrab {
+  const s = toWall(occ.start, zone);
+  const start = (dayNumber(s) - dayNumber(dateOf(date))) * DAY_MIN + s.hh * 60 + s.mm;
+  const length = Math.max(SNAP_MIN, Math.round((occ.end - occ.start) / 60_000));
+  return { offset: pointer - start, length, fits: start >= 0 && start + length <= DAY_MIN };
+}
+
+/**
+ * Where a move grabbed as `grab` goes with the pointer at `pointer` minutes in the column of
+ * `date`: the drop (a day and a start in minutes, rolled onto the right day) and the preview
+ * drawn in that column, clamped to it.
+ */
+export function moveTarget(
+  grab: MoveGrab,
+  date: string,
+  pointer: number,
+): { drop: { date: string; minutes: number }; top: number; height: number } {
+  let start = Math.round((pointer - grab.offset) / SNAP_MIN) * SNAP_MIN;
+  if (grab.fits) start = Math.min(Math.max(0, start), DAY_MIN - grab.length);
+  const days = Math.floor(start / DAY_MIN);
+  const top = Math.min(Math.max(0, start), DAY_MIN);
+  return {
+    drop: { date: formatDate(addDays(dateOf(date), days)), minutes: start - days * DAY_MIN },
+    top,
+    height: Math.max(0, Math.min(DAY_MIN, start + grab.length) - top),
+  };
+}
+
 const MONTHS = [
   'January',
   'February',
@@ -245,6 +287,24 @@ export const WEEKDAY_SHORT = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
 export const timeLabel = (minutes: number): string =>
   `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
+
+/**
+ * The editor's note on a timed event stored in another zone than the viewer's: its own wall
+ * times, e.g. "Event time: 20:00–21:00 America/Havana". When its day there is not the day the
+ * editor shows (`shownDate`), dates are added: "Event time: 30 Sep 20:00 – 1 Oct 02:00 …".
+ */
+export function zoneNote(when: When, zone: string, shownDate: string): string | null {
+  if (when.allDay || when.tz === zone) return null;
+  const [sd, st] = [when.start.slice(0, 10), when.start.slice(11)];
+  const [ed, et] = [when.end.slice(0, 10), when.end.slice(11)];
+  if (sd === shownDate) return `Event time: ${st}–${et} ${when.tz}`;
+  const day = (s: string) => {
+    const d = dateOf(s);
+    return `${d.d} ${MON[d.m - 1]}`;
+  };
+  const range = ed === sd ? `${st}–${et}` : `${st} – ${day(ed)} ${et}`;
+  return `Event time: ${day(sd)} ${range} ${when.tz}`;
+}
 
 /** The header title: "September 2026", or a week such as "28 Sep – 4 Oct 2026" (en-GB). */
 export function periodTitle(view: 'month' | 'week', anchor: string): string {

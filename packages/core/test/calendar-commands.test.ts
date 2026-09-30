@@ -179,6 +179,21 @@ describe('calendar commands', () => {
     expect(read()).toHaveLength(0);
   });
 
+  it('stops an import at the page cap (499 events + 3 imported → 500)', () => {
+    const { doc, run, read } = setup();
+    doc.transact(() => {
+      for (let i = 0; i < MAX_EVENTS - 1; i++)
+        run({ type: 'CreateEvent', pageId: 'cal', id: `e${i}`, fields: fields() });
+    });
+    run({
+      type: 'ImportEvents',
+      pageId: 'cal',
+      events: ['x', 'y', 'z'].map((id) => ({ id, fields: fields({ title: id }), exceptions: {} })),
+    });
+    expect(read()).toHaveLength(MAX_EVENTS);
+    expect(read().filter((e) => ['x', 'y', 'z'].includes(e.id))).toHaveLength(1);
+  });
+
   it('sets and removes RSVP answers; SESSION answers are not undoable', () => {
     const { doc, run, read } = setup();
     run({ type: 'CreateEvent', pageId: 'cal', id: 'e1', fields: fields() });
@@ -225,6 +240,8 @@ type Step =
   | { kind: 'title'; r: number; e: number; t: string }
   | { kind: 'delete'; r: number; e: number }
   | { kind: 'cancel'; r: number; e: number; day: number }
+  | { kind: 'uncancel'; r: number; e: number; day: number }
+  | { kind: 'reset'; r: number; e: number; hour: number }
   | { kind: 'rsvp'; r: number; e: number; s: 'yes' | 'no' | null }
   | { kind: 'deliver'; from: number; to: number };
 
@@ -236,6 +253,8 @@ const stepArb: fc.Arbitrary<Step> = fc.oneof(
   fc.record({ kind: fc.constant('title' as const), r, e, t: fc.string({ maxLength: 5 }) }),
   fc.record({ kind: fc.constant('delete' as const), r, e }),
   fc.record({ kind: fc.constant('cancel' as const), r, e, day: fc.integer({ min: 1, max: 5 }) }),
+  fc.record({ kind: fc.constant('uncancel' as const), r, e, day: fc.integer({ min: 1, max: 5 }) }),
+  fc.record({ kind: fc.constant('reset' as const), r, e, hour: fc.integer({ min: 8, max: 9 }) }),
   fc.record({
     kind: fc.constant('rsvp' as const),
     r,
@@ -279,14 +298,31 @@ describe('calendar convergence', () => {
                         key: `2026-10-0${s.day}`,
                         value: { cancelled: true },
                       }
-                    : {
-                        type: 'SetRsvp',
-                        pageId: 'cal',
-                        id,
-                        userId: `u${s.r}`,
-                        status: s.s,
-                        name: 'N',
-                      };
+                    : s.kind === 'uncancel'
+                      ? { type: 'ClearOccurrence', pageId: 'cal', id, key: `2026-10-0${s.day}` }
+                      : s.kind === 'reset'
+                        ? {
+                            type: 'UpdateEvent',
+                            pageId: 'cal',
+                            id,
+                            patch: {
+                              when: {
+                                allDay: false,
+                                start: `2026-09-28T0${s.hour}:00`,
+                                end: `2026-09-28T0${s.hour}:30`,
+                                tz: 'Europe/Madrid',
+                              },
+                            },
+                            clearExceptions: true,
+                          }
+                        : {
+                            type: 'SetRsvp',
+                            pageId: 'cal',
+                            id,
+                            userId: `u${s.r}`,
+                            status: s.s,
+                            name: 'N',
+                          };
           applyCommand(doc, c, s.kind === 'rsvp' ? SESSION_ORIGIN : LOCAL_ORIGIN);
         }
         for (const a of docs) for (const b of docs) Y.applyUpdate(b, Y.encodeStateAsUpdate(a));

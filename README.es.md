@@ -53,7 +53,7 @@ grabación es del primer hito; más abajo están las funciones posteriores.*
   - **Add to calendar…** en el menú contextual de una nota crea un evento enlazado, y **Open on board** vuelve a la nota. Los lectores pueden ver y exportar, pero no editar ni responder a las invitaciones.
 - **Presencia.** Cursores y selecciones remotos con nombre y color, una etiqueta "typing…" sobre la forma que otro está editando, y puntos en cada pestaña con quién está en esa página.
 - **Compartir.** Sin cuentas. El enlace de una sala lleva una clave HMAC que da permiso de edición o solo de lectura, y el servidor lo hace cumplir. El diálogo Share muestra los dos enlaces.
-- **Ayuda.** `?` muestra todos los atajos, y una página vacía muestra una pista para empezar.
+- **Ayuda.** `?` muestra los atajos del tablero, y una página vacía muestra una pista para empezar.
 
 ## Decisiones de ingeniería
 
@@ -67,7 +67,7 @@ La idea central es que **el documento es un CRDT y todo lo demás es una funció
 | Borrados definitivos | Una página borrada queda registrada en un mapa plano de lápidas de una sola escritura, nunca como un indicador en el mapa de la página. | Un renombrado o un movimiento simultáneo nunca resucita una página borrada. |
 | Estado de UI | Una máquina de estados pura para las herramientas, `(estado, evento) → (estado, efectos)`, vive en el paquete core. El bloqueo se aplica allí y también en los comandos. | Los gestos se prueban con tablas de transiciones. React solo pinta snapshots y reenvía los eventos del puntero. |
 | Render | Renderer SVG propio. Solo se reconstruyen las formas que tocó cada transacción, y el resto conserva su identidad de objeto. | Cada forma solo vuelve a pintarse cuando cambia de verdad. |
-| Convergencia | Tests basados en propiedades (fast-check) ejecutan tres réplicas con comandos concurrentes aleatorios (formas, votos, comentarios, páginas, orden en z, estilo y bloqueo) y un orden de entrega aleatorio, y comprueban que el estado final es idéntico. En CI corren 10.000 casos cada noche. | La convergencia se prueba, no se da por hecha. |
+| Convergencia | Tests basados en propiedades (fast-check) ejecutan tres réplicas con comandos concurrentes aleatorios (formas, votos, comentarios, páginas, orden en z, estilo, bloqueo y eventos de calendario) y un orden de entrega aleatorio, y comprueban que el estado final es idéntico. En CI corren 10.000 casos cada noche. | La convergencia se prueba, no se da por hecha. |
 | Tiempo | Los plazos de votación son marcas de tiempo absolutas del servidor. El cliente aplica el desfase de reloj que obtiene de los mensajes `hello`/`time`, y el estado "abierto" se deriva en lugar de guardarse. | Ningún reloj de cliente puede alargar una votación, y nadie tiene que escribir nada cuando termina el temporizador. |
 | Deshacer | Un `Y.UndoManager` por usuario sigue solo los orígenes de este cliente. Cada gesto, pegado o sesión de edición de texto es un paso, y cambiar de página vacía la pila. | Deshacer nunca revierte el trabajo de otra persona ni cambia una página que no estás viendo. |
 | Seguridad | Las claves son capacidades HMAC-SHA-256 comparadas en tiempo constante y verificadas antes de despertar ningún Durable Object. El servidor sobrescribe el header de rol y los mensajes tienen límites de tamaño. Cada conexión tiene un token bucket, y se rechaza un pegado de más de 192 KiB. | Todo cabe en el plan gratuito, y un cliente hostil no puede escribir sin clave. |
@@ -157,14 +157,14 @@ O con Docker: `docker compose up`.
 ## Tests
 
 ```bash
-npm test         # 800 tests unitarios, de propiedades y de integración (core 441 · web 333 · sync-server 26)
+npm test         # 825 tests unitarios, de propiedades y de integración (core 445 · web 354 · sync-server 26)
 npm run e2e      # 36 escenarios de Playwright con varios navegadores independientes
 npm run lint && npm run typecheck
 ```
 
 | Suite | Qué demuestra |
 |---|---|
-| `packages/core` (Vitest + fast-check) | Geometría, tablas de transiciones de la FSM (incluido el bloqueo), comandos sobre un `Y.Doc` real, la validación del portapapeles y la reasignación de ids, el diff de texto con emoji, el deshacer por usuario, los recuentos de votos, las lápidas de páginas, el parser y el evaluador de fórmulas, las familias, disposiciones y algoritmos de grafos, las zonas horarias, las repeticiones y los viajes de ida y vuelta por `.ics` del calendario, y la convergencia de tres réplicas para formas, datos de sesión, páginas y hojas |
+| `packages/core` (Vitest + fast-check) | Geometría, tablas de transiciones de la FSM (incluido el bloqueo), comandos sobre un `Y.Doc` real, la validación del portapapeles y la reasignación de ids, el diff de texto con emoji, el deshacer por usuario, los recuentos de votos, las lápidas de páginas, el parser y el evaluador de fórmulas, las familias, disposiciones y algoritmos de grafos, las zonas horarias, las repeticiones y los viajes de ida y vuelta por `.ics` del calendario, y la convergencia de tres réplicas para formas, datos de sesión, páginas, hojas y calendarios |
 | `apps/sync-server` (Vitest + `wrangler dev` real) | Sincronización entre editores, lectores de solo lectura, 4401 con claves inválidas, header de rol falsificado, límites de mensaje y de awareness, tope de tamaño, hora del servidor y persistencia tras reiniciar el servidor |
 | `apps/web` (Vitest) | La proyección Yjs → Zustand por página, el controlador del tablero (arrastres con throttle, portapapeles, orden en z, estilo, bloqueo, menús y pasos de deshacer), los atajos y los permisos por rol, los temporizadores de votación, los enlaces de compartir, los avisos, el controlador y las teclas de las hojas, la creación de grafos, y el store, la disposición y el controlador del calendario |
 | `e2e/` (Playwright) | Estos escenarios: dos usuarios que ven las ediciones y los cursores del otro; conectores y frames; zoom, minimapa y restauración de la cámara; votación y comentarios entre usuarios; crear, reordenar y borrar páginas, y enlaces con hash; menús contextuales, portapapeles, bloqueo, ayuda y límites de los lectores; edición de hojas de cálculo entre usuarios; familias de grafos, listas de aristas, etiquetas y capas de algoritmos; calendarios entre zonas horarias, excepciones en series, asistencia en vivo y `.ics` |
@@ -191,6 +191,13 @@ Se construye por fases, cada una desplegable; los detalles están en la spec.
   - validación estricta de los frames de awareness;
   - un estimador de tamaño de documento más fino;
   - mostrar en la UI los cierres por "mensaje demasiado grande".
+- Calendario:
+  - una serie quincenal (o cada N semanas) desplazada más allá de un lunes con **All events**
+    puede cambiar las semanas en que cae, porque la regla cuenta las semanas desde el inicio de
+    la serie;
+  - volver a importar un archivo .ics cuyos eventos no tienen UID duplica esos eventos;
+  - la exportación nombra zonas IANA en TZID sin bloques VTIMEZONE, algo que aceptan la
+    mayoría de las apps de calendario pero no los lectores estrictos de RFC 5545.
 
 ## Licencia
 

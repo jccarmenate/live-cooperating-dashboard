@@ -164,6 +164,169 @@ describe('creating and editing', () => {
   });
 });
 
+/** Brings two replicas up to date with each other. */
+const sync = (a: Y.Doc, b: Y.Doc) => {
+  Y.applyUpdate(b, Y.encodeStateAsUpdate(a, Y.encodeStateVector(b)));
+  Y.applyUpdate(a, Y.encodeStateAsUpdate(b, Y.encodeStateVector(a)));
+};
+
+describe('merge-safe saves', () => {
+  for (const [label, peerId] of [
+    ['lower', 1],
+    ['higher', 2 ** 31],
+  ] as const) {
+    it(`a single-event save writes only what changed, so a peer's rename survives (${label} peer id)`, () => {
+      const { ctl, create, doc, page, events } = setup();
+      create('a', {
+        title: 'Old',
+        notes: 'n',
+        when: { allDay: false, start: '2026-09-28T09:00', end: '2026-09-28T10:00', tz: ZONE },
+      });
+      const peer = new Y.Doc();
+      peer.clientID = peerId;
+      sync(doc, peer);
+      ctl.openEditor({ eventId: 'a', key: '2026-09-28' });
+      applyCommand(peer, {
+        type: 'UpdateEvent',
+        pageId: page,
+        id: 'a',
+        patch: {
+          title: 'Renamed',
+          when: { allDay: false, start: '2026-09-28T11:00', end: '2026-09-28T12:00', tz: ZONE },
+        },
+      });
+      ctl.save({ ...draftOf(ctl), color: EVENT_COLORS[3] as string });
+      expect(ctl.ui.getState().editor).toBeNull();
+      sync(doc, peer);
+      const expected = {
+        title: 'Renamed',
+        notes: 'n',
+        color: EVENT_COLORS[3],
+        when: { start: '2026-09-28T11:00', end: '2026-09-28T12:00' },
+      };
+      expect(events()[0]).toMatchObject(expected);
+      expect(readCalendar(getRoots(peer).calendars.get(page))?.events[0]).toMatchObject(expected);
+    });
+  }
+
+  it('a single-event save writes the timing and the rule only when they were edited', () => {
+    const { ctl, create, events, doc } = setup();
+    create('a', { when: { allDay: true, start: '2026-09-28', end: '2026-09-28' } });
+    let updates = 0;
+    doc.on('update', () => updates++);
+    ctl.openEditor({ eventId: 'a', key: '2026-09-28' });
+    ctl.save(draftOf(ctl));
+    expect(ctl.ui.getState().editor).toBeNull();
+    expect(updates).toBe(0);
+    ctl.openEditor({ eventId: 'a', key: '2026-09-28' });
+    ctl.save({ ...draftOf(ctl), endDate: '2026-09-29', repeat: 'weekly' });
+    expect(events()[0]).toMatchObject({
+      when: { allDay: true, start: '2026-09-28', end: '2026-09-29' },
+      rule: { freq: 'weekly', interval: 1 },
+    });
+  });
+
+  it("keeps a peer's removal of the rule when the user left the repeat alone", () => {
+    const { ctl, create, events, doc, page } = setup();
+    create('a', {
+      when: { allDay: true, start: '2026-09-28', end: '2026-09-28' },
+      rule: { freq: 'weekly', interval: 1 },
+    });
+    ctl.openEditor({ eventId: 'a', key: '2026-09-28' });
+    applyCommand(doc, { type: 'UpdateEvent', pageId: page, id: 'a', patch: { rule: null } });
+    ctl.save({ ...draftOf(ctl), title: 'Renamed' });
+    expect(ctl.ui.getState().editor).toBeNull();
+    expect(events()[0]).toMatchObject({ title: 'Renamed' });
+    expect(events()[0]?.rule).toBeUndefined();
+  });
+});
+
+describe('the selection follows its occurrence', () => {
+  const WEEKLY_MON = {
+    when: { allDay: false, start: '2026-09-28T09:00', end: '2026-09-28T09:30', tz: ZONE },
+    rule: { freq: 'weekly', interval: 1 },
+  };
+
+  it('drops the selection, the editor and its question when a peer shifts the series off that date', () => {
+    const { ctl, create, doc, page, events } = setup();
+    create('s', WEEKLY_MON);
+    ctl.openEditor({ eventId: 's', key: '2026-10-05' });
+    expect(ctl.ui.getState().selected).toEqual({ eventId: 's', key: '2026-10-05' });
+    ctl.save({ ...draftOf(ctl), title: 'Renamed' });
+    expect(ctl.ui.getState().question).not.toBeNull();
+    applyCommand(doc, {
+      type: 'UpdateEvent',
+      pageId: page,
+      id: 's',
+      patch: { when: { ...WEEKLY_MON.when, start: '2026-09-29T09:00', end: '2026-09-29T09:30' } },
+    });
+    expect(ctl.ui.getState().selected).toBeNull();
+    expect(ctl.ui.getState().editor).toBeNull();
+    expect(ctl.ui.getState().question).toBeNull();
+    ctl.answer('one');
+    expect(events()[0]?.exceptions).toEqual({});
+  });
+
+  it('drops the selection when a peer cancels that occurrence, and keeps it for a moved one', () => {
+    const { ctl, create, doc, page } = setup();
+    create('s', WEEKLY_MON);
+    ctl.select({ eventId: 's', key: '2026-10-05' });
+    const moved = {
+      when: { ...WEEKLY_MON.when, start: '2026-10-06T09:00', end: '2026-10-06T09:30' },
+    };
+    applyCommand(doc, {
+      type: 'SetOccurrence',
+      pageId: page,
+      id: 's',
+      key: '2026-10-05',
+      value: moved,
+    });
+    expect(ctl.ui.getState().selected).toEqual({ eventId: 's', key: '2026-10-05' });
+    applyCommand(doc, {
+      type: 'SetOccurrence',
+      pageId: page,
+      id: 's',
+      key: '2026-10-05',
+      value: { cancelled: true },
+    });
+    expect(ctl.ui.getState().selected).toBeNull();
+  });
+
+  it('re-keys the selection after an "All events" day shift', () => {
+    const { ctl, create, events } = setup();
+    create('s', WEEKLY_MON);
+    ctl.select({ eventId: 's', key: '2026-10-05' });
+    ctl.move({ eventId: 's', key: '2026-10-05' }, { date: '2026-10-06' });
+    ctl.answer('all');
+    expect(events().find((e) => e.id === 's')?.when.start).toBe('2026-09-29T09:00');
+    expect(ctl.ui.getState().selected).toEqual({ eventId: 's', key: '2026-10-06' });
+    // A daily series: the old date is still an occurrence, but the selection follows the moved one.
+    create('d', DAILY_9);
+    ctl.openEditor({ eventId: 'd', key: '2026-09-30' });
+    ctl.save({ ...draftOf(ctl), startDate: '2026-10-02', endDate: '2026-10-02' });
+    ctl.answer('all');
+    expect(events().find((e) => e.id === 'd')?.when.start).toBe('2026-09-30T09:00');
+    expect(ctl.ui.getState().selected).toEqual({ eventId: 'd', key: '2026-10-02' });
+  });
+
+  it('re-keys the selection and the editor when a single event changes day', () => {
+    const { ctl, create, doc, page } = setup();
+    create('a', { when: { allDay: true, start: '2026-09-28', end: '2026-09-28' } });
+    ctl.select({ eventId: 'a', key: '2026-09-28' });
+    ctl.move({ eventId: 'a', key: '2026-09-28' }, { date: '2026-10-01' });
+    expect(ctl.ui.getState().selected).toEqual({ eventId: 'a', key: '2026-10-01' });
+    ctl.openEditor({ eventId: 'a', key: '2026-10-01' });
+    applyCommand(doc, {
+      type: 'UpdateEvent',
+      pageId: page,
+      id: 'a',
+      patch: { when: { allDay: true, start: '2026-10-02', end: '2026-10-02' } },
+    });
+    expect(ctl.ui.getState().selected).toEqual({ eventId: 'a', key: '2026-10-02' });
+    expect(ctl.ui.getState().editor?.ref).toEqual({ eventId: 'a', key: '2026-10-02' });
+  });
+});
+
 describe('moving, resizing and deleting', () => {
   it('moves a single timed event to another day keeping its local time, and in week view to a new time', () => {
     const { ctl, create, events } = setup();
@@ -672,6 +835,67 @@ describe('changes are measured against the draft the editor opened with', () => 
     expect(events()[0]?.when.start).toBe('2026-03-29T02:30');
   });
 
+  it("measures a timing edit of another zone's timed exception in that zone (all-day series)", () => {
+    const { ctl, create, events, doc, page } = setup();
+    create('a', ALL_DAY_DAILY);
+    // 20:00 Havana on 30 Sep is 02:00 on 1 Oct in Madrid.
+    const havana = {
+      allDay: false,
+      start: '2026-09-30T20:00',
+      end: '2026-09-30T21:00',
+      tz: 'America/Havana',
+    } as const;
+    applyCommand(doc, {
+      type: 'SetOccurrence',
+      pageId: page,
+      id: 'a',
+      key: '2026-09-30',
+      value: { when: havana },
+    });
+    ctl.openEditor({ eventId: 'a', key: '2026-09-30' });
+    expect(draftOf(ctl)).toMatchObject({ startDate: '2026-10-01', startTime: '02:00' });
+    ctl.save({ ...draftOf(ctl), startTime: '03:00', endTime: '04:00' });
+    expect(ctl.ui.getState().question).toEqual({ action: 'save', drops: 1 });
+    ctl.answer('all');
+    // Same day in Havana: the all-day series does not move.
+    expect(events()[0]).toMatchObject({ when: ALL_DAY_DAILY.when, exceptions: {} });
+  });
+
+  it('turns untouched weekly days with a moved start even when the interval changed', () => {
+    const { ctl, create, events } = setup();
+    create('s', { ...DAILY_9, rule: { freq: 'weekly', interval: 1, byDay: [0, 2] } });
+    ctl.openEditor({ eventId: 's', key: '2026-09-30' });
+    ctl.save({ ...draftOf(ctl), interval: 2, startDate: '2026-10-01', endDate: '2026-10-01' });
+    expect(ctl.ui.getState().question).toMatchObject({ allOnly: true });
+    ctl.answer('all');
+    expect(events()[0]).toMatchObject({
+      when: { start: '2026-09-29T09:00', end: '2026-09-29T09:30' },
+      rule: { freq: 'weekly', interval: 2, byDay: [1, 3] },
+    });
+  });
+
+  it('"Only this event" writes nothing without changes, and clears an exception set back to the series', () => {
+    const { ctl, create, events, doc, board } = setup();
+    create('s', DAILY_9);
+    let updates = 0;
+    doc.on('update', () => updates++);
+    ctl.openEditor({ eventId: 's', key: '2026-09-30' });
+    ctl.save(draftOf(ctl));
+    ctl.answer('one');
+    expect(updates).toBe(0);
+    expect(ctl.ui.getState().editor).toBeNull();
+    ctl.openEditor({ eventId: 's', key: '2026-09-30' });
+    ctl.save({ ...draftOf(ctl), title: 'Focus', startTime: '14:00', endTime: '14:30' });
+    ctl.answer('one');
+    expect(Object.keys(events()[0]?.exceptions ?? {})).toEqual(['2026-09-30']);
+    ctl.openEditor({ eventId: 's', key: '2026-09-30' });
+    ctl.save({ ...draftOf(ctl), title: 'T', startTime: '09:00', endTime: '09:30' });
+    ctl.answer('one');
+    expect(events()[0]?.exceptions).toEqual({});
+    board.undo();
+    expect(events()[0]?.exceptions['2026-09-30']).toMatchObject({ title: 'Focus' });
+  });
+
   it('turns weekly days with the series when "All events" moves it', () => {
     const { ctl, create, events } = setup();
     create('s', { ...DAILY_9, rule: { freq: 'weekly', interval: 1, byDay: [0, 2] } });
@@ -742,7 +966,7 @@ describe('.ics', () => {
       ].join('\r\n'),
     ).join('\r\n');
     expect(ctl.importIcs(`BEGIN:VCALENDAR\r\n${heavy}\r\nEND:VCALENDAR`)).toBeNull();
-    expect(notify).toHaveBeenLastCalledWith('Too much to paste at once');
+    expect(notify).toHaveBeenLastCalledWith('This file is too large to import at once');
     expect(events()).toHaveLength(0);
   });
 

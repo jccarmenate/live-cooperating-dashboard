@@ -73,7 +73,7 @@ from the first milestone, and later features are listed below.*
     jumps back to the sticky. Viewers can read and export, but not edit or RSVP.
 - **Presence.** You see named, coloured remote cursors and selections. A "typing…" tag shows who is editing a shape. Dots on each page tab show who is on that page.
 - **Sharing.** There are no accounts. A room link carries an HMAC key that grants either edit or view access, and the server enforces it. The Share dialog gives both links.
-- **Help.** `?` lists every shortcut. An empty page shows a starter hint.
+- **Help.** `?` lists the board shortcuts. An empty page shows a starter hint.
 
 ## Engineering highlights
 
@@ -88,7 +88,7 @@ it**.
 | Deletes that stick | A deleted page is recorded in a flat, write-once tombstone map, and never as a flag on the page's map. | A concurrent rename or move can never resurrect a deleted page. |
 | UI state | A pure tool state machine, `(state, event) → (state, effects)`, lives in the core package, and locks are enforced there as well as in the commands. | Gestures are table-tested. React only renders snapshots and forwards pointer events. |
 | Rendering | A hand-written SVG renderer. Only the shapes a transaction touched are rebuilt, and the rest keep their object identity. | Each shape re-renders only when it actually changes. |
-| Convergence | Property-based tests (fast-check) run three replicas through random concurrent commands (shapes, votes, comments, pages, z-order, style and lock) in random delivery order, and assert identical state. The nightly CI run executes 10,000 cases. | Convergence is tested, not assumed. |
+| Convergence | Property-based tests (fast-check) run three replicas through random concurrent commands (shapes, votes, comments, pages, z-order, style, lock and calendar events) in random delivery order, and assert identical state. The nightly CI run executes 10,000 cases. | Convergence is tested, not assumed. |
 | Time | Vote deadlines are absolute server timestamps. Clients apply a clock offset from the server's `hello`/`time` messages, and "open" is derived rather than stored. | No client clock can extend a vote, and nobody has to write when the timer ends. |
 | Undo | A per-user `Y.UndoManager` tracks only this client's origins. Each gesture, paste or text-editing session is one step, and switching pages clears the stack. | Undo never reverts someone else's work or changes a page you are not looking at. |
 | Security | Keys are HMAC-SHA-256 capabilities, compared in constant time and checked before any Durable Object wakes up. The server overwrites the role header, and messages have size caps. Each connection has a token bucket, and pastes are refused above 192 KiB. | Everything stays inside the free tier, and a hostile client can't write without a key. |
@@ -177,14 +177,14 @@ Or run it in Docker: `docker compose up`.
 ## Tests
 
 ```bash
-npm test         # 800 unit, property and integration tests (core 441 · web 333 · sync-server 26)
+npm test         # 825 unit, property and integration tests (core 445 · web 354 · sync-server 26)
 npm run e2e      # 36 Playwright scenarios with several independent browsers
 npm run lint && npm run typecheck
 ```
 
 | Suite | What it proves |
 |---|---|
-| `packages/core` (Vitest + fast-check) | Geometry, the tool FSM transition tables (including locks), commands on a real `Y.Doc`, clipboard validation and id remapping, text diffs with emoji, per-user undo, vote tallies, page tombstones, the formula parser and evaluator, graph families, layouts and algorithms, calendar zones, recurrence and `.ics` round trips, and three-replica convergence for shapes, session data, pages and sheets |
+| `packages/core` (Vitest + fast-check) | Geometry, the tool FSM transition tables (including locks), commands on a real `Y.Doc`, clipboard validation and id remapping, text diffs with emoji, per-user undo, vote tallies, page tombstones, the formula parser and evaluator, graph families, layouts and algorithms, calendar zones, recurrence and `.ics` round trips, and three-replica convergence for shapes, session data, pages, sheets and calendars |
 | `apps/sync-server` (Vitest + real `wrangler dev`) | Sync between editors, read-only viewers, 4401 on bad keys, a spoofed role header, message and awareness limits, the size cap, server time, and persistence across a server restart |
 | `apps/web` (Vitest) | The Yjs → Zustand projection per page, the board controller (throttled drags, clipboard, z-order, style, lock, menus, undo steps), shortcuts and role gating, voting timers, share links, toasts, the sheet controller and keys, graph creation, and the calendar store, layout and controller |
 | `e2e/` (Playwright) | These scenarios: two users seeing each other's edits and cursors; connectors and frames; zoom, the minimap and camera restore; voting and comments across users; pages being created, reordered and deleted, and hash links; context menus, clipboard, lock, help and viewer restrictions; spreadsheet editing between users; graph families, edge lists, labels and algorithm overlays; calendars across time zones, series exceptions, live RSVP and `.ics` |
@@ -211,6 +211,12 @@ The work is built in phases that can each be deployed; the spec has the details.
   - strict awareness frame validation;
   - a finer document-size estimator;
   - surfacing "message too big" closes in the UI.
+- Calendar:
+  - a biweekly (or every-N-weeks) series shifted across a Monday with **All events** can flip
+    which weeks it falls on, because the rule counts weeks from the series start;
+  - re-importing an .ics file whose events have no UID duplicates those events;
+  - exports name IANA zones in TZID without VTIMEZONE blocks, which most calendar apps
+    accept but strict RFC 5545 readers may not.
 
 ## License
 

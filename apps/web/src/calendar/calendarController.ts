@@ -12,6 +12,7 @@ import {
   fromWallMinutes,
   type IcsWarning,
   importUpdateSize,
+  isOccurrence,
   MAX_ALLDAY_DAYS,
   MAX_EVENT_NOTES,
   MAX_EVENT_TITLE,
@@ -201,6 +202,9 @@ function rotateRule(rule: Rule | undefined, dayDelta: number): Rule | undefined 
   return { ...rule, byDay };
 }
 
+const sameWhen = (a: When, b: When): boolean =>
+  a.start === b.start && a.end === b.end && (a.allDay ? b.allDay : !b.allDay && a.tz === b.tz);
+
 /** Whether two drafts show the same dates, times and all-day flag (times ignored all-day). */
 const sameTiming = (a: EditorDraft, b: EditorDraft): boolean =>
   a.allDay === b.allDay &&
@@ -240,7 +244,7 @@ export function createCalendarController(opts: CalendarControllerOptions): Calen
     question: null,
   }));
   /** The open series question's action; it re-reads the event when it runs. */
-  let pending: { eventId: string; run: (scope: Scope) => void } | null = null;
+  let pending: { ref: OccRef; run: (scope: Scope) => void } | null = null;
 
   const pageId = () => opts.calendar.getState().pageId;
   const events = () => opts.calendar.getState().calendar?.events ?? [];
@@ -255,8 +259,8 @@ export function createCalendarController(opts: CalendarControllerOptions): Calen
     return { ev, when: ev.rule ? occurrenceWhen(ev.when, dateOf(ref.key)) : ev.when };
   };
 
-  const ask = (eventId: string, question: SeriesQuestion, run: (scope: Scope) => void) => {
-    pending = { eventId, run };
+  const ask = (ref: OccRef, question: SeriesQuestion, run: (scope: Scope) => void) => {
+    pending = { ref, run };
     ui.setState({ question });
   };
 
@@ -422,15 +426,53 @@ export function createCalendarController(opts: CalendarControllerOptions): Calen
     if (fields.title !== ev.title) value.title = fields.title;
     if (fields.notes !== ev.notes) value.notes = fields.notes;
     if (fields.color !== ev.color) value.color = fields.color;
+    // Everything back to the plain occurrence: its exception is no longer needed.
+    if (Object.keys(value).length === 1 && sameWhen(when, occurrenceWhen(ev.when, dateOf(key)))) {
+      const page = pageId();
+      if (!(key in ev.exceptions)) return true;
+      return !!page && commitEvent({ type: 'ClearOccurrence', pageId: page, id: ev.id, key });
+    }
     return setOccurrence(ev, key, value);
+  };
+
+  /**
+   * The ref if it still names an occurrence, else null. A single event's only occurrence is
+   * keyed by its start day, so its ref follows the event to a new day.
+   */
+  const liveRef = (ref: OccRef): OccRef | null => {
+    const ev = eventById(ref.eventId);
+    if (!ev) return null;
+    if (!ev.rule) {
+      const key = formatDate(firstDate(ev.when));
+      return key === ref.key ? ref : { eventId: ev.id, key };
+    }
+    const ex = ev.exceptions[ref.key];
+    if (ex) return 'cancelled' in ex ? null : ref;
+    return isOccurrence(ev, dateOf(ref.key)) ? ref : null;
+  };
+  const sameRef = (a: OccRef | null, b: OccRef | null) =>
+    a?.eventId === b?.eventId && a?.key === b?.key;
+
+  /** After an "All events" shift of `dayDelta` days, a selected `ref` follows its occurrence. */
+  const followShift = (ref: OccRef, wasSelected: boolean, dayDelta: number) => {
+    if (!wasSelected || dayDelta === 0) return;
+    const key = formatDate(addDays(dateOf(ref.key), dayDelta));
+    ui.setState({ selected: liveRef({ eventId: ref.eventId, key }) });
   };
 
   const closeIfGone = () => {
     const { editor, selected } = ui.getState();
     const patch: Partial<CalendarUi> = {};
-    if (editor?.ref && !eventById(editor.ref.eventId)) patch.editor = null;
-    if (selected && !eventById(selected.eventId)) patch.selected = null;
-    if (pending && !eventById(pending.eventId)) {
+    if (editor?.ref) {
+      const ref = liveRef(editor.ref);
+      if (!ref) patch.editor = null;
+      else if (ref !== editor.ref) patch.editor = { ...editor, ref };
+    }
+    if (selected) {
+      const ref = liveRef(selected);
+      if (ref !== selected) patch.selected = ref;
+    }
+    if (pending && !liveRef(pending.ref)) {
       pending = null;
       patch.question = null;
     }
@@ -577,35 +619,56 @@ export function createCalendarController(opts: CalendarControllerOptions): Calen
         }
         edited = w;
       }
-      if (!ev.rule) {
-        const ok = commitEvent({
-          type: 'UpdateEvent',
-          pageId: page,
-          id: ev.id,
-          patch: { title, notes, color, when: edited ?? ev.when, rule: rule ?? null },
-        });
-        if (ok) ui.setState({ editor: null });
-        return;
-      }
-      // "All events" writes only the text fields the user changed.
+      // A save writes only the text fields the user changed, so a peer's concurrent edit of
+      // another field survives the merge.
       const text = {
         ...(draft.title !== opened.title ? { title } : {}),
         ...(draft.notes !== opened.notes ? { notes } : {}),
         ...(draft.color !== opened.color ? { color } : {}),
       };
+      if (!ev.rule) {
+        const patch = {
+          ...text,
+          ...(edited ? { when: edited } : {}),
+          // Against the opened draft too: a peer's rule change survives an untouched repeat.
+          ...(ruleKey(rule) !== ruleKey(ruleOfDraft(opened)) ? { rule: rule ?? null } : {}),
+        };
+        const ok =
+          Object.keys(patch).length === 0 ||
+          commitEvent({ type: 'UpdateEvent', pageId: page, id: ev.id, patch });
+        // A new day re-keys the selection (see `liveRef`).
+        if (ok) ui.setState({ editor: null });
+        return;
+      }
+      /**
+       * The edited occurrence in the shown occurrence's own frame, so a change is measured in
+       * one frame (a timed exception may be in another zone than the series).
+       */
+      const nextOf = (cur: When): When => {
+        if (!edited) return cur;
+        if (edited.allDay || cur.allDay || edited.tz === cur.tz) return edited;
+        const w = whenOfDraft(draft, cur.tz);
+        return typeof w === 'string' ? edited : w;
+      };
+      // Weekly days the user left alone turn with a moved start, even when the rule changed.
+      const sameDays = (a: number[], b: number[]) =>
+        JSON.stringify([...new Set(a)].sort((x, y) => x - y)) ===
+        JSON.stringify([...new Set(b)].sort((x, y) => x - y));
+      const keepDays = sameDays(draft.byDay, opened.byDay);
       /** "All events": the new base, the rule to write and whether the exceptions clear. */
       const planAll = (cur: { ev: CalendarEvent; when: When }) => {
-        const next = edited ?? cur.when;
+        const next = nextOf(cur.when);
         const c = changesOf(cur.when, next);
         const userRule = ruleKey(rule) !== ruleKey(cur.ev.rule);
-        // A user-edited rule is taken as is; otherwise weekly days turn with a moved start.
-        const newRule = userRule ? rule : rotateRule(cur.ev.rule, c.dayDelta);
+        // A user-edited rule is taken as is, except for untouched weekly days.
+        const newRule = rotateRule(userRule ? rule : cur.ev.rule, keepDays ? c.dayDelta : 0);
         const ruleChanged = ruleKey(newRule) !== ruleKey(cur.ev.rule);
         return {
           when: editAll(cur.ev.when, cur.when, next),
           userRule,
           newRule,
           ruleChanged,
+          dayDelta: c.dayDelta,
           clears: c.dayDelta !== 0 || c.timeChanged || c.allDayChanged || ruleChanged,
         };
       };
@@ -615,25 +678,30 @@ export function createCalendarController(opts: CalendarControllerOptions): Calen
         drops: plan.clears ? exceptionCount(ev) : 0,
         ...(plan.userRule ? { allOnly: true as const } : {}),
       };
-      ask(ev.id, question, (scope) => {
+      ask(ref, question, (scope) => {
         const cur = resolve(ref);
         if (!cur) return;
         let ok: boolean;
         if (scope === 'one') {
-          ok = overrideOne(cur.ev, ref.key, edited ?? cur.when, { title, notes, color });
+          // Nothing changed: nothing to write.
+          ok =
+            (!edited && Object.keys(text).length === 0) ||
+            overrideOne(cur.ev, ref.key, edited ?? cur.when, { title, notes, color });
         } else {
           const p = planAll(cur);
+          const wasSelected = sameRef(ui.getState().selected, ref);
           ok = commitEvent({
             type: 'UpdateEvent',
             pageId: page,
             id: cur.ev.id,
             patch: {
               ...text,
-              when: p.when,
+              ...(sameWhen(p.when, cur.ev.when) ? {} : { when: p.when }),
               ...(p.ruleChanged ? { rule: p.newRule ?? null } : {}),
             },
             clearExceptions: p.clears && exceptionCount(cur.ev) > 0,
           });
+          if (ok) followShift(ref, wasSelected, p.dayDelta);
         }
         if (ok) ui.setState({ editor: null });
       });
@@ -682,7 +750,7 @@ export function createCalendarController(opts: CalendarControllerOptions): Calen
         return { base, rule, ruleChanged, clears };
       };
       const drops = planAll(ev).clears ? exceptionCount(ev) : 0;
-      ask(ev.id, { action: 'move', drops }, (scope) => {
+      ask(ref, { action: 'move', drops }, (scope) => {
         const cur = resolve(ref);
         if (!cur) return;
         if (scope === 'one') {
@@ -690,13 +758,15 @@ export function createCalendarController(opts: CalendarControllerOptions): Calen
           return;
         }
         const p = planAll(cur.ev);
-        commitEvent({
+        const wasSelected = sameRef(ui.getState().selected, ref);
+        const ok = commitEvent({
           type: 'UpdateEvent',
           pageId: page,
           id: cur.ev.id,
           patch: { when: p.base, ...(p.ruleChanged ? { rule: p.rule ?? null } : {}) },
           clearExceptions: p.clears && exceptionCount(cur.ev) > 0,
         });
+        if (ok) followShift(ref, wasSelected, dayDelta);
       });
     },
     resize(ref, to) {
@@ -722,7 +792,7 @@ export function createCalendarController(opts: CalendarControllerOptions): Calen
         return;
       }
       const ms = end - s;
-      ask(ev.id, { action: 'move', drops: 0 }, (scope) => {
+      ask(ref, { action: 'move', drops: 0 }, (scope) => {
         const cur = resolve(ref);
         if (!cur) return;
         if (scope === 'one') changeOne(cur.ev, ref.key, next);
@@ -747,7 +817,7 @@ export function createCalendarController(opts: CalendarControllerOptions): Calen
         if (commitEvent({ type: 'DeleteEvent', pageId: page, id: ev.id })) done();
         return;
       }
-      ask(ev.id, { action: 'delete', drops: 0 }, (scope) => {
+      ask(ref, { action: 'delete', drops: 0 }, (scope) => {
         const cur = eventById(ref.eventId);
         if (!cur) return;
         const ok =
@@ -762,7 +832,7 @@ export function createCalendarController(opts: CalendarControllerOptions): Calen
       if (scope === 'one' && ui.getState().question?.allOnly) return;
       pending = null;
       ui.setState({ question: null });
-      if (!scope || !p || !opts.canEdit() || !eventById(p.eventId)) return;
+      if (!scope || !p || !opts.canEdit() || !eventById(p.ref.eventId)) return;
       p.run(scope);
     },
     rsvp(eventId, status) {
@@ -811,7 +881,7 @@ export function createCalendarController(opts: CalendarControllerOptions): Calen
         exceptions: e.exceptions,
       }));
       if (writes.length > 0 && importUpdateSize(writes) > MAX_PASTE_BYTES) {
-        opts.notify('Too much to paste at once');
+        opts.notify('This file is too large to import at once');
         return null;
       }
       if (

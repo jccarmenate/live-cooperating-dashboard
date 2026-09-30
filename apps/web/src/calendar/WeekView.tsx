@@ -6,7 +6,10 @@ import type { BoardSession } from '../board/session';
 import type { CalendarController, OccRef } from './calendarController';
 import { EventDots } from './EventDots';
 import {
+  grabMove,
   HOUR_PX,
+  type MoveGrab,
+  moveTarget,
   occurrenceDays,
   SNAP_MIN,
   timeLabel,
@@ -30,10 +33,13 @@ type Gesture =
       x: number;
       y: number;
       moved: boolean;
-      offset: number;
-      length: number;
+      grab: MoveGrab;
+      /** The column under the pointer. */
       date: string;
+      /** The preview in that column, and where a release drops the event. */
       top: number;
+      height: number;
+      drop: { date: string; minutes: number } | null;
     }
   | {
       kind: 'resize';
@@ -117,7 +123,7 @@ export function WeekView({
         true,
       );
     } else if (g.moved) {
-      const height = g.kind === 'move' ? g.length : g.bottom - g.top;
+      const height = g.kind === 'move' ? g.height : g.bottom - g.top;
       preview.setState({ day, top: g.top, height, create: false }, true);
     }
   };
@@ -149,9 +155,11 @@ export function WeekView({
           : {
               kind: 'move',
               ...start,
-              offset: minutesAt(e.clientY, col) - b.top,
-              length: b.height,
+              // Measured from the event's real start: a part after midnight grabs it there.
+              grab: grabMove(b.occ, date, ctl.zone, minutesAt(e.clientY, col)),
               top: b.top,
+              height: b.height,
+              drop: null,
             };
       // Captured by the box itself: its events still bubble to these delegated handlers,
       // and the click and double-click that follow target the box (double-click opens it).
@@ -184,8 +192,11 @@ export function WeekView({
     const m = minutesAt(e.clientY, col);
     if (g.kind === 'resize') g.bottom = Math.max(g.top + SNAP_MIN, m);
     else {
-      g.top = Math.min(Math.max(0, DAY_MIN - g.length), snap(m - g.offset));
       g.date = col.dataset.date ?? g.date;
+      const t = moveTarget(g.grab, g.date, m);
+      g.top = t.top;
+      g.height = t.height;
+      g.drop = t.drop;
     }
     show(g);
   };
@@ -204,8 +215,9 @@ export function WeekView({
         end: Math.min(DAY_MIN, to > from ? to : from + 60),
       });
     } else if (!g.moved) ctl.select(g.ref);
-    else if (g.kind === 'move') ctl.move(g.ref, { date: g.date, minutes: g.top });
-    else ctl.resize(g.ref, { date: g.date, minutes: g.bottom });
+    else if (g.kind === 'move') {
+      if (g.drop) ctl.move(g.ref, g.drop);
+    } else ctl.resize(g.ref, { date: g.date, minutes: g.bottom });
   };
 
   const onCancel = (e: React.PointerEvent) => {

@@ -55,27 +55,34 @@ const escapeText = (s: string): string =>
     .replace(/,/g, '\\,')
     .replace(/\r\n|\r|\n/g, '\\n');
 
-// Core has no DOM or Node types; every supported runtime provides TextEncoder.
-declare const TextEncoder: new () => { encode(input: string): Uint8Array };
-const encoder = new TextEncoder();
+/** Whether `line` is ASCII and at most 75 characters: 75 octets or fewer, nothing to fold. */
+function shortAscii(line: string): boolean {
+  if (line.length > 75) return false;
+  for (let i = 0; i < line.length; i++) if (line.charCodeAt(i) > 0x7f) return false;
+  return true;
+}
+
+/** UTF-8 octets of a code point (a lone surrogate is written as U+FFFD, 3 octets). */
+const utf8Size = (c: number): number => (c < 0x80 ? 1 : c < 0x800 ? 2 : c < 0x10000 ? 3 : 4);
 
 /** Folds a content line into lines of at most 75 octets, never splitting a character. */
 function fold(line: string): string[] {
+  if (shortAscii(line)) return [line];
   const out: string[] = [];
-  let cur = '';
+  let from = 0;
   let bytes = 0;
-  for (const ch of line) {
-    const size = encoder.encode(ch).length;
-    const max = out.length === 0 ? 75 : 74;
-    if (bytes + size > max) {
-      out.push(cur);
-      cur = '';
+  for (let i = 0; i < line.length; ) {
+    const c = line.codePointAt(i) as number;
+    const size = utf8Size(c);
+    if (bytes + size > (out.length === 0 ? 75 : 74)) {
+      out.push(line.slice(from, i));
+      from = i;
       bytes = 0;
     }
-    cur += ch;
     bytes += size;
+    i += c > 0xffff ? 2 : 1;
   }
-  out.push(cur);
+  out.push(line.slice(from));
   return out.map((l, i) => (i === 0 ? l : ` ${l}`));
 }
 

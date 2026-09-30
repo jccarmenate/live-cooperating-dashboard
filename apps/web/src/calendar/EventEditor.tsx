@@ -3,8 +3,10 @@ import { useEffect, useRef, useState } from 'react';
 import { useStore } from 'zustand';
 import type { BoardSession } from '../board/session';
 import { Dialog } from '../ui/Dialog';
+import { toast } from '../ui/toasts';
 import type { CalendarController, EditorDraft, EditorState } from './calendarController';
-import { WEEKDAY_SHORT } from './layout';
+import { WEEKDAY_SHORT, zoneNote } from './layout';
+import { openOnBoard } from './openOnBoard';
 import { rsvpSummary } from './rsvp';
 
 const input = 'w-full border-2 border-ink bg-white px-2 py-1 font-mono text-xs disabled:bg-paper';
@@ -64,10 +66,7 @@ function EditorDialog({
   const ro = editor.readOnly || !canEdit;
   const set = (patch: Partial<EditorDraft>) => setDraft((d) => ({ ...d, ...patch }));
   const resolved = editor.ref && ev ? ctl.resolve(editor.ref) : null;
-  const tzNote =
-    resolved && !resolved.when.allDay && resolved.when.tz !== ctl.zone
-      ? `Event time: ${resolved.when.start.slice(11)}–${resolved.when.end.slice(11)} ${resolved.when.tz}`
-      : null;
+  const tzNote = resolved ? zoneNote(resolved.when, ctl.zone, editor.draft.startDate) : null;
   const summary = ev ? rsvpSummary(ev.rsvp) : null;
   const mine = ev?.rsvp[session.user.id]?.status ?? null;
   const answer = (s: RsvpStatus) => {
@@ -337,10 +336,7 @@ function EditorDialog({
             data-testid="cal-open-board"
             disabled={!linkAlive}
             className={`${btn} self-start bg-white`}
-            onClick={() => {
-              ctl.closeEditor();
-              session.controller.revealShape(link.pageId, link.shapeId);
-            }}
+            onClick={() => openOnBoard(ctl, session.controller, link, toast)}
           >
             {linkAlive ? 'Open on board' : 'Sticky deleted'}
           </button>

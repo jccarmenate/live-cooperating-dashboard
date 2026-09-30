@@ -30,6 +30,52 @@ function read(doc: Y.Doc, id: string) {
   return m ? readShape(id, m) : null;
 }
 
+describe('what an undo step touched', () => {
+  it('tells when the last undo or redo changed only calendar events', () => {
+    const doc = new Y.Doc();
+    applyCommand(
+      doc,
+      {
+        type: 'CreatePage',
+        page: {
+          id: 'cal',
+          type: 'calendar',
+          title: 'C',
+          order: 'a1',
+          createdBy: 'u',
+          createdAt: 0,
+        },
+      },
+      SESSION_ORIGIN,
+    );
+    const undo = createUndo(doc);
+    applyCommand(
+      doc,
+      {
+        type: 'CreateEvent',
+        pageId: 'cal',
+        id: 'e1',
+        fields: {
+          title: 'T',
+          color: '#3B3BF5',
+          when: { allDay: true, start: '2026-10-01', end: '2026-10-01' },
+          createdBy: 'u',
+          createdAt: 0,
+        },
+      },
+      LOCAL_ORIGIN,
+    );
+    expect(undo.undo()).toBe(true);
+    expect(undo.lastOnlyCalendars()).toBe(true);
+    expect(undo.redo()).toBe(true);
+    expect(undo.lastOnlyCalendars()).toBe(true);
+    undo.stopCapturing();
+    applyCommand(doc, { type: 'CreateShape', shape: shape('a') }, LOCAL_ORIGIN);
+    expect(undo.undo()).toBe(true);
+    expect(undo.lastOnlyCalendars()).toBe(false);
+  });
+});
+
 describe('createUndo', () => {
   it('undoes and redoes local commands', () => {
     const doc = new Y.Doc();

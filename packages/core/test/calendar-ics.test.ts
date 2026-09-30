@@ -89,6 +89,38 @@ describe('writeIcs', () => {
     const summary = parseIcs(text, { zone: 'UTC' }).events[0]?.fields.title;
     expect(summary).toBe('é'.repeat(100));
   });
+
+  it('exports a calendar at the caps quickly (500 series × 200 exceptions, full notes)', () => {
+    const tz = 'Europe/Madrid';
+    const events = Array.from({ length: 500 }, (_, i) => {
+      const exceptions: CalendarEvent['exceptions'] = {};
+      for (let k = 0; k < 200; k++) {
+        const d = new Date(Date.UTC(2026, 9, 1 + k)).toISOString().slice(0, 10);
+        exceptions[d] =
+          k % 2
+            ? { cancelled: true }
+            : {
+                when: { allDay: false, start: `${d}T10:00`, end: `${d}T11:00`, tz },
+                title: 'Moved',
+              };
+      }
+      return base({
+        id: `e${i}`,
+        title: 'T'.repeat(120),
+        notes: 'é'.repeat(2000),
+        rule: { freq: 'daily', interval: 1 },
+        exceptions,
+      });
+    });
+    const t0 = Date.now();
+    const text = writeIcs({ events }, { name: 'Big', now: NOW });
+    const ms = Date.now() - t0;
+    // Each series is one master plus 100 moved occurrences, each repeating the 2000-char notes.
+    expect(text.split('BEGIN:VEVENT').length - 1).toBe(500 * 101);
+    for (const line of text.slice(0, 200_000).split('\r\n').slice(0, -1))
+      expect(new TextEncoder().encode(line).length).toBeLessThanOrEqual(75);
+    expect(ms).toBeLessThan(5000);
+  }, 60_000);
 });
 
 describe('parseIcs', () => {

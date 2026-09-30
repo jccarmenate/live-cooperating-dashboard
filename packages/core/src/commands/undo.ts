@@ -9,6 +9,8 @@ export interface Undo {
   stopCapturing(): void;
   canUndo(): boolean;
   canRedo(): boolean;
+  /** Whether the last undo or redo changed calendar events and nothing else. */
+  lastOnlyCalendars(): boolean;
   onChange(cb: () => void): () => void;
   /** Empties the undo and redo stacks. */
   clear(): void;
@@ -28,12 +30,24 @@ export function createUndo(doc: Y.Doc, opts: { captureTimeout?: number } = {}): 
     trackedOrigins: new Set<unknown>([LOCAL_ORIGIN, AI_ORIGIN]),
     captureTimeout: opts.captureTimeout ?? 500,
   });
+  type Node = { _item: Y.Item | null };
+  const rootOf = (type: Node): Node => {
+    let t = type;
+    while (t._item) t = t._item.parent as Node;
+    return t;
+  };
+  let onlyCalendars = false;
+  manager.on('stack-item-popped', (e) => {
+    const types = [...e.changedParentTypes.keys()];
+    onlyCalendars = types.length > 0 && types.every((t) => rootOf(t) === calendars);
+  });
   return {
     undo: () => manager.undo() !== null,
     redo: () => manager.redo() !== null,
     stopCapturing: () => manager.stopCapturing(),
     canUndo: () => manager.canUndo(),
     canRedo: () => manager.canRedo(),
+    lastOnlyCalendars: () => onlyCalendars,
     onChange(cb) {
       for (const event of STACK_EVENTS) manager.on(event, cb);
       return () => {
