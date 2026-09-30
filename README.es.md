@@ -100,8 +100,8 @@ código después de cada tarea:
 ```mermaid
 flowchart LR
   subgraph Browser["Navegador (Next.js, tablero solo en cliente)"]
-    UI[Toolbar · Menús · Overlays] --> FSM[FSM de herramientas<br/>@relay/core]
-    FSM -->|efectos| CMD[applyCommand<br/>@relay/core]
+    UI[Toolbar · Menús · Overlays] --> FSM["FSM de herramientas<br/>@relay/core"]
+    FSM -->|efectos| CMD["applyCommand<br/>@relay/core"]
     UI -->|menús, portapapeles, páginas| CMD
     CMD -->|transact LOCAL / SESSION| YD[(Y.Doc)]
     YD -->|observeDeep| Z[Snapshots en Zustand<br/>página activa]
