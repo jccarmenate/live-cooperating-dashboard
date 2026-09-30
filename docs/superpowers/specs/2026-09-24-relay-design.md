@@ -1015,8 +1015,8 @@ back to it.
   sticky's context menu opens a dialog to pick a calendar page (or "New
   calendar page", which creates one at the end of the tabs, named like a
   calendar made from "+" ("Calendar N")), a date (default today) and
-  all-day (default) or a start and end time. The title is the sticky's first line (capped at 120; "Untitled"
-  when empty). The event stores `link { pageId, shapeId }` and a toast
+  all-day (default) or a start and end time. The title is the sticky's
+  first line (capped at 120; "Untitled" when empty). The event stores `link { pageId, shapeId }` and a toast
   reads "Added to <calendar title>". In the editor, "Open on board"
   switches to that page, selects the sticky and centres the camera on it;
   when the sticky or its page is gone it reads "Sticky deleted" and is

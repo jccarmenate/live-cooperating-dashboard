@@ -356,4 +356,26 @@ describe('parseIcs limits and edge cases', () => {
     expect(text.replace(/\r\n/g, '')).not.toMatch(/[\r\n]/);
     expect(parseIcs(text, { zone: 'UTC' }).events[0]?.uid).toBe('a;b,c\nd\ne');
   });
+
+  it('leaves the uid unset for an event whose file has no UID, and keeps each one', () => {
+    const ics = [
+      'BEGIN:VCALENDAR',
+      'BEGIN:VEVENT',
+      'DTSTART;VALUE=DATE:20261001',
+      'SUMMARY:One',
+      'END:VEVENT',
+      'BEGIN:VEVENT',
+      'UID:',
+      'DTSTART;VALUE=DATE:20261002',
+      'SUMMARY:Two',
+      'END:VEVENT',
+      'END:VCALENDAR',
+    ].join('\r\n');
+    const { events, warnings } = parseIcs(ics, { zone: 'UTC' });
+    expect(events.map((e) => [e.uid, e.fields.title])).toEqual([
+      [undefined, 'One'],
+      [undefined, 'Two'],
+    ]);
+    expect(warnings).toEqual([]);
+  });
 });

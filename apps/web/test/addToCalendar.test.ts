@@ -4,6 +4,7 @@ import * as Y from 'yjs';
 import { createBoardController } from '../src/board/controller';
 import { createActivityStore } from '../src/store/activityStore';
 import { createDocStore } from '../src/store/docStore';
+import { addToCalendarWhen } from '../src/ui/addToCalendarWhen';
 import { stickyTitle } from '../src/ui/stickyTitle';
 
 function setup() {
@@ -73,6 +74,54 @@ describe('Add to calendar', () => {
     expect(
       board.addStickyToCalendar({ pageId: page, shapeId: 'ghost', title: 'X', when }),
     ).toBeNull();
+  });
+
+  it('makes an end at or before the start one hour long, rolling into the next day', () => {
+    const Z = 'Europe/Madrid';
+    expect(addToCalendarWhen('2026-10-01', true, '14:00', '14:00', Z)).toEqual({
+      allDay: true,
+      start: '2026-10-01',
+      end: '2026-10-01',
+    });
+    expect(addToCalendarWhen('2026-10-01', false, '14:00', '15:30', Z)).toEqual({
+      allDay: false,
+      start: '2026-10-01T14:00',
+      end: '2026-10-01T15:30',
+      tz: Z,
+    });
+    expect(addToCalendarWhen('2026-10-01', false, '14:00', '14:00', Z)).toMatchObject({
+      start: '2026-10-01T14:00',
+      end: '2026-10-01T15:00',
+    });
+    expect(addToCalendarWhen('2026-10-01', false, '14:00', '09:00', Z)).toMatchObject({
+      end: '2026-10-01T15:00',
+    });
+    expect(addToCalendarWhen('2026-12-31', false, '23:30', '23:30', Z)).toMatchObject({
+      start: '2026-12-31T23:30',
+      end: '2027-01-01T00:30',
+    });
+  });
+
+  it('stores a timed event whose end equals its start as one hour', () => {
+    const { board, events } = setup();
+    const cal = board.createPage('calendar');
+    const when = addToCalendarWhen('2026-10-01', false, '14:00', '14:00', 'Europe/Madrid');
+    expect(board.addStickyToCalendar({ pageId: cal, shapeId: 's1', title: 'T', when })).toBe(cal);
+    expect(events(cal)[0]?.when).toEqual({
+      allDay: false,
+      start: '2026-10-01T14:00',
+      end: '2026-10-01T15:00',
+      tz: 'Europe/Madrid',
+    });
+  });
+
+  it('says so when the chosen calendar no longer exists', () => {
+    const { board, notify } = setup();
+    const when = { allDay: true as const, start: '2026-10-01', end: '2026-10-01' };
+    expect(board.addStickyToCalendar({ pageId: 'gone', shapeId: 's1', title: 'X', when })).toBe(
+      null,
+    );
+    expect(notify).toHaveBeenLastCalledWith('That calendar no longer exists');
   });
 
   it('keeps the dialog state per page', () => {

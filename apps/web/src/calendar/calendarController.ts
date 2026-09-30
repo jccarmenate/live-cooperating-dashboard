@@ -130,9 +130,13 @@ export interface CalendarController {
   exportIcs(name: string): string | null;
   /**
    * Imports an .ics file as one undo step, skipping events whose UID is already here. Null
-   * when refused (with a notice) or when the user cannot edit.
+   * when refused (with a notice), when the user cannot edit, or when the calendar shown is no
+   * longer `expectPage` (when given).
    */
-  importIcs(text: string): { imported: number; skipped: number; warnings: IcsWarning[] } | null;
+  importIcs(
+    text: string,
+    expectPage?: string,
+  ): { imported: number; skipped: number; warnings: IcsWarning[] } | null;
   destroy(): void;
 }
 
@@ -778,16 +782,19 @@ export function createCalendarController(opts: CalendarControllerOptions): Calen
       const cal = opts.calendar.getState().calendar;
       return cal ? writeIcs(cal, { name, now: opts.now() }) : null;
     },
-    importIcs(text) {
+    importIcs(text, expectPage) {
       const page = pageId();
       if (!opts.canEdit() || !page) return null;
+      // The file was read asynchronously: the user may have moved to another calendar since.
+      if (expectPage !== undefined && expectPage !== page) return null;
       if (new TextEncoder().encode(text).length > MAX_ICS_BYTES) {
         opts.notify('This file is larger than 1 MB');
         return null;
       }
       const parsed = parseIcs(text, { zone });
       const known = new Set(events().map((e) => e.uid ?? `${e.id}@relay`));
-      const fresh = parsed.events.filter((e) => !known.has(e.uid));
+      // An event without a UID matches nothing: it is always new, and stores no uid.
+      const fresh = parsed.events.filter((e) => e.uid === undefined || !known.has(e.uid));
       const skipped = parsed.events.length - fresh.length;
       if (events().length + fresh.length > MAX_EVENTS) {
         opts.notify('This calendar is full (500 events)');
@@ -795,15 +802,25 @@ export function createCalendarController(opts: CalendarControllerOptions): Calen
       }
       const writes = fresh.map((e) => ({
         id: newId(),
-        fields: { ...e.fields, uid: e.uid, createdBy: opts.user.id, createdAt: opts.now() },
+        fields: {
+          ...e.fields,
+          ...(e.uid !== undefined ? { uid: e.uid } : {}),
+          createdBy: opts.user.id,
+          createdAt: opts.now(),
+        },
         exceptions: e.exceptions,
       }));
       if (writes.length > 0 && importUpdateSize(writes) > MAX_PASTE_BYTES) {
         opts.notify('Too much to paste at once');
         return null;
       }
-      if (writes.length > 0 && !commitEvent({ type: 'ImportEvents', pageId: page, events: writes }))
+      if (
+        writes.length > 0 &&
+        !commitEvent({ type: 'ImportEvents', pageId: page, events: writes })
+      ) {
+        opts.notify('Could not import right now');
         return null;
+      }
       return { imported: writes.length, skipped, warnings: parsed.warnings };
     },
     destroy() {

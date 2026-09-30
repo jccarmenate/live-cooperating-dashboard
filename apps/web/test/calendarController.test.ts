@@ -10,7 +10,7 @@ import { createDocStore } from '../src/store/docStore';
 const ZONE = 'Europe/Madrid';
 const NOW = Date.UTC(2026, 8, 28, 10, 0); // Monday 28 Sep 2026, 12:00 in Madrid
 
-function setup(opts: { canEdit?: boolean; zone?: string } = {}) {
+function setup(opts: { canEdit?: boolean; zone?: string; refuseCommits?: boolean } = {}) {
   const doc = new Y.Doc();
   const docs = createDocStore(doc);
   const activity = createActivityStore(doc);
@@ -28,7 +28,7 @@ function setup(opts: { canEdit?: boolean; zone?: string } = {}) {
   let n = 0;
   const ctl = createCalendarController({
     calendar: calendars.store,
-    commit: board.commit,
+    commit: opts.refuseCommits ? () => false : board.commit,
     commitSession: board.commitSession,
     canEdit: () => opts.canEdit ?? true,
     notify,
@@ -744,6 +744,47 @@ describe('.ics', () => {
     expect(ctl.importIcs(`BEGIN:VCALENDAR\r\n${heavy}\r\nEND:VCALENDAR`)).toBeNull();
     expect(notify).toHaveBeenLastCalledWith('Too much to paste at once');
     expect(events()).toHaveLength(0);
+  });
+
+  it('never dedupes events without a UID, and stores no uid for them', () => {
+    const { ctl, events } = setup();
+    const noUid = (title: string) =>
+      [
+        'BEGIN:VCALENDAR',
+        'BEGIN:VEVENT',
+        'DTSTART;VALUE=DATE:20261001',
+        `SUMMARY:${title}`,
+        'END:VEVENT',
+        'END:VCALENDAR',
+      ].join('\r\n');
+    expect(ctl.importIcs(noUid('First'))).toMatchObject({ imported: 1, skipped: 0 });
+    expect(ctl.importIcs(noUid('Second'))).toMatchObject({ imported: 1, skipped: 0 });
+    expect(
+      events()
+        .map((e) => [e.title, e.uid])
+        .sort(),
+    ).toEqual([
+      ['First', undefined],
+      ['Second', undefined],
+    ]);
+  });
+
+  it('accepts an import that fills the calendar to exactly 500 events', () => {
+    const { ctl, events } = setup();
+    const many = Array.from({ length: 500 }, (_, i) => `u${i}@x`);
+    const text = ICS(many).replace(/DTSTART;VALUE=DATE:\d+/g, 'DTSTART;VALUE=DATE:20261001');
+    expect(ctl.importIcs(text)).toMatchObject({ imported: 500, skipped: 0 });
+    expect(events()).toHaveLength(500);
+  });
+
+  it('refuses an import meant for another page, and says so when the commit is refused', () => {
+    const { ctl, events, page } = setup();
+    expect(ctl.importIcs(ICS(['a@x']), 'other-page')).toBeNull();
+    expect(events()).toHaveLength(0);
+    expect(ctl.importIcs(ICS(['a@x']), page)).toMatchObject({ imported: 1 });
+    const refused = setup({ refuseCommits: true });
+    expect(refused.ctl.importIcs(ICS(['a@x']))).toBeNull();
+    expect(refused.notify).toHaveBeenLastCalledWith('Could not import right now');
   });
 
   it('exports what it can re-import', () => {

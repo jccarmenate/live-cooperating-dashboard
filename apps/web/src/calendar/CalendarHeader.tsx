@@ -1,3 +1,4 @@
+import { MAX_ICS_BYTES } from '@relay/core';
 import { ChevronLeft, ChevronRight, Ellipsis, Plus } from 'lucide-react';
 import { type ChangeEvent, useCallback, useRef, useState } from 'react';
 import { useStore } from 'zustand';
@@ -8,16 +9,15 @@ import type { CalendarController } from './calendarController';
 import { IcsImport, type IcsImportResult } from './IcsImport';
 import { periodTitle } from './layout';
 
-const MAX_FILE_BYTES = 1024 * 1024;
-
 /** Hands `text` to the browser as a download named `<title>.ics`. */
 function download(text: string, title: string) {
   const url = URL.createObjectURL(new Blob([text], { type: 'text/calendar' }));
   const a = document.createElement('a');
   a.href = url;
-  a.download = `${title.replace(/[^\w .-]+/g, '_') || 'calendar'}.ics`;
+  a.download = `${title.replace(/[^\p{L}\p{N} ._-]+/gu, '_') || 'calendar'}.ics`;
   a.click();
-  URL.revokeObjectURL(url);
+  // Revoked after the click has been handled: some browsers cancel a download revoked at once.
+  setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
 /** A header button without a background: one bg class each, so none overrides another. */
@@ -51,11 +51,13 @@ export function CalendarHeader({
     // Cleared at once, so choosing the same file again fires another change.
     input.value = '';
     if (!file) return;
-    if (file.size > MAX_FILE_BYTES) {
+    if (file.size > MAX_ICS_BYTES) {
       toast('This file is larger than 1 MB');
       return;
     }
-    const imported = ctl.importIcs(await file.text());
+    // Reading is asynchronous: the import only lands on the calendar it was started from.
+    const page = session.calendar.getState().pageId ?? undefined;
+    const imported = ctl.importIcs(await file.text(), page);
     if (imported) setResult(imported);
   };
 

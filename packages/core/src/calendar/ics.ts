@@ -35,7 +35,8 @@ export const MAX_ICS_BYTES = 1024 * 1024;
 const DAYS = ['MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU'];
 
 export interface IcsEvent {
-  uid: string;
+  /** The file's UID; undefined when the event had none (it then matches no other event). */
+  uid: string | undefined;
   fields: Omit<EventFields, 'createdBy' | 'createdAt'>;
   exceptions: Record<string, Exception>;
 }
@@ -418,13 +419,16 @@ export function parseIcs(
   const overrides: { uid: string; raw: RawEvent }[] = [];
   for (const raw of components(contentLines(text))) {
     const get = (n: string) => raw.props.find((p) => p.name === n);
-    const uid = unescapeText(get('UID')?.value ?? `import-${raw.line}`).slice(0, MAX_UID);
+    const fileUid = unescapeText(get('UID')?.value ?? '').slice(0, MAX_UID);
+    const uid = fileUid || undefined;
+    // In-file key: an event without a UID is its own series, and never a duplicate.
+    const key = uid ?? `import-${raw.line}`;
     if (get('RECURRENCE-ID')) {
-      overrides.push({ uid, raw });
+      overrides.push({ uid: key, raw });
       continue;
     }
-    if (byUid.has(uid)) {
-      warn(raw.line, `Duplicate event "${uid.slice(0, 40)}"; skipped`);
+    if (byUid.has(key)) {
+      warn(raw.line, `Duplicate event "${key.slice(0, 40)}"; skipped`);
       continue;
     }
     const when = whenOf(raw.props, opts.zone, zoneOf);
@@ -468,7 +472,7 @@ export function parseIcs(
         }
       }
     }
-    byUid.set(uid, ev);
+    byUid.set(key, ev);
     events.push(ev);
   }
   for (const { uid, raw } of overrides) {

@@ -1,8 +1,6 @@
 import type { IcsWarning } from '@relay/core';
 import { Dialog } from '../ui/Dialog';
-
-/** Warnings listed at most; a file of distinct unknown zones can warn once per event. */
-const MAX_SHOWN = 100;
+import { capWarnings } from './icsSummary';
 
 export interface IcsImportResult {
   imported: number;
@@ -18,8 +16,7 @@ export function IcsImport({
   onClose(): void;
 }) {
   if (!result) return null;
-  const shown = result.warnings.slice(0, MAX_SHOWN);
-  const more = result.warnings.length - shown.length;
+  const { shown, more } = capWarnings(result.warnings);
   return (
     <Dialog title="Import .ics" onClose={onClose}>
       <div data-testid="cal-import-summary" className="flex flex-col gap-2 font-mono text-xs">

@@ -1,7 +1,8 @@
-import { todayIn, viewerZone, type When } from '@relay/core';
+import { todayIn, viewerZone } from '@relay/core';
 import { useCallback, useState } from 'react';
 import { useStore } from 'zustand';
 import type { BoardSession } from '../board/session';
+import { addToCalendarWhen } from './addToCalendarWhen';
 import { Dialog } from './Dialog';
 import { stickyTitle } from './stickyTitle';
 
@@ -29,20 +30,15 @@ function AddToCalendarForm({ session, shapeId }: { session: BoardSession; shapeI
     `${String(Math.min(23, nextHour + 1)).padStart(2, '0')}:${nextHour === 23 ? '45' : '00'}`,
   );
   const close = useCallback(() => session.controller.setAddToCalendar(null), [session]);
+  // A chosen calendar that a peer deleted falls back to the first one left, or to a new one.
+  const chosen =
+    page === '__new' || calendars.some((c) => c.id === page) ? page : (calendars[0]?.id ?? '__new');
   const submit = () => {
-    const when: When = allDay
-      ? { allDay: true, start: date, end: date }
-      : {
-          allDay: false,
-          start: `${date}T${start}`,
-          end: `${date}T${end > start ? end : start}`,
-          tz: zone,
-        };
     session.controller.addStickyToCalendar({
-      pageId: page === '__new' ? null : page,
+      pageId: chosen === '__new' ? null : chosen,
       shapeId,
       title,
-      when,
+      when: addToCalendarWhen(date, allDay, start, end, zone),
     });
   };
   return (
@@ -60,7 +56,7 @@ function AddToCalendarForm({ session, shapeId }: { session: BoardSession; shapeI
           <select
             data-testid="add-cal-page"
             className={input}
-            value={page}
+            value={chosen}
             onChange={(e) => setPage(e.target.value)}
           >
             {calendars.map((c) => (

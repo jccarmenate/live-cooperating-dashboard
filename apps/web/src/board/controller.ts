@@ -944,7 +944,10 @@ export function createBoardController(opts: {
       if (shape?.type !== 'sticky' || !idle()) return null;
       const pageId = input.pageId ?? createPage('calendar');
       const cal = readCalendar(getRoots(opts.doc).calendars.get(pageId));
-      if (!cal) return null;
+      if (!cal) {
+        opts.notify?.('That calendar no longer exists');
+        return null;
+      }
       if (cal.events.length >= MAX_EVENTS) {
         opts.notify?.('This calendar is full (500 events)');
         return null;
