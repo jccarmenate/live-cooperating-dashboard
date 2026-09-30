@@ -33,6 +33,7 @@ import {
   type PageType,
   type Point,
   type Preview,
+  pageOf,
   parseClip,
   pastePlan,
   pasteUpdateSize,
@@ -134,6 +135,8 @@ export interface BoardController {
   resetZoom(): void;
   /** Keeps the zoom and centres the viewport on a world point. */
   centerOn(p: Point): void;
+  /** Switches to `pageId`, selects the shape and centres it; false when either is missing. */
+  revealShape(pageId: string, shapeId: string): boolean;
   /** The document finished its first sync: fit the content once if nothing set the camera. */
   markSynced(): void;
   applyText(id: string, diff: TextDiff): void;
@@ -356,6 +359,8 @@ export function createBoardController(opts: {
   // only if no camera was restored and the user has not moved it yet. It is not saved.
   let fitPending = stored === null;
   let synced = false;
+  /** A shape to centre on once the canvas is measured (revealShape before any viewport). */
+  let pendingCentre: Point | null = null;
   const tryFit = () => {
     const { viewport } = ui.getState();
     if (!fitPending || !synced || !viewport) return;
@@ -368,6 +373,13 @@ export function createBoardController(opts: {
     fitPending = false;
     ui.setState({ camera });
     opts.cameraStorage?.save(activePage(), camera);
+  };
+
+  /** Keeps the zoom and centres the viewport on a world point (nothing before it is measured). */
+  const centreOn = (p: Point) => {
+    const v = ui.getState().viewport;
+    if (!v) return;
+    setCamera(centredOn(ui.getState().camera, p, v.w, v.h));
   };
 
   const viewportCentre = (): Point => {
@@ -455,6 +467,7 @@ export function createBoardController(opts: {
       }
       throttledCommit.cancel();
       undoStack.clear();
+      pendingCentre = null;
       const stored = opts.cameraStorage?.load(doc.activePage) ?? null;
       fitPending = stored === null;
       ui.setState({
@@ -519,6 +532,11 @@ export function createBoardController(opts: {
       if (v && v.w === w && v.h === h) return;
       ui.setState({ viewport: { w, h } });
       tryFit();
+      if (pendingCentre) {
+        const c = pendingCentre;
+        pendingCentre = null;
+        centreOn(c);
+      }
     },
     setPointer(p) {
       ui.setState({ pointer: p });
@@ -533,10 +551,23 @@ export function createBoardController(opts: {
     resetZoom() {
       setCamera(zoomAt(ui.getState().camera, viewportCentre(), 1));
     },
-    centerOn(p) {
-      const v = ui.getState().viewport;
-      if (!v) return;
-      setCamera(centredOn(ui.getState().camera, p, v.w, v.h));
+    centerOn: centreOn,
+    revealShape(pageId, shapeId) {
+      // Checked before switching: a missing page or shape leaves the user where they are.
+      const { pages, allShapes } = opts.docStore.getState();
+      const target = allShapes[shapeId];
+      if (!pages.some((p) => p.id === pageId) || !target || pageOf(target) !== pageId) {
+        return false;
+      }
+      opts.setPage(pageId);
+      // The page switch resets the selection and camera synchronously; select after it.
+      const shape = opts.docStore.getState().shapes[shapeId];
+      if (!shape) return false;
+      setSelection([shapeId]);
+      const centre = { x: shape.x + shape.w / 2, y: shape.y + shape.h / 2 };
+      if (ui.getState().viewport) centreOn(centre);
+      else pendingCentre = centre;
+      return true;
     },
     markSynced() {
       synced = true;

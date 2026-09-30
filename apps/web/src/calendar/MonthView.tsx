@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from 'zustand';
 import type { BoardSession } from '../board/session';
 import type { CalendarController } from './calendarController';
+import { EventDots } from './EventDots';
 import {
   firstOfGrid,
   MONTH_LINES,
@@ -112,11 +113,12 @@ export function MonthView({
                       <div
                         key={`${o.eventId}:${o.key}`}
                         {...eventProps(o)}
-                        className={`touch-none truncate px-1 font-mono text-[11px] ${isSel(o) ? 'outline outline-2 outline-ink' : ''}`}
+                        className={`relative touch-none truncate px-1 font-mono text-[11px] ${isSel(o) ? 'outline outline-2 outline-ink' : ''}`}
                         style={{ height: LINE - 2, borderLeft: `4px solid ${o.color}` }}
                       >
                         {o.when.allDay ? '' : `${timeLabel(minutesOfDay(o.start, ctl.zone))} `}
                         {o.title}
+                        <EventDots session={session} eventId={o.eventId} />
                       </div>
                     ))}
                     {day.more > 0 && (
@@ -145,10 +147,11 @@ export function MonthView({
                   <div
                     key={`${o.eventId}:${o.key}`}
                     {...eventProps(o)}
-                    className="touch-pan-y truncate font-mono text-[11px]"
+                    className="relative touch-pan-y truncate font-mono text-[11px]"
                     style={{ borderLeft: `4px solid ${o.color}`, paddingLeft: 4 }}
                   >
                     {o.title}
+                    <EventDots session={session} eventId={o.eventId} />
                   </div>
                 ))}
               </DayPopover>
@@ -170,6 +173,7 @@ export function MonthView({
                   }}
                 >
                   {b.occ.title}
+                  <EventDots session={session} eventId={b.occ.eventId} />
                 </div>
               ))}
           </div>

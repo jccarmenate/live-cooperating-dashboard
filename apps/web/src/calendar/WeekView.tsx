@@ -4,6 +4,7 @@ import { useStore } from 'zustand';
 import { createStore, type StoreApi } from 'zustand/vanilla';
 import type { BoardSession } from '../board/session';
 import type { CalendarController, OccRef } from './calendarController';
+import { EventDots } from './EventDots';
 import {
   HOUR_PX,
   occurrenceDays,
@@ -266,6 +267,7 @@ export function WeekView({
             }}
           >
             {s.occ.title}
+            <EventDots session={session} eventId={s.occ.eventId} />
           </div>
         ))}
       </div>
@@ -304,6 +306,7 @@ export function WeekView({
               {byDay[day]?.map(({ box, hasEnd }) => (
                 <EventBox
                   key={`${box.occ.eventId}:${box.occ.key}`}
+                  session={session}
                   box={box}
                   selected={isSel(box.occ)}
                   resizable={canEdit && hasEnd}
@@ -327,10 +330,13 @@ export function WeekView({
 
 /** A timed event box; its gestures are handled by the time grid (delegated by data attributes). */
 const EventBox = memo(function EventBox({
+  session,
   box,
   selected,
   resizable,
 }: {
+  /** Stable: the peer dots subscribe to presence themselves, past the memo. */
+  session: BoardSession;
   box: WeekBox;
   selected: boolean;
   resizable: boolean;
@@ -361,6 +367,7 @@ const EventBox = memo(function EventBox({
           className="absolute inset-x-0 bottom-0 h-1.5 cursor-ns-resize"
         />
       )}
+      <EventDots session={session} eventId={occ.eventId} />
     </div>
   );
 });

@@ -7,7 +7,9 @@ import type { BoardSession } from '../board/session';
 import { toast } from '../ui/toasts';
 import { CalendarHeader } from './CalendarHeader';
 import { type CalendarController, createCalendarController } from './calendarController';
+import { EventEditor } from './EventEditor';
 import { MonthView } from './MonthView';
+import { SeriesDialog } from './SeriesDialog';
 import { useCalendarKeys } from './useCalendarKeys';
 import { WeekView } from './WeekView';
 
@@ -78,6 +80,8 @@ function CalendarBody({ session, ctl }: { session: BoardSession; ctl: CalendarCo
       ) : (
         <WeekView session={session} ctl={ctl} occurrences={occurrences} />
       )}
+      <EventEditor session={session} ctl={ctl} />
+      <SeriesDialog ctl={ctl} />
     </div>
   );
 }
