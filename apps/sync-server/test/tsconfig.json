@@ -4,5 +4,11 @@
     "lib": ["ES2023", "DOM"],
     "types": ["node"]
   },
-  "include": ["./**/*.ts", "../src/auth.ts", "../src/limits.ts"]
+  "include": [
+    "./**/*.ts",
+    "../src/auth.ts",
+    "../src/limits.ts",
+    "../src/awareness.ts",
+    "../src/deletion.ts"
+  ]
 }
