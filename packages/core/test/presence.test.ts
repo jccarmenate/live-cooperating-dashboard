@@ -5,6 +5,7 @@ import {
   initials,
   isIdentity,
   loadIdentity,
+  MAX_PRESENCE_SELECTION,
   makeIdentity,
   onlineUsers,
   type Peer,
@@ -215,5 +216,32 @@ describe('calendar presence', () => {
   it('accepts ids of 1 to 64 characters', () => {
     expect(parsePresence({ user: alice, calEvent: '' })?.calEvent).toBeUndefined();
     expect(parsePresence({ user: alice, calEvent: 'x'.repeat(64) })?.calEvent).toBe('x'.repeat(64));
+  });
+});
+
+describe('presence bounds', () => {
+  const base = {
+    user: alice,
+    cursor: null,
+    selection: [],
+    editing: null,
+    viewport: null,
+    page: null,
+  };
+
+  it('keeps at most 100 selected ids and drops ids that are empty, too long or not strings', () => {
+    const ids = Array.from({ length: 150 }, (_, i) => `s${i}`);
+    expect(parsePresence({ ...base, selection: ids })?.selection).toEqual(
+      ids.slice(0, MAX_PRESENCE_SELECTION),
+    );
+    expect(parsePresence({ ...base, selection: ['ok', '', 'x'.repeat(65), 7] })?.selection).toEqual(
+      ['ok'],
+    );
+  });
+
+  it('drops an editing id that is empty or longer than 64 characters', () => {
+    expect(parsePresence({ ...base, editing: 'x'.repeat(64) })?.editing).toBe('x'.repeat(64));
+    expect(parsePresence({ ...base, editing: 'x'.repeat(65) })?.editing).toBeNull();
+    expect(parsePresence({ ...base, editing: '' })?.editing).toBeNull();
   });
 });

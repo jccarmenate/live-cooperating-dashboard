@@ -57,6 +57,14 @@ const isViewport = (v: unknown): v is Rect => {
 
 const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
 
+/** Peers' selections are untrusted: at most this many ids are kept. */
+export const MAX_PRESENCE_SELECTION = 100;
+/** Ids in a presence state (selection, editing, page, calendar event) are at most this long. */
+export const MAX_PRESENCE_ID = 64;
+
+const isPresenceId = (v: unknown): v is string =>
+  typeof v === 'string' && v.length > 0 && v.length <= MAX_PRESENCE_ID;
+
 const isCellPair = (v: unknown): v is [string, string] =>
   Array.isArray(v) &&
   v.length === 2 &&
@@ -87,18 +95,17 @@ export function parsePresence(raw: unknown): PresenceState | null {
     user: { id: o.user.id, name: o.user.name.slice(0, 40), color: o.user.color },
     cursor: isPoint(o.cursor) ? { x: o.cursor.x, y: o.cursor.y } : null,
     selection: Array.isArray(o.selection)
-      ? o.selection.filter((s): s is string => typeof s === 'string')
+      ? o.selection.filter(isPresenceId).slice(0, MAX_PRESENCE_SELECTION)
       : [],
-    editing: typeof o.editing === 'string' ? o.editing : null,
+    editing: isPresenceId(o.editing) ? o.editing : null,
     viewport: isViewport(o.viewport)
       ? { x: o.viewport.x, y: o.viewport.y, w: o.viewport.w, h: o.viewport.h }
       : null,
-    page: typeof o.page === 'string' && o.page.length > 0 && o.page.length <= 64 ? o.page : null,
+    page: isPresenceId(o.page) ? o.page : null,
   };
   const sheet = readSheetPresence(o.sheet);
   if (sheet) state.sheet = sheet;
-  if (typeof o.calEvent === 'string' && o.calEvent.length > 0 && o.calEvent.length <= 64)
-    state.calEvent = o.calEvent;
+  if (isPresenceId(o.calEvent)) state.calEvent = o.calEvent;
   return state;
 }
 
