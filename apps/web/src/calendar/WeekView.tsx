@@ -333,7 +333,7 @@ export function WeekView({
 
   return (
     // One scroller for both axes: hours scroll vertically under the sticky day header and
-    // all-day row, and on a phone (columns at least DAY_MIN_W wide) the days scroll sideways
+    // all-day row, and on a phone (columns at least `--day-min` wide) the days scroll sideways
     // past the sticky hour labels.
     <div
       ref={scroller}

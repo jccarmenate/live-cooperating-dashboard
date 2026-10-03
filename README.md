@@ -182,8 +182,8 @@ Or run it in Docker: `docker compose up`.
 ## Tests
 
 ```bash
-npm test         # 868 unit, property and integration tests (core 447 · web 395 · sync-server 26)
-npm run e2e      # 55 Playwright scenarios with several independent browsers (15 on a touch phone, 2 on a tablet)
+npm test         # 871 unit, property and integration tests (core 447 · web 398 · sync-server 26)
+npm run e2e      # 56 Playwright scenarios with several independent browsers (16 on a touch phone, 2 on a tablet)
 npm run lint && npm run typecheck
 ```
 

@@ -32,3 +32,16 @@ const SINGLE_PRESS: ReadonlySet<ToolId> = new Set(['sticky', 'text', 'code', 'co
  * first finger of a pinch or a long press never drops a sticky on the board.
  */
 export const heldUntilLift = (tool: ToolId): boolean => SINGLE_PRESS.has(tool);
+
+/** A resize handle's own size, and the finger-sized area it answers to on touch screens (px). */
+export const HANDLE_PX = 9;
+const HANDLE_HIT_PX = 26;
+
+/**
+ * The touch hit area of a resize handle (screen px) on a shape whose shorter side (for a line,
+ * its length) is `extent` screen px. Finger-sized, but never more than a third of the shape, so
+ * a small or zoomed-out shape keeps a middle to drag it by.
+ */
+export function handleHitPx(extent: number): number {
+  return Math.min(HANDLE_HIT_PX, Math.max(HANDLE_PX, extent / 3));
+}

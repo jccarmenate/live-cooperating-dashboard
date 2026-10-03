@@ -724,3 +724,60 @@ test('on a phone the text being edited stays above the on-screen keyboard', asyn
   });
   await expect.poll(bottom).toBeLessThanOrEqual(380);
 });
+
+test('on a phone a zoomed-out shape drags by its middle, the fill handle drags, headers wait for a tap', async ({
+  page,
+  context,
+  request,
+}) => {
+  await newBoard(page, request);
+  const { touch, tap, drag } = await fingers(page, context);
+  const center = async (id: string): Promise<[number, number]> => {
+    const b = await page.getByTestId(id).boundingBox();
+    if (!b) throw new Error(`no ${id}`);
+    return [b.x + b.width / 2, b.y + b.height / 2];
+  };
+
+  // A selected sticky at 21% zoom is about 38 × 30px: its handles' touch areas shrink with it,
+  // so a finger just above its middle still moves it instead of resizing it.
+  await page.getByTestId('tool-sticky').tap();
+  await tap(220, 300);
+  await page.keyboard.press('Escape');
+  for (let i = 0; i < 7; i++) await page.getByTestId('zoom-out').tap();
+  const sticky = page.locator('[data-shape-id]').first();
+  const s0 = await sticky.boundingBox();
+  if (!s0) throw new Error('no sticky');
+  expect(s0.width).toBeLessThan(45);
+  const hit = await page.getByTestId('handle-hit').first().boundingBox();
+  expect(hit?.width ?? 99).toBeLessThan(s0.height / 2);
+  const grab: [number, number] = [s0.x + s0.width / 2, s0.y + s0.height / 2 - 6];
+  await drag(grab, [grab[0] + 60, grab[1]]);
+  await expect.poll(async () => Math.round(((await sticky.boundingBox())?.x ?? 0) - s0.x)).toBe(60);
+  expect(Math.round((await sticky.boundingBox())?.height ?? 0)).toBe(Math.round(s0.height));
+
+  // Sheet: the fill handle drags by finger.
+  await page.getByTestId('page-add').tap();
+  await page.getByTestId('page-add-sheet').tap();
+  await page.getByTestId('cell-A1').tap();
+  await page.keyboard.type('alpha');
+  await page.keyboard.press('Enter');
+  await tap(...(await center('cell-A1')));
+  await expect(page.getByTestId('sheet-address')).toHaveText('A1');
+  await drag(await center('fill-handle'), await center('cell-A3'));
+  await expect(page.getByTestId('cell-A3')).toHaveText('alpha');
+  await expect(page.getByTestId('cell-A2')).toHaveText('alpha');
+
+  // A swipe that starts on the column headers scrolls and selects nothing; a tap selects.
+  await tap(...(await center('cell-B2')));
+  const header = await center('col-header-C');
+  await touch('touchStart', [header]);
+  for (const dx of [-30, -70, -120]) {
+    await touch('touchMove', [[header[0] + dx, header[1]]]);
+    await page.waitForTimeout(40);
+  }
+  await page.waitForTimeout(150);
+  await touch('touchEnd', []);
+  await expect(page.getByTestId('sheet-address')).toHaveText('B2');
+  await tap(...(await center('col-header-B')));
+  await expect(page.getByTestId('sheet-address')).toHaveText('B1');
+});

@@ -92,9 +92,6 @@ export function SheetGrid({
     timer: number;
   } | null>(null);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
-  // The last text copied from this grid: what Paste falls back on when the browser refuses
-  // to read the clipboard.
-  const lastClip = useRef<string | null>(null);
   // After a finger, the browser's own dblclick is ignored: the second tap already edits.
   const lastPointer = useRef('mouse');
 
@@ -119,18 +116,15 @@ export function SheetGrid({
   const menuItems = cellMenu(canEdit, {
     copy: () => {
       const text = ctl.copy();
-      if (text === null) return;
-      lastClip.current = text;
-      void writeClip(text);
+      if (text !== null) void writeClip(text);
     },
     cut: () => {
       const text = ctl.cut();
-      if (text === null) return;
-      lastClip.current = text;
-      void writeClip(text);
+      if (text !== null) void writeClip(text);
     },
+    // When the browser refuses to read the clipboard, the sheet's own last copy is pasted.
     paste: () =>
-      void readClip(lastClip.current).then((text) => {
+      void readClip(ctl.lastCopied()).then((text) => {
         if (text === null || !ctl.paste(text)) toast('Nothing to paste');
       }),
     clear: () => ctl.clear(),

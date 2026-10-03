@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { DOUBLE_TAP_MS, heldUntilLift, isDoubleTap, moved, TAP_SLOP } from '../src/render/touch';
+import {
+  DOUBLE_TAP_MS,
+  HANDLE_PX,
+  handleHitPx,
+  heldUntilLift,
+  isDoubleTap,
+  moved,
+  TAP_SLOP,
+} from '../src/render/touch';
 
 describe('touch gestures', () => {
   it('counts a finger as still within the tap slop', () => {
@@ -22,5 +30,21 @@ describe('touch gestures', () => {
     for (const tool of ['select', 'rect', 'connector', 'frame'] as const) {
       expect(heldUntilLift(tool)).toBe(false);
     }
+  });
+});
+
+describe('handleHitPx', () => {
+  it('is finger-sized on a shape with room for it', () => {
+    expect(handleHitPx(140)).toBe(26);
+  });
+
+  it('shrinks with a small or zoomed-out shape, leaving its middle free', () => {
+    expect(handleHitPx(30)).toBe(10);
+    // Two handles on a side then take 20 of the 30px.
+    expect(2 * handleHitPx(30)).toBeLessThan(30);
+  });
+
+  it('is never smaller than the handle itself', () => {
+    expect(handleHitPx(6)).toBe(HANDLE_PX);
   });
 });

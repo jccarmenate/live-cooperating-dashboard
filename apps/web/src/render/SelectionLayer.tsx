@@ -11,11 +11,9 @@ import { useStore } from 'zustand';
 import type { BoardSession } from '../board/session';
 import { MEDIA, useMediaQuery } from '../ui/responsive';
 import { onPage } from './pageFilter';
+import { HANDLE_PX, handleHitPx } from './touch';
 
 const PAD = 4;
-const HANDLE_PX = 9;
-/** On touch screens each handle answers to a finger-sized area around it (screen px). */
-const HANDLE_HIT_PX = 26;
 
 const CURSOR: Record<Handle, string> = {
   nw: 'nwse-resize',
@@ -48,7 +46,6 @@ export function SelectionLayer({ session }: { session: BoardSession }) {
   const stroke = 2 / zoom;
   const handleSize = HANDLE_PX / zoom;
   const touch = useMediaQuery(MEDIA.coarse);
-  const hitSize = HANDLE_HIT_PX / zoom;
 
   const current = (id: string): Shape | undefined => {
     const s = shapes[id];
@@ -57,6 +54,13 @@ export function SelectionLayer({ session }: { session: BoardSession }) {
   };
   const single = selection.length === 1 ? current(selection[0] ?? '') : undefined;
   const singleBounds = single ? shapeBounds(single) : undefined;
+  // A line has two handles along its length; a box has eight around its shorter side.
+  const extent = !single
+    ? 0
+    : single.type === 'line'
+      ? Math.hypot(single.w, single.h)
+      : Math.min(Math.abs(single.w), Math.abs(single.h));
+  const hitSize = handleHitPx(extent * zoom) / zoom;
 
   return (
     <g pointerEvents="none">

@@ -113,7 +113,7 @@ function ShapesButton({ session, active }: { session: BoardSession; active: Tool
         <fieldset
           aria-label="Shapes"
           data-testid="shapes-flyout"
-          className="absolute left-full top-0 ml-2 flex gap-1.5 border-[3px] border-ink bg-white p-1.5 shadow-hard"
+          className="absolute left-full top-0 z-30 ml-2 flex gap-1.5 border-[3px] border-ink bg-white p-1.5 shadow-hard"
         >
           {SHAPES.map((tool) => (
             <ToolButton

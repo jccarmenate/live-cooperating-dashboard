@@ -1,10 +1,11 @@
 import { Redo2, Undo2 } from 'lucide-react';
-import type { PointerEvent } from 'react';
+import type { MouseEvent, PointerEvent } from 'react';
 import { useStore } from 'zustand';
 import type { BoardSession } from '../board/session';
 
 // Focus stays where it is: a press never blurs (and so commits) a cell or text being edited.
-const keepFocus = (e: PointerEvent) => e.preventDefault();
+// Cancelling pointerdown covers fingers; mousedown is what moves the focus with a mouse.
+const keepFocus = (e: PointerEvent | MouseEvent) => e.preventDefault();
 
 const button =
   'grid size-ctl-sm place-items-center border-2 border-ink bg-white hover:bg-sun disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-white';
@@ -29,6 +30,7 @@ export function UndoRedo({ session }: { session: BoardSession }) {
         disabled={!canUndo}
         className={button}
         onPointerDown={keepFocus}
+        onMouseDown={keepFocus}
         onClick={() => controller.undo()}
       >
         <Undo2 size={14} />
@@ -41,6 +43,7 @@ export function UndoRedo({ session }: { session: BoardSession }) {
         disabled={!canRedo}
         className={button}
         onPointerDown={keepFocus}
+        onMouseDown={keepFocus}
         onClick={() => controller.redo()}
       >
         <Redo2 size={14} />

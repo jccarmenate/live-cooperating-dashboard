@@ -128,7 +128,7 @@ export function CommentLayer({ session }: { session: BoardSession }) {
             // An open thread stacks above the minimap, zoom controls and toolbar: the translate
             // makes this its stacking context, so the z-index goes here.
             className={`pointer-events-auto absolute left-0 top-0 ${open ? 'z-20' : ''}`}
-            style={{ transform: `translate(${p.x}px, ${p.y - 28}px)` }}
+            style={{ transform: `translate(${p.x}px, ${p.y - PIN_H}px)` }}
           >
             <button
               type="button"

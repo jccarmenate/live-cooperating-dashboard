@@ -208,6 +208,34 @@ Left as they are, on purpose:
   mouse layout.
 - With the larger swatches the properties bar is wider than a phone; it scrolls sideways.
 
+## Done: review before merging
+
+A review of the whole branch against `main` found ten things. Six were fixed:
+
+- **Resize handles on small shapes:** the 26px touch area of each handle was a fixed screen size,
+  so on a small or zoomed-out shape the eight areas covered it and a finger could only resize
+  it. The area is now at most a third of the shape (`handleHitPx`).
+- **Shapes flyout:** it had no z-index, so in a toolbar wrapped into columns the Graph and ?
+  buttons could paint over it.
+- **Long press on a tab:** the click some browsers send as the finger lifts no longer also
+  switches to that tab (`useLongPress` swallows it).
+- **Sheet headers:** a finger selects a row or column when it lifts, so a scroll that starts on
+  the headers no longer changes the selection.
+- **Paste from the cell menu** falls back on the sheet's own last copy, including a Ctrl+C
+  (`SheetController.lastCopied`), when the browser refuses to read the clipboard.
+- **The fill handle by touch** had no test; it has one now. A stale comment and a literal 28
+  beside `PIN_H` were tidied.
+
+One did not reproduce: the undo button keeps the focus with a mouse in Chromium (a draft in a
+cell survives the click). It now cancels `mousedown` as well, like the other bar buttons.
+
+Two were left:
+
+- Canvas, SheetGrid and WeekView each have their own press-and-hold timer beside
+  `useLongPress`. They differ (a hold there becomes a drag), so merging them is a refactor.
+- The double-tap e2e sends two taps as four CDP calls and needs them inside 300 ms. It has never
+  failed here; CI retries once.
+
 ## Next steps
 
 1. **Real devices:** everything above was checked in Chromium's touch emulation. Check iOS

@@ -22,7 +22,17 @@ import { rangeOf, type SheetController } from './sheetController';
 
 const DRAG_PX = 4;
 
-type Drag = { kind: 'row' | 'col'; id: string; startX: number; startY: number; moved: boolean };
+type Drag = {
+  kind: 'row' | 'col';
+  id: string;
+  startX: number;
+  startY: number;
+  moved: boolean;
+  /** A finger: it selects when it lifts, and never reorders (its drag scrolls the grid). */
+  touch: boolean;
+  /** The press was held and opened the menu: lifting does nothing more. */
+  held: boolean;
+};
 
 /** Header renderers with selection, context menus, drag-to-reorder and column resize. */
 export function useSheetHeaders(session: BoardSession, ctl: SheetController, canEdit: boolean) {
@@ -126,7 +136,10 @@ export function useSheetHeaders(session: BoardSession, ctl: SheetController, can
 
   const pointerHandlers = (kind: 'row' | 'col', index: number, id: string) => {
     // Touch: press and hold opens the header menu (iOS has no long-press contextmenu).
-    const hold = longPress((at) => openMenu(kind, index, id, at.x, at.y));
+    const hold = longPress((at) => {
+      if (drag.current) drag.current.held = true;
+      openMenu(kind, index, id, at.x, at.y);
+    });
     return {
       onPointerDown: (e: ReactPointerEvent<HTMLDivElement>) => {
         hold.onPointerDown(e);
@@ -144,8 +157,19 @@ export function useSheetHeaders(session: BoardSession, ctl: SheetController, can
         }
         // Keyboard focus stays on the grid (not a leftover button, tab or editor).
         document.querySelector<HTMLElement>('[data-sheet-grid]')?.focus({ preventScroll: true });
-        drag.current = { kind, id, startX: e.clientX, startY: e.clientY, moved: false };
+        const touch = e.pointerType === 'touch';
+        drag.current = {
+          kind,
+          id,
+          startX: e.clientX,
+          startY: e.clientY,
+          moved: false,
+          touch,
+          held: false,
+        };
         e.currentTarget.setPointerCapture(e.pointerId);
+        // A finger may be starting a scroll: it selects when it lifts (see onPointerUp).
+        if (touch) return;
         if (kind === 'row') ctl.selectRow(id, e.shiftKey);
         else ctl.selectCol(id, e.shiftKey);
       },
@@ -162,6 +186,14 @@ export function useSheetHeaders(session: BoardSession, ctl: SheetController, can
         drag.current = null;
         if (e.currentTarget.hasPointerCapture(e.pointerId))
           e.currentTarget.releasePointerCapture(e.pointerId);
+        if (d?.touch) {
+          // A tap selects; a held press already opened the menu; a drag was a scroll.
+          if (!d.held && !d.moved) {
+            if (d.kind === 'row') ctl.selectRow(d.id);
+            else ctl.selectCol(d.id);
+          }
+          return;
+        }
         if (!d?.moved || !canEdit || !sheet) return;
         // Drop onto the row or column header under the pointer: the moved one takes its index.
         const el = document
