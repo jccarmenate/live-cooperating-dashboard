@@ -668,3 +668,43 @@ test('on a phone a held cell opens its menu, and columns and shapes resize by fi
     .toBe(a0.width + 40);
   expect(await page.getByTestId('sheet-grid').evaluate((el) => el.scrollLeft)).toBe(0);
 });
+
+test('on a phone the text being edited stays above the on-screen keyboard', async ({
+  page,
+  context,
+  request,
+}) => {
+  await newBoard(page, request);
+  const { tap } = await fingers(page, context);
+  const editor = page.getByTestId('text-editor');
+  const bottom = async () => {
+    const b = await editor.boundingBox();
+    return b ? b.y + b.height : Number.POSITIVE_INFINITY;
+  };
+
+  // Android: the keyboard shrinks the layout. A sticky low on the screen moves up into view.
+  await page.getByTestId('tool-sticky').tap();
+  await tap(200, 620);
+  await expect(editor).toBeFocused();
+  expect(await bottom()).toBeGreaterThan(420);
+  await page.setViewportSize({ width: 375, height: 420 });
+  await expect.poll(bottom).toBeLessThanOrEqual(420);
+  await expect(editor).toBeFocused();
+  await page.keyboard.type('Still here');
+  await expect(editor).toHaveValue('Still here');
+  await page.keyboard.press('Escape');
+  await page.setViewportSize({ width: 375, height: 740 });
+
+  // iOS: the layout keeps its size and only the visual viewport shrinks.
+  await page.getByTestId('tool-sticky').tap();
+  await tap(200, 620);
+  await expect(editor).toBeFocused();
+  expect(await bottom()).toBeGreaterThan(380);
+  await page.evaluate(() => {
+    const vv = window.visualViewport;
+    if (!vv) throw new Error('no visualViewport');
+    Object.defineProperty(vv, 'height', { configurable: true, get: () => 380 });
+    vv.dispatchEvent(new Event('resize'));
+  });
+  await expect.poll(bottom).toBeLessThanOrEqual(380);
+});

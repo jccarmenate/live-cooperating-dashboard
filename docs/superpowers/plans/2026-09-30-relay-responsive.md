@@ -131,12 +131,60 @@ found:
 - **Tests:** swipe and placement unit tests; two phone e2e scenarios (header menus and the
   month swipe; comments at the edge and the landscape bars). Each fails on the previous code.
 
+## Done: actions that needed a keyboard
+
+- **Undo and redo** were Ctrl+Z and Ctrl+Y only, so a phone could not undo anything. They are
+  now buttons at the right end of the tab row, on every page type and every device, disabled
+  when there is nothing to undo or redo (`canUndo` and `canRedo` in the controller's UI state).
+  They keep the focus where it is, so a press never commits a cell being edited. Viewers have
+  none.
+- **Sheet cells** had no way to copy, paste or clear a range without Ctrl+C, Ctrl+V and Delete.
+  The selected cells now have a menu (Cut, Copy, Paste, Clear contents; viewers only Copy):
+  press and hold a cell and lift without dragging on a touch screen, right-click with a mouse. A
+  hold or right-click inside the selection keeps it. Paste falls back on the last text copied
+  here when the browser refuses to read the clipboard.
+- **Column width:** the resize handle is `touch-none` and 24px wide on touch screens, so a
+  finger drags it instead of scrolling the grid.
+- **Board resize handles:** each 9px handle answers to a 26px area on touch screens.
+- **Tests:** controller and cell-menu unit tests; two phone e2e scenarios and a desktop one
+  (right-click menu, undo buttons, viewers). Each fails on the previous code.
+- **Found while testing:** a touch drag released at speed is a fling to Chrome, which then
+  swallows the next tap. The synthetic drags in the e2e rest before they lift, as a finger does.
+  Worth a look on hardware: a fast flick followed at once by a tap on a button may need a second
+  tap.
+
+## Done: tablets and the on-screen keyboard
+
+- **Tablets** (768 × 1024 and 1024 × 768, touch) were audited: the board, panels, menus, the
+  sheet and both calendar views. Nothing needed fixing. A tablet is wider than 640px, so it gets
+  the desktop layout, with the touch gestures and the touch-only controls (`pointer-coarse`). A
+  week's seven days fit without scrolling sideways.
+- **CI:** Playwright has a `tablet` project (a Galaxy Tab S4 profile at 768 × 1024) that runs
+  `e2e/tablet.spec.ts`. Its two scenarios are regression guards: they pass before and after
+  this work.
+- **On-screen keyboard:** the keyboard shrinks the board (Android, through
+  `interactive-widget=resizes-content`) or only the visual viewport (iOS). A sticky in the lower
+  half then sat under it while being edited. On touch screens the camera now pans just enough to
+  keep the edited shape in what is left (`revealPan`, wired in `TextEditor`). With a mouse the
+  camera never moves by itself.
+- **Tests:** unit tests for the pan; a phone e2e scenario that shrinks the layout (as Android
+  does) and then only the visual viewport (as iOS does). It fails on the previous code.
+
 ## Next steps
 
 1. **Real devices:** everything above was checked in Chromium's touch emulation. Check iOS
-   Safari (double tap, long press, tap-to-edit keyboard, input zoom, week scrolling, month swipe)
-   and Android Chrome on hardware. Playwright's WebKit is not iOS Safari, so it does not replace
-   this.
-2. **Comment pins at the edge:** a pin anchored within ~40px of the right edge is clipped; pan
+   Safari (double tap, long press, tap-to-edit keyboard, input zoom, week scrolling, month swipe,
+   the tap after a fast drag, a sticky edited under the keyboard) and Android Chrome on hardware.
+2. **WebKit:** Playwright's WebKit is not installed here. It is the closest engine to iOS Safari
+   that can run in CI: add a WebKit project for the phone spec. It does not replace hardware.
+3. **Polish:**
+   - the empty-page hint lists keys ("S sticky · Space-drag to pan") on phones too, and the
+     toolbar covers part of it;
+   - most buttons are 28–36px and the swatches 20px, under the 44–48px advised for fingers;
+   - much text is 10–11px;
+   - the board toolbar is a fixed 54px column on a phone, and in landscape the header and tab
+     row take 84 of 360px.
+4. **Comment pins at the edge:** a pin anchored within ~40px of the right edge is clipped; pan
    to reach it. A pin could keep itself inside the board.
-3. **Sheet:** a multi-row selection's menu moves only the row that was pressed.
+5. **Sheet:** a multi-row selection's menu moves only the row that was pressed.
+6. **Tests:** no visual regression tests.

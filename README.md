@@ -182,8 +182,8 @@ Or run it in Docker: `docker compose up`.
 ## Tests
 
 ```bash
-npm test         # 858 unit, property and integration tests (core 447 · web 385 · sync-server 26)
-npm run e2e      # 49 Playwright scenarios with several independent browsers (12 on a touch phone)
+npm test         # 868 unit, property and integration tests (core 447 · web 395 · sync-server 26)
+npm run e2e      # 55 Playwright scenarios with several independent browsers (15 on a touch phone, 2 on a tablet)
 npm run lint && npm run typecheck
 ```
 
@@ -208,7 +208,7 @@ The work is built in phases that can each be deployed; the spec has the details.
   - [x] **P3 spreadsheet pages:** id-stable rows and columns, a formula engine, Excel-compatible copy and paste, fill, formats, live peer ranges
   - [x] **P4 graphs:** graph families and edge lists with layouts, connector labels, local algorithm overlays, the Shapes flyout
   - [x] **P5 calendar pages:** month and week views, repeating events with per-occurrence exceptions, per-viewer time zones, live RSVP, `.ics` export and import, Add to calendar from a sticky
-  - [x] **Responsive and touch:** phone and landscape layouts; two-finger pan and pinch zoom, long-press menus, double tap and tap-to-edit, touch range selection in sheets, a scrollable week and swipeable month in calendars ([plan](docs/superpowers/plans/2026-09-30-relay-responsive.md))
+  - [x] **Responsive and touch:** phone and landscape layouts; two-finger pan and pinch zoom, long-press menus, undo and redo buttons, double tap and tap-to-edit, touch range selection in sheets, a scrollable week and swipeable month in calendars ([plan](docs/superpowers/plans/2026-09-30-relay-responsive.md))
 - [ ] **F5 — Ship** (next): a nightly-reset demo room, protocol hardening, deploy (Vercel + Workers), offline polish
 - [ ] **F6 — AI:** "Cluster & summarize" for retro boards. Clustering is deterministic (embeddings plus agglomerative clustering) and runs on Workers AI. The LLM output is schema-validated and measured with the Adjusted Rand Index.
 
