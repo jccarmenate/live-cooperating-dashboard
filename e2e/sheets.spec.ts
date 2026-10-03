@@ -209,3 +209,53 @@ test('grid keys keep working after Select all, a page tab or a header', async ({
   await expect(page.getByTestId('cell-C3')).toHaveText('@');
   await expect(page.getByTestId('cell-A1')).toHaveText('');
 });
+
+test('a right-click on cells opens their menu; undo and redo are buttons; viewers only copy', async ({
+  page,
+  context,
+  browser,
+  request,
+}) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  const { roomId, editKey, viewKey } = await newRoom(request);
+  await openBoard(page, `/r/${roomId}#k=${editKey}`);
+  await addSheet(page);
+  await typeInto(page, 'A1', '12');
+  await typeInto(page, 'A2', '30');
+
+  // The menu acts on the selection: a right-click inside it keeps it.
+  await page.getByTestId('cell-A1').click();
+  await page.getByTestId('cell-A2').click({ modifiers: ['Shift'] });
+  await page.getByTestId('cell-A2').click({ button: 'right' });
+  await page.getByTestId('cell-menu-copy').click();
+  // A right-click elsewhere moves the selection there first.
+  await page.getByTestId('cell-C1').click({ button: 'right' });
+  await expect(page.getByTestId('sheet-address')).toHaveText('C1');
+  await page.getByTestId('cell-menu-paste').click();
+  await expect(page.getByTestId('cell-C1')).toHaveText('12');
+  await expect(page.getByTestId('cell-C2')).toHaveText('30');
+  // The keyboard is back on the grid once the menu closes.
+  await page.keyboard.press('ArrowDown');
+  await expect(page.getByTestId('sheet-address')).toHaveText('C2');
+  await page.getByTestId('cell-C2').click({ button: 'right' });
+  await page.getByTestId('cell-menu-clear').click();
+  await expect(page.getByTestId('cell-C2')).toHaveText('');
+
+  // Undo and redo as buttons.
+  await page.getByTestId('undo').click();
+  await expect(page.getByTestId('cell-C2')).toHaveText('30');
+  await page.getByTestId('redo').click();
+  await expect(page.getByTestId('cell-C2')).toHaveText('');
+  await expect(page.getByTestId('redo')).toBeDisabled();
+
+  // A viewer has no undo buttons and a menu with only Copy.
+  const other = await browser.newContext();
+  const viewer = await other.newPage();
+  await openBoard(viewer, `/r/${roomId}#k=${viewKey}`);
+  await viewer.getByTestId('page-tab').nth(1).click();
+  await expect(viewer.getByTestId('undo')).toHaveCount(0);
+  await viewer.getByTestId('cell-C1').click({ button: 'right' });
+  await expect(viewer.getByTestId('cell-menu-copy')).toBeVisible();
+  await expect(viewer.getByTestId('cell-menu-paste')).toHaveCount(0);
+  await other.close();
+});

@@ -1,10 +1,14 @@
 import { type CellValue, cellKey, colLetters, defaultAlign, formatValue } from '@relay/core';
-import { memo, type ReactNode, useEffect, useRef, useState } from 'react';
+import { memo, type ReactNode, useCallback, useEffect, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { useStore } from 'zustand';
 import type { BoardSession } from '../board/session';
 import { onPage } from '../render/pageFilter';
 import { LONG_PRESS_MS, moved } from '../render/touch';
+import { ContextMenu } from '../ui/ContextMenu';
+import { readClip, writeClip } from '../ui/clipboard';
+import { toast } from '../ui/toasts';
+import { cellMenu, insideRange } from './cellMenu';
 import { colOffsets, HEADER_H, ROW_H, ROW_HEADER_W, rangeBox, visibleRows } from './layout';
 import { type CellPos, rangeOf, type SheetController } from './sheetController';
 
@@ -77,14 +81,20 @@ export function SheetGrid({
   const [view, setView] = useState({ top: 0, height: 800 });
   const dragging = useRef(false);
   // Touch: a drag scrolls the grid. A tap selects a cell and a tap on the selected cell edits
-  // it; a finger held still starts a range selection that follows it.
+  // it. A finger held still (`range`) then dragged selects a range; lifted without a drag, it
+  // opens the cell menu.
   const touch = useRef<{
     pointerId: number;
     cell: CellPos;
     start: { x: number; y: number };
     range: boolean;
+    dragged: boolean;
     timer: number;
   } | null>(null);
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  // The last text copied from this grid: what Paste falls back on when the browser refuses
+  // to read the clipboard.
+  const lastClip = useRef<string | null>(null);
   // After a finger, the browser's own dblclick is ignored: the second tap already edits.
   const lastPointer = useRef('mouse');
 
@@ -92,6 +102,39 @@ export function SheetGrid({
     if (touch.current) window.clearTimeout(touch.current.timer);
     touch.current = null;
   };
+
+  /** Whether `p` is one of the selected cells (a menu on the selection keeps it). */
+  const selected = (p: CellPos) => {
+    const s = session.sheet.getState().sheet;
+    return !!s && insideRange(ctl.range(), rangeOf(s, p, p));
+  };
+
+  // Stable, so the menu's listeners (and its first-item focus) are set up once.
+  const closeMenu = useCallback(() => {
+    setMenu(null);
+    // The menu took the focus: hand the keyboard back to the grid.
+    scroller.current?.focus({ preventScroll: true });
+  }, []);
+
+  const menuItems = cellMenu(canEdit, {
+    copy: () => {
+      const text = ctl.copy();
+      if (text === null) return;
+      lastClip.current = text;
+      void writeClip(text);
+    },
+    cut: () => {
+      const text = ctl.cut();
+      if (text === null) return;
+      lastClip.current = text;
+      void writeClip(text);
+    },
+    paste: () =>
+      void readClip(lastClip.current).then((text) => {
+        if (text === null || !ctl.paste(text)) toast('Nothing to paste');
+      }),
+    clear: () => ctl.clear(),
+  });
 
   // Non-passive, so a range selection can stop the grid scrolling under the finger.
   useEffect(() => {
@@ -140,204 +183,229 @@ export function SheetGrid({
   });
 
   return (
-    // biome-ignore lint/a11y/noStaticElementInteractions: a pointer surface for cell selection; the formula bar is the accessible editor
-    <div
-      ref={scroller}
-      data-scroll-region
-      data-sheet-grid
-      data-testid="sheet-grid"
-      // biome-ignore lint/a11y/noNoninteractiveTabindex: the grid takes keyboard focus so arrows/Tab/Enter drive the selection; as in spreadsheets, Tab moves between cells and Escape leaves the grid
-      tabIndex={0}
-      className="relative min-h-0 flex-1 select-none overflow-auto bg-white"
-      onScroll={(e) =>
-        setView({ top: e.currentTarget.scrollTop, height: e.currentTarget.clientHeight })
-      }
-      onPointerDown={(e) => {
-        lastPointer.current = e.pointerType;
-        if (e.button !== 0) return;
-        const p = cellFromPoint(e.clientX, e.clientY);
-        if (!p) return;
-        // A stale page-text selection would make Ctrl+C copy that text instead of the cells.
-        window.getSelection()?.removeAllRanges();
-        if (ctl.ui.getState().editing) {
-          ctl.commitEdit();
-          // A refused commit keeps the edit open: stay in it rather than move its draft.
+    <>
+      {/* biome-ignore lint/a11y/noStaticElementInteractions: a pointer surface for cell selection; the formula bar is the accessible editor */}
+      <div
+        ref={scroller}
+        data-scroll-region
+        data-sheet-grid
+        data-testid="sheet-grid"
+        // biome-ignore lint/a11y/noNoninteractiveTabindex: the grid takes keyboard focus so arrows/Tab/Enter drive the selection; as in spreadsheets, Tab moves between cells and Escape leaves the grid
+        tabIndex={0}
+        className="relative min-h-0 flex-1 select-none overflow-auto bg-white"
+        onScroll={(e) =>
+          setView({ top: e.currentTarget.scrollTop, height: e.currentTarget.clientHeight })
+        }
+        onPointerDown={(e) => {
+          lastPointer.current = e.pointerType;
+          if (e.button !== 0) return;
+          const p = cellFromPoint(e.clientX, e.clientY);
+          if (!p) return;
+          // A stale page-text selection would make Ctrl+C copy that text instead of the cells.
+          window.getSelection()?.removeAllRanges();
           if (ctl.ui.getState().editing) {
+            ctl.commitEdit();
+            // A refused commit keeps the edit open: stay in it rather than move its draft.
+            if (ctl.ui.getState().editing) {
+              e.preventDefault();
+              return;
+            }
+          }
+          const active = document.activeElement;
+          if (active instanceof HTMLElement && active !== document.body) active.blur();
+          // Keyboard focus follows the click onto the grid, not a leftover button or select.
+          e.currentTarget.focus({ preventScroll: true });
+          if (e.pointerType === 'touch') {
+            // No mouse events after the finger: their mousedown would take focus off the
+            // editor a tap opens. What the tap does waits for the finger to lift.
             e.preventDefault();
+            endTouch();
+            const id = e.pointerId;
+            const timer = window.setTimeout(() => {
+              const t = touch.current;
+              if (t?.pointerId !== id) return;
+              t.range = true;
+              // A hold on the selection keeps it (for its menu); elsewhere it starts a new one.
+              if (!selected(t.cell)) ctl.select(t.cell, false);
+            }, LONG_PRESS_MS);
+            touch.current = {
+              pointerId: id,
+              cell: p,
+              start: { x: e.clientX, y: e.clientY },
+              range: false,
+              dragged: false,
+              timer,
+            };
             return;
           }
-        }
-        const active = document.activeElement;
-        if (active instanceof HTMLElement && active !== document.body) active.blur();
-        // Keyboard focus follows the click onto the grid, not a leftover button or select.
-        e.currentTarget.focus({ preventScroll: true });
-        if (e.pointerType === 'touch') {
-          // No mouse events after the finger: their mousedown would take focus off the
-          // editor a tap opens. What the tap does waits for the finger to lift.
-          e.preventDefault();
-          endTouch();
-          const id = e.pointerId;
-          const timer = window.setTimeout(() => {
-            const t = touch.current;
-            if (t?.pointerId !== id) return;
-            t.range = true;
-            ctl.select(t.cell, false);
-          }, LONG_PRESS_MS);
-          touch.current = {
-            pointerId: id,
-            cell: p,
-            start: { x: e.clientX, y: e.clientY },
-            range: false,
-            timer,
-          };
-          return;
-        }
-        ctl.select(p, e.shiftKey);
-        dragging.current = true;
-        e.currentTarget.setPointerCapture(e.pointerId);
-      }}
-      onPointerMove={(e) => {
-        const t = touch.current;
-        if (t?.pointerId === e.pointerId) {
-          const at = { x: e.clientX, y: e.clientY };
-          if (!t.range) {
-            // Moving before the hold completes is a scroll, not a press.
-            if (moved(t.start, at)) endTouch();
+          ctl.select(p, e.shiftKey);
+          dragging.current = true;
+          e.currentTarget.setPointerCapture(e.pointerId);
+        }}
+        onPointerMove={(e) => {
+          const t = touch.current;
+          if (t?.pointerId === e.pointerId) {
+            const at = { x: e.clientX, y: e.clientY };
+            if (!t.range) {
+              // Moving before the hold completes is a scroll, not a press.
+              if (moved(t.start, at)) endTouch();
+              return;
+            }
+            const p = cellFromPoint(at.x, at.y);
+            if (!p) return;
+            if (!t.dragged) {
+              // Still on the pressed cell: not a drag yet.
+              if (p.row === t.cell.row && p.col === t.cell.col) return;
+              t.dragged = true;
+              ctl.select(t.cell, false);
+            }
+            ctl.select(p, true);
             return;
           }
-          const p = cellFromPoint(at.x, at.y);
+          if (!dragging.current) return;
+          const p = cellFromPoint(e.clientX, e.clientY);
           if (p) ctl.select(p, true);
-          return;
-        }
-        if (!dragging.current) return;
-        const p = cellFromPoint(e.clientX, e.clientY);
-        if (p) ctl.select(p, true);
-      }}
-      onPointerUp={(e) => {
-        dragging.current = false;
-        if (e.currentTarget.hasPointerCapture(e.pointerId))
-          e.currentTarget.releasePointerCapture(e.pointerId);
-        const t = touch.current;
-        if (t?.pointerId !== e.pointerId) return;
-        endTouch();
-        if (t.range) return;
-        const { anchor, focus } = ctl.ui.getState();
-        const here = (c: CellPos | null) => c?.row === t.cell.row && c?.col === t.cell.col;
-        // flushSync: the editor takes focus inside the tap, or iOS shows no keyboard.
-        if (canEdit && here(anchor) && here(focus)) flushSync(() => ctl.startEdit());
-        else ctl.select(t.cell, false);
-      }}
-      onPointerCancel={() => {
-        // The browser took the finger for a scroll or a pinch.
-        dragging.current = false;
-        endTouch();
-      }}
-      onDoubleClick={(e) => {
-        if (!canEdit || lastPointer.current === 'touch' || !cellFromPoint(e.clientX, e.clientY))
-          return;
-        ctl.startEdit();
-      }}
-    >
-      <div className="relative" style={{ width: totalW, height: totalH }}>
-        <div
-          className="sticky top-0 z-20 flex bg-paper"
-          style={{ height: HEADER_H, width: totalW }}
-        >
-          <button
-            type="button"
-            aria-label="Select all"
-            className="sticky left-0 z-30 shrink-0 border-b-2 border-r-2 border-ink bg-paper"
-            style={{ width: ROW_HEADER_W, height: HEADER_H }}
-            // Keys keep driving the grid: the button never takes focus, the scroller does.
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => {
-              // The editor keeps focus through this press: commit it where it is first.
-              if (ctl.ui.getState().editing) {
-                ctl.commitEdit();
-                if (ctl.ui.getState().editing) return;
-              }
-              ctl.selectAll();
-              scroller.current?.focus({ preventScroll: true });
-            }}
-          />
-          {sheet.cols.map((c, i) =>
-            headers ? (
-              headers.col(i, c.id, c.width)
-            ) : (
-              <div
-                key={c.id}
-                data-testid={`col-header-${colLetters(i)}`}
-                className="grid shrink-0 place-items-center border-b-2 border-r border-ink font-mono text-[11px] font-bold"
-                style={{ width: c.width, height: HEADER_H }}
-              >
-                {colLetters(i)}
-              </div>
-            ),
-          )}
-        </div>
-        {sheet.rows.slice(start, end).map((r, k) => {
-          const i = start + k;
-          return (
-            <div
-              key={r.id}
-              className="absolute left-0 flex"
-              style={{ top: HEADER_H + i * ROW_H, height: ROW_H }}
-            >
-              {headers ? (
-                headers.row(i, r.id)
+        }}
+        onPointerUp={(e) => {
+          dragging.current = false;
+          if (e.currentTarget.hasPointerCapture(e.pointerId))
+            e.currentTarget.releasePointerCapture(e.pointerId);
+          const t = touch.current;
+          if (t?.pointerId !== e.pointerId) return;
+          endTouch();
+          if (t.range) {
+            // Held and lifted without a drag: the menu of the selected cells.
+            if (!t.dragged) setMenu(t.start);
+            return;
+          }
+          const { anchor, focus } = ctl.ui.getState();
+          const here = (c: CellPos | null) => c?.row === t.cell.row && c?.col === t.cell.col;
+          // flushSync: the editor takes focus inside the tap, or iOS shows no keyboard.
+          if (canEdit && here(anchor) && here(focus)) flushSync(() => ctl.startEdit());
+          else ctl.select(t.cell, false);
+        }}
+        onPointerCancel={() => {
+          // The browser took the finger for a scroll or a pinch.
+          dragging.current = false;
+          endTouch();
+        }}
+        onDoubleClick={(e) => {
+          if (!canEdit || lastPointer.current === 'touch' || !cellFromPoint(e.clientX, e.clientY))
+            return;
+          ctl.startEdit();
+        }}
+        onContextMenu={(e) => {
+          const p = cellFromPoint(e.clientX, e.clientY);
+          if (!p) return;
+          e.preventDefault();
+          // A finger's hold opens the menu itself (iOS has no long-press contextmenu).
+          if (lastPointer.current === 'touch' || ctl.ui.getState().editing) return;
+          if (!selected(p)) ctl.select(p, false);
+          setMenu({ x: e.clientX, y: e.clientY });
+        }}
+      >
+        <div className="relative" style={{ width: totalW, height: totalH }}>
+          <div
+            className="sticky top-0 z-20 flex bg-paper"
+            style={{ height: HEADER_H, width: totalW }}
+          >
+            <button
+              type="button"
+              aria-label="Select all"
+              className="sticky left-0 z-30 shrink-0 border-b-2 border-r-2 border-ink bg-paper"
+              style={{ width: ROW_HEADER_W, height: HEADER_H }}
+              // Keys keep driving the grid: the button never takes focus, the scroller does.
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => {
+                // The editor keeps focus through this press: commit it where it is first.
+                if (ctl.ui.getState().editing) {
+                  ctl.commitEdit();
+                  if (ctl.ui.getState().editing) return;
+                }
+                ctl.selectAll();
+                scroller.current?.focus({ preventScroll: true });
+              }}
+            />
+            {sheet.cols.map((c, i) =>
+              headers ? (
+                headers.col(i, c.id, c.width)
               ) : (
                 <div
-                  data-testid={`row-header-${i + 1}`}
-                  className="sticky left-0 z-10 grid shrink-0 place-items-center border-b border-r-2 border-ink bg-paper font-mono text-[11px]"
-                  style={{ width: ROW_HEADER_W, height: ROW_H }}
+                  key={c.id}
+                  data-testid={`col-header-${colLetters(i)}`}
+                  className="grid shrink-0 place-items-center border-b-2 border-r border-ink font-mono text-[11px] font-bold"
+                  style={{ width: c.width, height: HEADER_H }}
                 >
-                  {i + 1}
+                  {colLetters(i)}
                 </div>
-              )}
-              {sheet.cols.map((c, j) => {
-                const key = cellKey(r.id, c.id);
-                const cell = sheet.cells[key];
-                const value = values.get(key) ?? EMPTY;
-                return (
-                  <Cell
-                    key={c.id}
-                    address={`${colLetters(j)}${i + 1}`}
-                    row={r.id}
-                    col={c.id}
-                    width={c.width}
-                    text={formatValue(value, cell?.fmt)}
-                    align={cell?.fmt?.align ?? defaultAlign(value)}
-                    bold={cell?.fmt?.bold === true}
-                  />
-                );
-              })}
-            </div>
-          );
-        })}
-        {peerRanges.map(({ peer, box, editing }) => (
-          <div
-            key={peer.clientId}
-            data-testid="sheet-peer-range"
-            className="pointer-events-none absolute z-10 border-2"
-            style={{ ...box, borderColor: peer.user.color }}
-          >
-            <span
-              className="absolute -top-4 left-0 whitespace-nowrap px-1 font-mono text-[9px] font-bold text-white"
-              style={{ background: peer.user.color }}
-            >
-              {editing ? `${peer.user.name} · typing…` : peer.user.name}
-            </span>
+              ),
+            )}
           </div>
-        ))}
-        {selection && (
-          <div
-            data-testid="sheet-selection"
-            className="pointer-events-none absolute z-10 border-2 border-cobalt bg-cobalt/10"
-            style={rangeBox(selection, offsets)}
-          />
-        )}
-        {overlay}
+          {sheet.rows.slice(start, end).map((r, k) => {
+            const i = start + k;
+            return (
+              <div
+                key={r.id}
+                className="absolute left-0 flex"
+                style={{ top: HEADER_H + i * ROW_H, height: ROW_H }}
+              >
+                {headers ? (
+                  headers.row(i, r.id)
+                ) : (
+                  <div
+                    data-testid={`row-header-${i + 1}`}
+                    className="sticky left-0 z-10 grid shrink-0 place-items-center border-b border-r-2 border-ink bg-paper font-mono text-[11px]"
+                    style={{ width: ROW_HEADER_W, height: ROW_H }}
+                  >
+                    {i + 1}
+                  </div>
+                )}
+                {sheet.cols.map((c, j) => {
+                  const key = cellKey(r.id, c.id);
+                  const cell = sheet.cells[key];
+                  const value = values.get(key) ?? EMPTY;
+                  return (
+                    <Cell
+                      key={c.id}
+                      address={`${colLetters(j)}${i + 1}`}
+                      row={r.id}
+                      col={c.id}
+                      width={c.width}
+                      text={formatValue(value, cell?.fmt)}
+                      align={cell?.fmt?.align ?? defaultAlign(value)}
+                      bold={cell?.fmt?.bold === true}
+                    />
+                  );
+                })}
+              </div>
+            );
+          })}
+          {peerRanges.map(({ peer, box, editing }) => (
+            <div
+              key={peer.clientId}
+              data-testid="sheet-peer-range"
+              className="pointer-events-none absolute z-10 border-2"
+              style={{ ...box, borderColor: peer.user.color }}
+            >
+              <span
+                className="absolute -top-4 left-0 whitespace-nowrap px-1 font-mono text-[9px] font-bold text-white"
+                style={{ background: peer.user.color }}
+              >
+                {editing ? `${peer.user.name} · typing…` : peer.user.name}
+              </span>
+            </div>
+          ))}
+          {selection && (
+            <div
+              data-testid="sheet-selection"
+              className="pointer-events-none absolute z-10 border-2 border-cobalt bg-cobalt/10"
+              style={rangeBox(selection, offsets)}
+            />
+          )}
+          {overlay}
+        </div>
       </div>
-    </div>
+      {menu && <ContextMenu x={menu.x} y={menu.y} items={menuItems} onClose={closeMenu} />}
+    </>
   );
 }

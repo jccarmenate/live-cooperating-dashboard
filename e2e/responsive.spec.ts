@@ -141,6 +141,22 @@ async function fingers(page: Page, context: BrowserContext) {
       await touch('touchStart', [[x, y]]);
       await touch('touchEnd', []);
     },
+    /**
+     * A drag at a finger's pace that rests before it lifts. A drag released at speed is a
+     * fling to Chrome, which then swallows the next tap.
+     */
+    async drag(from: [number, number], to: [number, number]) {
+      await touch('touchStart', [from]);
+      for (let i = 1; i <= 4; i++) {
+        await touch('touchMove', [
+          [from[0] + ((to[0] - from[0]) * i) / 4, from[1] + ((to[1] - from[1]) * i) / 4],
+        ]);
+        await page.waitForTimeout(40);
+      }
+      await page.waitForTimeout(150);
+      await touch('touchMove', [to]);
+      await touch('touchEnd', []);
+    },
   };
 }
 
@@ -543,4 +559,112 @@ test('in landscape comments stay on the board, and sheet and calendar bars keep 
   await expect(page.getByTestId('cal-zone')).toBeHidden();
   await page.getByTestId('cal-menu').tap();
   await expect(page.getByTestId('cal-menu-zone')).toContainText('Times in');
+});
+
+test('on a phone undo and redo are buttons, on the board and on a sheet', async ({
+  page,
+  context,
+  request,
+}) => {
+  await newBoard(page, request);
+  const { tap } = await fingers(page, context);
+  const undo = page.getByTestId('undo');
+  const redo = page.getByTestId('redo');
+  await onScreen(page, undo);
+  await onScreen(page, redo);
+  await expect(undo).toBeDisabled();
+  await expect(redo).toBeDisabled();
+
+  await page.getByTestId('tool-sticky').tap();
+  await tap(250, 300);
+  await page.keyboard.type('Oops');
+  await page.keyboard.press('Escape');
+  const shapes = page.locator('[data-shape-id]');
+  await expect(shapes).toHaveCount(1);
+  // Typing and creating are separate steps: undo until the sticky is gone.
+  await expect(undo).toBeEnabled();
+  await undo.tap();
+  await undo.tap();
+  await expect(shapes).toHaveCount(0);
+  await expect(undo).toBeDisabled();
+  await redo.tap();
+  await redo.tap();
+  await expect(shapes).toHaveCount(1);
+  await expect(page.getByText('Oops')).toBeVisible();
+  await expect(redo).toBeDisabled();
+
+  // The same buttons undo a cell edit.
+  await page.getByTestId('page-add').tap();
+  await page.getByTestId('page-add-sheet').tap();
+  await page.getByTestId('cell-A1').tap();
+  await page.keyboard.type('7');
+  await page.keyboard.press('Enter');
+  await expect(page.getByTestId('cell-A1')).toHaveText('7');
+  await undo.tap();
+  await expect(page.getByTestId('cell-A1')).toHaveText('');
+});
+
+test('on a phone a held cell opens its menu, and columns and shapes resize by finger', async ({
+  page,
+  context,
+  request,
+}) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  await newBoard(page, request);
+  const { touch, tap, drag } = await fingers(page, context);
+  const center = async (id: string): Promise<[number, number]> => {
+    const b = await page.getByTestId(id).boundingBox();
+    if (!b) throw new Error(`no ${id}`);
+    return [b.x + b.width / 2, b.y + b.height / 2];
+  };
+  const hold = async (at: [number, number]) => {
+    await touch('touchStart', [at]);
+    await page.waitForTimeout(700);
+    await touch('touchEnd', []);
+  };
+
+  // A sticky's resize handles answer to a finger that lands near them, not only on them.
+  await page.getByTestId('tool-sticky').tap();
+  await tap(230, 300);
+  await page.keyboard.press('Escape');
+  const sticky = page.locator('[data-shape-id]').first();
+  await expect(page.getByTestId('handle-hit')).toHaveCount(8);
+  const s0 = await sticky.boundingBox();
+  if (!s0) throw new Error('no sticky');
+  const corner: [number, number] = [s0.x + s0.width + 9, s0.y + s0.height + 9];
+  await drag(corner, [corner[0] + 40, corner[1] + 40]);
+  await expect
+    .poll(async () => (await sticky.boundingBox())?.width ?? 0)
+    .toBeGreaterThan(s0.width + 30);
+
+  // Sheet: copy, paste, cut and clear from the menu of a held cell.
+  await page.getByTestId('page-add').tap();
+  await page.getByTestId('page-add-sheet').tap();
+  await page.getByTestId('cell-A1').tap();
+  await page.keyboard.type('alpha');
+  await page.keyboard.press('Enter');
+  await hold(await center('cell-A1'));
+  await page.getByTestId('cell-menu-copy').tap();
+  await hold(await center('cell-B3'));
+  await page.getByTestId('cell-menu-paste').tap();
+  await expect(page.getByTestId('cell-B3')).toHaveText('alpha');
+  await hold(await center('cell-A1'));
+  await page.getByTestId('cell-menu-cut').tap();
+  await expect(page.getByTestId('cell-A1')).toHaveText('');
+  await hold(await center('cell-B3'));
+  await page.getByTestId('cell-menu-clear').tap();
+  await expect(page.getByTestId('cell-B3')).toHaveText('');
+  await hold(await center('cell-C2'));
+  await page.getByTestId('cell-menu-paste').tap();
+  await expect(page.getByTestId('cell-C2')).toHaveText('alpha');
+
+  // A column's edge drags by finger instead of scrolling the grid.
+  const a0 = await page.getByTestId('col-header-A').boundingBox();
+  if (!a0) throw new Error('no header');
+  const edge: [number, number] = [a0.x + a0.width, a0.y + a0.height / 2];
+  await drag(edge, [edge[0] + 40, edge[1]]);
+  await expect
+    .poll(async () => (await page.getByTestId('col-header-A').boundingBox())?.width ?? 0)
+    .toBe(a0.width + 40);
+  expect(await page.getByTestId('sheet-grid').evaluate((el) => el.scrollLeft)).toBe(0);
 });

@@ -432,6 +432,21 @@ describe('controller canvas actions', () => {
     expect(notify).toHaveBeenLastCalledWith('Redone');
   });
 
+  it('tells the UI whether there is anything to undo or redo', () => {
+    const { controller } = setup();
+    const can = () => {
+      const { canUndo, canRedo } = controller.ui.getState();
+      return { canUndo, canRedo };
+    };
+    expect(can()).toEqual({ canUndo: false, canRedo: false });
+    controller.createAt('rect', { x: 0, y: 0 });
+    expect(can()).toEqual({ canUndo: true, canRedo: false });
+    controller.undo();
+    expect(can()).toEqual({ canUndo: false, canRedo: true });
+    controller.redo();
+    expect(can()).toEqual({ canUndo: true, canRedo: false });
+  });
+
   it('notifies when a remote delete moves the user, not when they deleted the page', () => {
     const doc = new Y.Doc();
     const docs = createDocStore(doc);

@@ -204,7 +204,8 @@ export function useSheetHeaders(session: BoardSession, ctl: SheetController, can
             <div
               data-testid={`col-resize-${letters}`}
               aria-hidden
-              className="absolute -right-1 top-0 z-10 h-full w-2 cursor-col-resize"
+              // Touch: the drag is the handle's own (no scroll) and the target is finger-sized.
+              className="absolute -right-1 top-0 z-10 h-full w-2 cursor-col-resize touch-none pointer-coarse:-right-3 pointer-coarse:w-6"
               onPointerDown={(e) => {
                 if (e.button !== 0) return;
                 e.stopPropagation();

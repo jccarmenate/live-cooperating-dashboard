@@ -9,10 +9,13 @@ import {
 } from '@relay/core';
 import { useStore } from 'zustand';
 import type { BoardSession } from '../board/session';
+import { MEDIA, useMediaQuery } from '../ui/responsive';
 import { onPage } from './pageFilter';
 
 const PAD = 4;
 const HANDLE_PX = 9;
+/** On touch screens each handle answers to a finger-sized area around it (screen px). */
+const HANDLE_HIT_PX = 26;
 
 const CURSOR: Record<Handle, string> = {
   nw: 'nwse-resize',
@@ -44,6 +47,8 @@ export function SelectionLayer({ session }: { session: BoardSession }) {
   const peers = useStore(session.presence, (s) => s.peers).filter((p) => onPage(p, page));
   const stroke = 2 / zoom;
   const handleSize = HANDLE_PX / zoom;
+  const touch = useMediaQuery(MEDIA.coarse);
+  const hitSize = HANDLE_HIT_PX / zoom;
 
   const current = (id: string): Shape | undefined => {
     const s = shapes[id];
@@ -139,6 +144,25 @@ export function SelectionLayer({ session }: { session: BoardSession }) {
           </text>
         </g>
       )}
+      {single &&
+        !single.locked &&
+        touch &&
+        handlesFor(single.type).map((h) => {
+          const pt = handlePoint(single, h);
+          return (
+            <rect
+              key={`hit:${h}`}
+              data-handle={h}
+              data-testid="handle-hit"
+              x={pt.x - hitSize / 2}
+              y={pt.y - hitSize / 2}
+              width={hitSize}
+              height={hitSize}
+              fill="transparent"
+              pointerEvents="all"
+            />
+          );
+        })}
       {single &&
         !single.locked &&
         handlesFor(single.type).map((h) => {
