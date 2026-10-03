@@ -9,6 +9,7 @@ import YProvider from 'y-partyserver/provider';
 import { Awareness, encodeAwarenessUpdate } from 'y-protocols/awareness';
 import { writeUpdate } from 'y-protocols/sync';
 import * as Y from 'yjs';
+import { encodeAwarenessUpdate as encodeEntries, wrapAwareness } from '../src/awareness';
 import { LIMITS } from '../src/limits';
 import { type RunningWorker, startWorker } from './helpers/worker';
 
@@ -116,6 +117,45 @@ function encodeUpdateMessage(update: Uint8Array): Uint8Array {
   writeUpdate(encoder, update);
   return encoding.toUint8Array(encoder);
 }
+
+/** A valid presence state, as the web client publishes it. */
+const presence = (name: string, extra: Record<string, unknown> = {}) => ({
+  user: { id: `u-${name}`, name, color: '#E85A1B' },
+  cursor: null,
+  selection: [],
+  editing: null,
+  viewport: null,
+  page: null,
+  ...extra,
+});
+
+/** A wire awareness frame with chosen client ids and clocks. */
+function awarenessFrame(
+  entries: { clientId: number; clock: number; state: unknown }[],
+): Uint8Array {
+  return wrapAwareness(
+    encodeEntries(
+      entries.map((e) => ({
+        clientId: e.clientId,
+        clock: e.clock,
+        state: JSON.stringify(e.state),
+      })),
+    ),
+  );
+}
+
+/** Counts the awareness frames (type byte 1) a raw socket receives from now on. */
+function countAwarenessFrames(ws: WebSocket): () => number {
+  let n = 0;
+  ws.on('message', (data, isBinary) => {
+    if (isBinary && (data as Buffer)[0] === 1) n++;
+  });
+  return () => n;
+}
+
+const nameOf = (p: YProvider, clientId: number): string | undefined =>
+  (p.awareness.getStates().get(clientId) as { user?: { name?: string } } | undefined)?.user?.name;
+const settle = (ms = 600) => new Promise((r) => setTimeout(r, ms));
 
 async function createRoom(): Promise<{ roomId: string; editKey: string; viewKey: string }> {
   const res = await fetch(`http://127.0.0.1:${PORT}/api/rooms`, { method: 'POST' });
@@ -299,29 +339,88 @@ describe('sync server', () => {
     await waitFor(() => getRoots(b.doc).shapes.has('after-duplicates'));
   });
 
-  it('closes a connection sending an oversized awareness frame with code 1009', async () => {
+  it('relays a valid presence state reduced to the fields the validator knows', async () => {
     const { roomId, editKey } = await createRoom();
+    const watcher = connect(roomId, editKey);
+    await synced(watcher.provider);
     const ws = rawConnect(roomId, { key: editKey });
     await waitForOpen(ws);
-    const closed = waitForClose(ws);
-    ws.send(encodeAwarenessMessage({ name: 'x'.repeat(20_000) }));
-    const { code } = await closed;
-    expect(code).toBe(1009);
+    ws.send(awarenessFrame([{ clientId: 1001, clock: 1, state: presence('Ann', { junk: 'x' }) }]));
+    await waitFor(() => nameOf(watcher.provider, 1001) === 'Ann');
+    expect('junk' in (watcher.provider.awareness.getStates().get(1001) as object)).toBe(false);
   });
 
-  it('closes a connection controlling more than 2 awareness client ids with code 4429', async () => {
+  it('drops a state that is not valid presence', async () => {
+    const { roomId, editKey } = await createRoom();
+    const watcher = connect(roomId, editKey);
+    await synced(watcher.provider);
+    const ws = rawConnect(roomId, { key: editKey });
+    await waitForOpen(ws);
+    ws.send(awarenessFrame([{ clientId: 1002, clock: 1, state: { name: 'INTRUDER' } }]));
+    await settle();
+    expect(watcher.provider.awareness.getStates().has(1002)).toBe(false);
+  });
+
+  it("does not let a connection overwrite or remove another connection's state", async () => {
+    const { roomId, editKey } = await createRoom();
+    const watcher = connect(roomId, editKey);
+    await synced(watcher.provider);
+    const ann = rawConnect(roomId, { key: editKey });
+    const mallory = rawConnect(roomId, { key: editKey });
+    await Promise.all([waitForOpen(ann), waitForOpen(mallory)]);
+    ann.send(awarenessFrame([{ clientId: 2001, clock: 1, state: presence('Ann') }]));
+    await waitFor(() => nameOf(watcher.provider, 2001) === 'Ann');
+    mallory.send(awarenessFrame([{ clientId: 2001, clock: 5, state: presence('Mallory') }]));
+    mallory.send(awarenessFrame([{ clientId: 2001, clock: 6, state: null }]));
+    await settle();
+    expect(nameOf(watcher.provider, 2001)).toBe('Ann');
+  });
+
+  it("does not relay a peer's state echoed back by another connection", async () => {
+    const { roomId, editKey } = await createRoom();
+    const watcher = rawConnect(roomId, { key: editKey });
+    const mover = rawConnect(roomId, { key: editKey });
+    const echoer = rawConnect(roomId, { key: editKey });
+    await Promise.all([waitForOpen(watcher), waitForOpen(mover), waitForOpen(echoer)]);
+    const seen = countAwarenessFrames(watcher);
+    const frame = awarenessFrame([{ clientId: 3001, clock: 1, state: presence('Ann') }]);
+    mover.send(frame);
+    await settle(300);
+    echoer.send(frame);
+    await settle();
+    expect(seen()).toBe(1);
+  });
+
+  it('drops an oversized awareness frame and keeps the connection open', async () => {
+    const { roomId, editKey } = await createRoom();
+    const ws = rawConnect(roomId, { key: editKey });
+    const hello = nextCustom(ws);
+    await waitForOpen(ws);
+    await hello;
+    ws.send(awarenessFrame([{ clientId: 5001, clock: 1, state: presence('x'.repeat(20_000)) }]));
+    const time = nextCustom(ws);
+    ws.send('__YPS:{"type":"time?"}');
+    expect((await time).type).toBe('time');
+  });
+
+  it('closes a connection whose awareness frame does not decode, with code 4400', async () => {
     const { roomId, editKey } = await createRoom();
     const ws = rawConnect(roomId, { key: editKey });
     await waitForOpen(ws);
     const closed = waitForClose(ws);
-    // Each call creates a fresh Awareness backed by a fresh Y.Doc, so each
-    // encodes a distinct clientID — as if one socket were puppeting several
-    // awareness identities.
-    ws.send(encodeAwarenessMessage({ name: 'first' }));
-    ws.send(encodeAwarenessMessage({ name: 'second' }));
-    ws.send(encodeAwarenessMessage({ name: 'third' }));
-    const { code } = await closed;
-    expect(code).toBe(4429);
+    ws.send(Uint8Array.of(1, 5, 255, 255)); // awareness, claims 5 bytes, carries 2
+    expect((await closed).code).toBe(4400);
+  });
+
+  it('closes a connection claiming more than 2 awareness client ids with code 4429', async () => {
+    const { roomId, editKey } = await createRoom();
+    const ws = rawConnect(roomId, { key: editKey });
+    await waitForOpen(ws);
+    const closed = waitForClose(ws);
+    ws.send(awarenessFrame([{ clientId: 6001, clock: 1, state: presence('first') }]));
+    ws.send(awarenessFrame([{ clientId: 6002, clock: 1, state: presence('second') }]));
+    ws.send(awarenessFrame([{ clientId: 6003, clock: 1, state: presence('third') }]));
+    expect((await closed).code).toBe(4429);
   });
 
   it('lets anyone into the demo room and initializes its metadata', async () => {

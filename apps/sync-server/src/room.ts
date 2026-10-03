@@ -1,13 +1,43 @@
 import { initMeta, isTimeRequest, type ServerMessage } from '@relay/core';
 import type { Connection, ConnectionContext, WSMessage } from 'partyserver';
 import { YServer } from 'y-partyserver';
+import { applyAwarenessUpdate } from 'y-protocols/awareness';
 import * as Y from 'yjs';
 import { DEMO_ROOM, deriveKey, ROLE_HEADER, type Role } from './auth';
+import {
+  encodeAwarenessUpdate,
+  filterAwareness,
+  readAwarenessMessage,
+  wrapAwareness,
+} from './awareness';
 import type { Env } from './env';
 import { LIMITS, messageBytes, TokenBucket } from './limits';
 
-const roleOf = (connection: Connection): Role | undefined =>
-  (connection.state as { role?: Role } | null)?.role;
+/**
+ * What the room keeps on a connection. It survives hibernation. `__ypsAwarenessIds` is
+ * y-partyserver's own key: on close it removes the awareness states of the ids listed there, so
+ * the room records ownership in the same place.
+ */
+interface ConnState {
+  role?: Role;
+  sid?: string;
+  rejected?: boolean;
+  __ypsAwarenessIds?: unknown;
+}
+
+const stateOf = (connection: Connection): ConnState => (connection.state as ConnState | null) ?? {};
+
+const patchState = (connection: Connection, patch: ConnState): void => {
+  connection.setState((prev: unknown) => ({ ...((prev as object | null) ?? {}), ...patch }));
+};
+
+const roleOf = (connection: Connection): Role | undefined => stateOf(connection).role;
+
+/** The awareness client ids this connection owns. */
+function ownedIds(connection: Connection): number[] {
+  const ids = stateOf(connection).__ypsAwarenessIds;
+  return Array.isArray(ids) ? ids.filter((id): id is number => typeof id === 'number') : [];
+}
 
 /** Yjs sync protocol message type byte for a document-update (`messageSync`) frame. */
 const MESSAGE_SYNC = 0;
@@ -18,7 +48,9 @@ const SYNC_STEP2 = 1;
 const SYNC_UPDATE = 2;
 
 function toBytes(message: ArrayBuffer | ArrayBufferView): Uint8Array {
-  return message instanceof ArrayBuffer ? new Uint8Array(message) : new Uint8Array(message.buffer);
+  return message instanceof ArrayBuffer
+    ? new Uint8Array(message)
+    : new Uint8Array(message.buffer, message.byteOffset, message.byteLength);
 }
 
 /** First byte of a binary message, or null for a string (custom) message or an empty frame. */
@@ -43,12 +75,6 @@ function syncSubType(message: WSMessage): number | null {
 }
 
 const encode = (message: ServerMessage): string => JSON.stringify(message);
-
-/** Number of awareness client ids this connection currently controls (y-partyserver tracked). */
-function awarenessIdCount(connection: Connection): number {
-  const ids = (connection.state as { __ypsAwarenessIds?: unknown[] } | null)?.__ypsAwarenessIds;
-  return Array.isArray(ids) ? ids.length : 0;
-}
 
 /** One Durable Object per room: Yjs sync, capability roles, limits, SQLite persistence. */
 export class Room extends YServer {
@@ -128,7 +154,7 @@ export class Room extends YServer {
       connection.close(4503, 'room full');
       return;
     }
-    connection.setState((prev: unknown) => ({ ...((prev as object | null) ?? {}), role }));
+    patchState(connection, { role });
     super.onConnect(connection, ctx);
     // Tell the client its capability and the server clock (vote timers use server time).
     void this.#sendHello(connection, role);
@@ -160,10 +186,6 @@ export class Room extends YServer {
       connection.close(1009, 'message too large');
       return;
     }
-    if (isAwarenessMessage(message) && messageBytes(message) > LIMITS.maxAwarenessBytes) {
-      connection.close(1009, 'awareness frame too large');
-      return;
-    }
     let bucket = this.#buckets.get(connection.id);
     if (!bucket) {
       bucket = new TokenBucket(LIMITS.ratePerSecond, LIMITS.burst);
@@ -172,6 +194,10 @@ export class Room extends YServer {
     if (!bucket.take()) {
       // Closing (not dropping) keeps clients consistent: the reconnect re-runs a full sync.
       connection.close(4429, 'rate limited');
+      return;
+    }
+    if (typeof message !== 'string' && isAwarenessMessage(message)) {
+      this.#onAwareness(connection, toBytes(message));
       return;
     }
     // Only Update and SyncStep2 sub-messages can grow the document; SyncStep1
@@ -193,8 +219,44 @@ export class Room extends YServer {
       this.#estimatedBytes = real;
       this.#frozen = real > LIMITS.maxDocBytes;
     }
-    if (isAwarenessMessage(message) && awarenessIdCount(connection) > LIMITS.maxAwarenessIds) {
+  }
+
+  /**
+   * Awareness is handled here, not by y-partyserver, which would apply and relay any frame
+   * as-is: a connection could then rewrite a peer's state, and every echo of a peer's state
+   * would be relayed to the whole room again.
+   */
+  #onAwareness(connection: Connection, bytes: Uint8Array): void {
+    if (bytes.byteLength > LIMITS.maxAwarenessBytes) return;
+    const entries = readAwarenessMessage(bytes);
+    if (!entries) {
+      connection.close(4400, 'bad frame');
+      return;
+    }
+    const ownedByOthers = new Set<number>();
+    for (const other of this.getConnections()) {
+      if (other.id !== connection.id) for (const id of ownedIds(other)) ownedByOthers.add(id);
+    }
+    const verdict = filterAwareness(entries, {
+      owned: ownedIds(connection),
+      ownedByOthers,
+      maxIds: LIMITS.maxAwarenessIds,
+    });
+    if (verdict.tooMany) {
       connection.close(4429, 'too many awareness identities');
+      return;
+    }
+    if (verdict.accepted.length === 0) return;
+    const update = encodeAwarenessUpdate(verdict.accepted);
+    applyAwarenessUpdate(this.document.awareness, update, connection);
+    patchState(connection, { __ypsAwarenessIds: verdict.owned });
+    const frame = wrapAwareness(update);
+    for (const peer of this.getConnections()) {
+      try {
+        peer.send(frame);
+      } catch {
+        // A peer that is closing: its own close handler cleans up.
+      }
     }
   }
 
