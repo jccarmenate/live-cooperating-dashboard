@@ -22,14 +22,14 @@ export function HelpDialog({ session }: { session: BoardSession }) {
       >
         {groups.map((group) => (
           <section key={group.title}>
-            <h3 className="font-mono text-[10px] font-bold uppercase tracking-wider text-ink/60">
+            <h3 className="font-mono text-2xs font-bold uppercase tracking-wider text-ink/60">
               {group.title}
             </h3>
             <dl className="mt-1.5 grid grid-cols-[auto_1fr] items-center gap-x-3 gap-y-1">
               {group.items.map(([keys, what]) => (
                 <Fragment key={keys}>
                   <dt>
-                    <kbd className="border border-ink/40 bg-paper px-1.5 py-px font-mono text-[10px]">
+                    <kbd className="border border-ink/40 bg-paper px-1.5 py-px font-mono text-2xs">
                       {keys}
                     </kbd>
                   </dt>

@@ -7,7 +7,7 @@ import type { BoardSession } from '../board/session';
 const keepFocus = (e: PointerEvent) => e.preventDefault();
 
 const button =
-  'grid size-7 place-items-center border-2 border-ink bg-white hover:bg-sun disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-white';
+  'grid size-ctl-sm place-items-center border-2 border-ink bg-white hover:bg-sun disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-white';
 
 /**
  * Undo and redo for this user's own steps, on every page type. On a touch screen they are the
@@ -20,7 +20,7 @@ export function UndoRedo({ session }: { session: BoardSession }) {
   const canEdit = useStore(session.conn.clock, (c) => c.role === 'edit');
   if (!canEdit) return null;
   return (
-    <div className="flex h-9 shrink-0 items-end gap-1 border-b-2 border-ink bg-paper pr-3 pb-0.5 pl-1">
+    <div className="flex h-row shrink-0 items-end gap-1 border-b-2 border-ink bg-paper pr-3 pb-0.5 pl-1">
       <button
         type="button"
         data-testid="undo"

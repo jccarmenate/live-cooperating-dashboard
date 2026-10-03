@@ -9,9 +9,11 @@ import { WEEKDAY_SHORT, zoneNote } from './layout';
 import { openOnBoard } from './openOnBoard';
 import { rsvpSummary } from './rsvp';
 
-const input = 'w-full border-2 border-ink bg-white px-2 py-1 font-mono text-xs disabled:bg-paper';
+const input =
+  'w-full border-2 border-ink bg-white px-2 py-1 pointer-coarse:py-2 font-mono text-xs disabled:bg-paper';
 const label = 'flex flex-col gap-1 font-mono text-[11px] uppercase text-ink/70';
-const btn = 'border-2 border-ink px-3 py-1.5 font-mono text-xs uppercase disabled:opacity-40';
+const btn =
+  'border-2 border-ink px-3 py-1.5 pointer-coarse:py-2.5 font-mono text-xs uppercase disabled:opacity-40';
 
 /** Each opening of the editor (a fresh draft object) gets its own key, so its form starts over. */
 const draftKeys = new WeakMap<EditorDraft, number>();

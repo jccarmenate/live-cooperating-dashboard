@@ -91,7 +91,7 @@ function BoardView({ session }: { session: BoardSession }) {
               {canEdit && (
                 <button
                   type="button"
-                  className="border-2 border-ink bg-white px-3 py-1.5 font-mono text-xs uppercase hover:bg-sun"
+                  className="border-2 border-ink bg-white px-3 py-1.5 pointer-coarse:py-2.5 font-mono text-xs uppercase hover:bg-sun"
                   onClick={() => session.setPage(session.controller.createPage('board'))}
                 >
                   New board

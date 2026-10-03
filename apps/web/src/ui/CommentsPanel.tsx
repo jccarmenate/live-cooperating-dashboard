@@ -19,7 +19,7 @@ export function CommentsPanel({ session }: { session: BoardSession }) {
         t !== undefined && t.pageId === page && t.resolved === (tab === 'resolved'),
     );
   const tabClass = (t: 'open' | 'resolved') =>
-    `flex-1 py-1.5 font-mono text-[11px] font-bold uppercase ${tab === t ? 'bg-sun' : 'bg-white hover:bg-paper'}`;
+    `flex-1 py-1.5 pointer-coarse:py-2.5 font-mono text-[11px] font-bold uppercase ${tab === t ? 'bg-sun' : 'bg-white hover:bg-paper'}`;
 
   return (
     <aside
@@ -65,7 +65,7 @@ export function CommentsPanel({ session }: { session: BoardSession }) {
                   controller.openThread(t.id);
                 }}
               >
-                <p className="font-mono text-[10px] uppercase text-ink/60">
+                <p className="font-mono text-2xs uppercase text-ink/60">
                   {`${first?.author ?? ''} · ${t.entries.length} ${t.entries.length === 1 ? 'message' : 'messages'}`}
                   {point ? '' : ' · (shape deleted)'}
                 </p>

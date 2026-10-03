@@ -4,7 +4,8 @@ import { useStore } from 'zustand';
 import type { BoardSession } from '../board/session';
 import { cachedTallies, useServerNow } from '../render/voting';
 
-const pill = 'border-2 border-ink px-2 py-0.5 font-mono text-[11px] font-bold uppercase';
+const pill =
+  'border-2 border-ink px-2 py-0.5 pointer-coarse:py-2 font-mono text-[11px] font-bold uppercase';
 
 export function VoteControl({ session }: { session: BoardSession }) {
   const { controller } = session;

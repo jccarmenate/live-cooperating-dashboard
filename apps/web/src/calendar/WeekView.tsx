@@ -357,7 +357,7 @@ export function WeekView({
             className="relative grid border-b-2 border-ink bg-white"
             style={{ gridTemplateColumns: gridColumns, height: lanes * 20 + 4 }}
           >
-            <div className="sticky left-0 z-10 bg-white px-1 font-mono text-[10px] text-ink/60">
+            <div className="sticky left-0 z-10 bg-white px-1 font-mono text-2xs text-ink/60">
               all-day
             </div>
             {days.map((d) => (
@@ -409,7 +409,7 @@ export function WeekView({
               <div
                 // biome-ignore lint/suspicious/noArrayIndexKey: the 24 hour labels are fixed
                 key={h}
-                className="absolute right-1 font-mono text-[10px] text-ink/60"
+                className="absolute right-1 font-mono text-2xs text-ink/60"
                 style={{ top: h * HOUR_PX - 6 }}
               >
                 {h > 0 ? timeLabel(h * 60) : ''}

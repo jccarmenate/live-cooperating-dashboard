@@ -49,7 +49,7 @@ function Thread({
       >
         {thread.entries.map((e) => (
           <li key={e.id} data-testid="comment-entry" className="border-b border-ink/15 px-3 py-2">
-            <p className="font-mono text-[10px] uppercase text-ink/60">{`${e.author} · ${ago(e.ts)}`}</p>
+            <p className="font-mono text-2xs uppercase text-ink/60">{`${e.author} · ${ago(e.ts)}`}</p>
             <p className="whitespace-pre-wrap break-words text-sm">{e.body}</p>
           </li>
         ))}
@@ -77,7 +77,7 @@ function Thread({
           <button
             type="button"
             data-testid="comment-resolve"
-            className="border-2 border-ink px-2 py-1 font-mono text-[11px] font-bold uppercase hover:bg-sun"
+            className="border-2 border-ink px-2 py-1 pointer-coarse:py-2 font-mono text-[11px] font-bold uppercase hover:bg-sun"
             onClick={() => {
               controller.resolveComment(thread.id, !thread.resolved);
               controller.openThread(null);

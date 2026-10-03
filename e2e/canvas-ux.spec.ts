@@ -112,7 +112,10 @@ test('copy, paste here, duplicate, undo, and pastes from the system clipboard', 
 test('help dialog, focus trap and the empty-page hint', async ({ page, request }) => {
   const { roomId, editKey } = await newRoom(request);
   await openBoard(page, `/r/${roomId}#k=${editKey}`);
-  await expect(page.getByTestId('empty-hint')).toBeVisible();
+  // With a mouse and a keyboard the hint lists keys, and controls keep their compact size.
+  await expect(page.getByTestId('empty-hint')).toContainText('Space-drag to pan');
+  expect((await page.getByTestId('tool-select').boundingBox())?.height).toBe(36);
+  expect((await page.getByTestId('page-tab').boundingBox())?.height).toBe(32);
 
   await page.keyboard.press('?');
   await expect(page.getByTestId('help-dialog')).toContainText('Duplicate');

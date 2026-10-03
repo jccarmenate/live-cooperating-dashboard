@@ -40,10 +40,26 @@ test('on a phone the header, panels and properties bar fit the screen', async ({
   expect(logo.width).toBeCloseTo(logo.height, 0);
   for (const id of ['vote-start', 'comments-toggle', 'share-open', 'online-count']) {
     const b = await onScreen(page, page.getByTestId(id));
-    expect(b.height).toBeLessThan(32); // one line, not wrapped
+    expect(b.height).toBeLessThan(46); // one line, not wrapped
   }
   await expect(page.getByTestId('comments-toggle')).toHaveText('Comments · 0');
   await expect(page.getByTestId('online-count')).toHaveText('1 online');
+
+  // Touch screens get finger-sized controls, and first steps told as gestures, not keys.
+  const side = async (id: string) =>
+    (await page.getByTestId(id).first().boundingBox())?.height ?? 0;
+  for (const id of ['tool-select', 'help-button', 'zoom-out', 'page-tab']) {
+    expect(await side(id)).toBeGreaterThanOrEqual(40);
+  }
+  for (const id of ['page-add', 'undo', 'vote-start', 'comments-toggle']) {
+    expect(await side(id)).toBeGreaterThanOrEqual(34);
+  }
+  const hint = page.getByTestId('empty-hint');
+  await expect(hint).toContainText('Two fingers to pan and zoom');
+  await expect(hint).not.toContainText('Space-drag');
+  const hintBox = await hint.locator('div').first().boundingBox();
+  const toolbar = await page.getByRole('navigation', { name: 'Tools' }).boundingBox();
+  expect(hintBox?.x ?? 0).toBeGreaterThanOrEqual((toolbar?.x ?? 0) + (toolbar?.width ?? 0));
 
   await page.getByTestId('tool-sticky').tap();
   await page.touchscreen.tap(260, 320);
@@ -344,7 +360,7 @@ test('on a phone the tab row shows it scrolls, and a vote fits the header', asyn
   await expect(page.getByTestId('vote-status')).toContainText('VOTE OPEN · 2:5');
   for (const id of ['vote-status', 'vote-end', 'comments-toggle', 'share-open', 'online-count']) {
     const b = await onScreen(page, page.getByTestId(id));
-    expect(b.height).toBeLessThan(32);
+    expect(b.height).toBeLessThan(46);
   }
   await expect(page.getByTestId('share-open')).toHaveText('Share');
 });

@@ -2,7 +2,7 @@ import { useStore } from 'zustand';
 import { Dialog } from '../ui/Dialog';
 import type { CalendarController } from './calendarController';
 
-const btn = 'border-2 border-ink px-3 py-1.5 font-mono text-xs uppercase';
+const btn = 'border-2 border-ink px-3 py-1.5 pointer-coarse:py-2.5 font-mono text-xs uppercase';
 
 /**
  * "Only this event" / "All events" for an action on one occurrence of a series. A changed rule

@@ -31,7 +31,7 @@ export function AlgorithmsPanel({ session }: { session: BoardSession }) {
   const startId = graph.nodes.some((n) => n.id === start) ? start : (graph.nodes[0]?.id ?? '');
   const endId = graph.nodes.some((n) => n.id === end) ? end : (graph.nodes.at(-1)?.id ?? '');
   const field =
-    'mt-1 w-full border-2 border-ink/40 px-2 py-1 font-mono text-xs text-ink normal-case';
+    'mt-1 w-full border-2 border-ink/40 px-2 py-1 pointer-coarse:py-2 font-mono text-xs text-ink normal-case';
 
   return (
     <aside
@@ -52,11 +52,11 @@ export function AlgorithmsPanel({ session }: { session: BoardSession }) {
           ×
         </button>
       </div>
-      <p className="font-mono text-[10px] text-ink/60">
+      <p className="font-mono text-2xs text-ink/60">
         {onSelection ? 'On the selection' : 'On the whole page'} · {graph.nodes.length} nodes ·{' '}
         {graph.edges.length} edges
       </p>
-      <label className="font-mono text-[10px] uppercase text-ink/60">
+      <label className="font-mono text-2xs uppercase text-ink/60">
         Algorithm
         <select
           data-testid="algo-kind"
@@ -72,7 +72,7 @@ export function AlgorithmsPanel({ session }: { session: BoardSession }) {
         </select>
       </label>
       {(kind === 'bfs' || kind === 'dfs' || kind === 'path') && (
-        <label className="font-mono text-[10px] uppercase text-ink/60">
+        <label className="font-mono text-2xs uppercase text-ink/60">
           Start
           <select
             data-testid="algo-start"
@@ -89,7 +89,7 @@ export function AlgorithmsPanel({ session }: { session: BoardSession }) {
         </label>
       )}
       {kind === 'path' && (
-        <label className="font-mono text-[10px] uppercase text-ink/60">
+        <label className="font-mono text-2xs uppercase text-ink/60">
           End
           <select
             data-testid="algo-end"
@@ -109,7 +109,7 @@ export function AlgorithmsPanel({ session }: { session: BoardSession }) {
         <button
           type="button"
           data-testid="algo-run"
-          className="flex-1 border-2 border-ink bg-sun py-1 font-mono text-xs font-bold uppercase hover:brightness-105"
+          className="flex-1 border-2 border-ink bg-sun py-1 pointer-coarse:py-2 font-mono text-xs font-bold uppercase hover:brightness-105"
           onClick={() => controller.runAlgorithm(kind, startId, endId)}
         >
           Run
@@ -117,7 +117,7 @@ export function AlgorithmsPanel({ session }: { session: BoardSession }) {
         <button
           type="button"
           data-testid="algo-clear"
-          className="border-2 border-ink px-3 py-1 font-mono text-xs uppercase hover:bg-paper"
+          className="border-2 border-ink px-3 py-1 pointer-coarse:py-2 font-mono text-xs uppercase hover:bg-paper"
           onClick={() => controller.clearGraphResult()}
         >
           Clear

@@ -127,7 +127,7 @@ export function PageTabs({ session }: { session: BoardSession }) {
         <nav
           ref={scroller}
           // Unlabelled: the tablist inside carries the "Pages" name, so it is not announced twice.
-          className="flex h-9 items-end gap-1 overflow-x-auto border-b-2 border-ink bg-paper px-3"
+          className="flex h-row items-end gap-1 overflow-x-auto border-b-2 border-ink bg-paper px-3"
           onScroll={measureEdges}
         >
           <div
@@ -169,7 +169,7 @@ export function PageTabs({ session }: { session: BoardSession }) {
                       aria-label="Page name"
                       defaultValue={p.title}
                       maxLength={MAX_PAGE_TITLE}
-                      className="h-8 w-32 border-2 border-b-0 border-ink bg-white px-2 font-mono text-xs outline-none"
+                      className="h-ctl w-32 border-2 border-b-0 border-ink bg-white px-2 font-mono text-xs outline-none"
                       onKeyDown={(e) => {
                         e.stopPropagation();
                         // Enter that confirms an IME composition is not a commit.
@@ -187,7 +187,7 @@ export function PageTabs({ session }: { session: BoardSession }) {
                       data-page-id={p.id}
                       aria-selected={selected}
                       title={p.title}
-                      className={`flex h-8 max-w-48 scroll-mx-8 items-center gap-1.5 border-2 border-b-0 border-ink px-3 font-mono text-xs ${selected ? 'bg-white font-bold' : 'bg-paper hover:bg-white'}`}
+                      className={`flex h-ctl max-w-48 scroll-mx-8 items-center gap-1.5 border-2 border-b-0 border-ink px-3 font-mono text-xs ${selected ? 'bg-white font-bold' : 'bg-paper hover:bg-white'}`}
                       onClick={() => controller.setPage(p.id)}
                       onDoubleClick={() => canEdit && startRename(p.id)}
                       onContextMenu={(e) => {
@@ -217,7 +217,7 @@ export function PageTabs({ session }: { session: BoardSession }) {
               type="button"
               data-testid="page-add"
               aria-label="New page"
-              className="mb-0.5 grid size-7 place-items-center border-2 border-ink bg-white hover:bg-sun"
+              className="mb-0.5 grid size-ctl-sm place-items-center border-2 border-ink bg-white hover:bg-sun"
               onClick={(e) => {
                 const r = e.currentTarget.getBoundingClientRect();
                 setMenu({

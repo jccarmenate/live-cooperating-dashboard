@@ -23,7 +23,7 @@ function download(text: string, title: string) {
 
 /** A header button without a background: one bg class each, so none overrides another. */
 const base =
-  'grid h-8 place-items-center border-2 border-ink px-2 font-mono text-xs uppercase hover:bg-paper';
+  'grid h-ctl place-items-center border-2 border-ink px-2 font-mono text-xs uppercase hover:bg-paper';
 const btn = `${base} bg-white`;
 
 export function CalendarHeader({

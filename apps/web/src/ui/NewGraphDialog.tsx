@@ -73,8 +73,9 @@ export function NewGraphDialog({ session }: { session: BoardSession }) {
     if (r.draft) controller.createGraph(r.draft);
   };
   const tabClass = (t: typeof tab) =>
-    `flex-1 py-1.5 font-mono text-[11px] font-bold uppercase ${tab === t ? 'bg-sun' : 'bg-white hover:bg-paper'}`;
-  const field = 'mt-1 w-full border-2 border-ink/40 px-2 py-1 font-mono text-xs';
+    `flex-1 py-1.5 pointer-coarse:py-2.5 font-mono text-[11px] font-bold uppercase ${tab === t ? 'bg-sun' : 'bg-white hover:bg-paper'}`;
+  const field =
+    'mt-1 w-full border-2 border-ink/40 px-2 py-1 pointer-coarse:py-2 font-mono text-xs';
 
   return (
     <Dialog title="New graph" onClose={close} wide>
@@ -99,7 +100,7 @@ export function NewGraphDialog({ session }: { session: BoardSession }) {
         </div>
         {tab === 'families' ? (
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
-            <label className="font-mono text-[10px] uppercase text-ink/60 sm:col-span-2">
+            <label className="font-mono text-2xs uppercase text-ink/60 sm:col-span-2">
               Family
               <select
                 data-testid="graph-family"
@@ -120,7 +121,7 @@ export function NewGraphDialog({ session }: { session: BoardSession }) {
                 readonly [number, number],
               ][]
             ).map(([key, [min, max]]) => (
-              <label key={key} className="font-mono text-[10px] uppercase text-ink/60">
+              <label key={key} className="font-mono text-2xs uppercase text-ink/60">
                 {PARAM_LABEL[key]} ({min}–{max})
                 <input
                   data-testid={`graph-${key}`}
@@ -152,7 +153,7 @@ export function NewGraphDialog({ session }: { session: BoardSession }) {
               />
               Weighted (1–9)
             </label>
-            <label className="font-mono text-[10px] uppercase text-ink/60">
+            <label className="font-mono text-2xs uppercase text-ink/60">
               Node names
               <select
                 data-testid="graph-names"
@@ -168,7 +169,7 @@ export function NewGraphDialog({ session }: { session: BoardSession }) {
             </label>
           </div>
         ) : (
-          <label className="mt-3 block font-mono text-[10px] uppercase text-ink/60">
+          <label className="mt-3 block font-mono text-2xs uppercase text-ink/60">
             One edge per line or comma: A-B undirected, A-&gt;B directed, A-B:5 weight, lone names
             are nodes
             <textarea
@@ -194,7 +195,7 @@ export function NewGraphDialog({ session }: { session: BoardSession }) {
         <div className="mt-4 flex justify-end gap-2">
           <button
             type="button"
-            className="border-2 border-ink px-3 py-1 font-mono text-xs uppercase hover:bg-paper"
+            className="border-2 border-ink px-3 py-1 pointer-coarse:py-2 font-mono text-xs uppercase hover:bg-paper"
             onClick={close}
           >
             Cancel
@@ -202,7 +203,7 @@ export function NewGraphDialog({ session }: { session: BoardSession }) {
           <button
             type="button"
             data-testid="graph-create"
-            className="border-2 border-ink bg-sun px-3 py-1 font-mono text-xs font-bold uppercase hover:brightness-105"
+            className="border-2 border-ink bg-sun px-3 py-1 pointer-coarse:py-2 font-mono text-xs font-bold uppercase hover:brightness-105"
             onClick={create}
           >
             Create

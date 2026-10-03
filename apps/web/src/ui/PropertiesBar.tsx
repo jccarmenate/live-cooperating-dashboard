@@ -39,7 +39,7 @@ function Toggle({
       aria-pressed={pressed}
       disabled={disabled}
       onClick={onClick}
-      className={`grid h-7 min-w-7 place-items-center border-2 px-1 font-mono text-[11px] font-bold ${pressed ? 'border-ink bg-sun' : 'border-transparent hover:border-ink'} disabled:cursor-not-allowed disabled:opacity-40 ${className}`}
+      className={`grid h-ctl-sm min-w-ctl-sm place-items-center border-2 px-1 font-mono text-[11px] font-bold ${pressed ? 'border-ink bg-sun' : 'border-transparent hover:border-ink'} disabled:cursor-not-allowed disabled:opacity-40 ${className}`}
     >
       {children}
     </button>
@@ -61,7 +61,7 @@ function Swatches({
 }) {
   return (
     <fieldset aria-label={kind === 'fill' ? 'Fill' : 'Stroke'} className="flex items-center gap-1">
-      <span className="font-mono text-[9px] uppercase text-ink/50">{kind}</span>
+      <span className="font-mono text-3xs uppercase text-ink/50">{kind}</span>
       {swatches.map((s) => (
         <button
           key={s.name}
@@ -72,7 +72,7 @@ function Swatches({
           aria-pressed={sameColor(current, s.color)}
           disabled={disabled}
           onClick={() => onPick(s.color)}
-          className={`size-5 border-2 ${sameColor(current, s.color) ? 'border-cobalt outline-2 outline-cobalt' : 'border-ink'} disabled:cursor-not-allowed disabled:opacity-40`}
+          className={`size-swatch shrink-0 border-2 ${sameColor(current, s.color) ? 'border-cobalt outline-2 outline-cobalt' : 'border-ink'} disabled:cursor-not-allowed disabled:opacity-40`}
           style={{ background: swatchBackground(s.color) }}
         />
       ))}

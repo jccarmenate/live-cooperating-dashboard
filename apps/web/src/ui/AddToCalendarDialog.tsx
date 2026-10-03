@@ -6,7 +6,7 @@ import { addToCalendarWhen } from './addToCalendarWhen';
 import { Dialog } from './Dialog';
 import { stickyTitle } from './stickyTitle';
 
-const input = 'w-full border-2 border-ink bg-white px-2 py-1 font-mono text-xs';
+const input = 'w-full border-2 border-ink bg-white px-2 py-1 pointer-coarse:py-2 font-mono text-xs';
 const label = 'flex flex-col gap-1 font-mono text-[11px] uppercase text-ink/70';
 
 export function AddToCalendarDialog({ session }: { session: BoardSession }) {
@@ -128,7 +128,7 @@ function AddToCalendarForm({ session, shapeId }: { session: BoardSession; shapeI
         <div className="flex justify-end gap-2">
           <button
             type="button"
-            className="border-2 border-ink bg-white px-3 py-1.5 font-mono text-xs uppercase"
+            className="border-2 border-ink bg-white px-3 py-1.5 pointer-coarse:py-2.5 font-mono text-xs uppercase"
             onClick={close}
           >
             Cancel
@@ -136,7 +136,7 @@ function AddToCalendarForm({ session, shapeId }: { session: BoardSession; shapeI
           <button
             type="submit"
             data-testid="add-cal-submit"
-            className="border-2 border-ink bg-sun px-3 py-1.5 font-mono text-xs uppercase"
+            className="border-2 border-ink bg-sun px-3 py-1.5 pointer-coarse:py-2.5 font-mono text-xs uppercase"
           >
             Add
           </button>

@@ -19,7 +19,7 @@ function LinkRow({
   const inputId = `share-${testId}-input`;
   return (
     <div className="mt-3">
-      <label htmlFor={inputId} className="font-mono text-[10px] uppercase text-ink/60">
+      <label htmlFor={inputId} className="font-mono text-2xs uppercase text-ink/60">
         {label}
       </label>
       <div className="mt-1 flex gap-2">
@@ -28,7 +28,7 @@ function LinkRow({
           readOnly
           data-testid={`share-${testId}-link`}
           value={link ?? (unavailable ? 'Not available' : 'Connecting…')}
-          className="flex-1 border-2 border-ink/30 px-2 py-1 font-mono text-xs"
+          className="flex-1 border-2 border-ink/30 px-2 py-1 pointer-coarse:py-2 font-mono text-xs"
           onFocus={(e) => e.currentTarget.select()}
         />
         <button

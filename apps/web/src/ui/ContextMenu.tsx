@@ -119,7 +119,7 @@ export function ContextMenu({
                   title={s.label}
                   data-testid={s.testId}
                   disabled={item.disabled}
-                  className="size-5 border-2 border-ink hover:-translate-y-px focus:outline-2 focus:outline-cobalt disabled:cursor-not-allowed disabled:opacity-40"
+                  className="size-swatch border-2 border-ink hover:-translate-y-px focus:outline-2 focus:outline-cobalt disabled:cursor-not-allowed disabled:opacity-40"
                   style={{ background: swatchBackground(s.color) }}
                   onClick={() => choose(s.onSelect)}
                 />
@@ -134,11 +134,11 @@ export function ContextMenu({
             role="menuitem"
             data-testid={item.testId}
             disabled={item.disabled}
-            className={`flex w-full items-center justify-between gap-6 px-3 py-1.5 text-left font-mono text-xs hover:bg-sun focus:bg-sun focus:outline-none disabled:cursor-not-allowed disabled:text-ink/40 disabled:hover:bg-transparent ${item.danger ? 'text-flame' : ''}`}
+            className={`flex w-full items-center justify-between gap-6 px-3 py-1.5 text-left font-mono text-xs pointer-coarse:py-2.5 hover:bg-sun focus:bg-sun focus:outline-none disabled:cursor-not-allowed disabled:text-ink/40 disabled:hover:bg-transparent ${item.danger ? 'text-flame' : ''}`}
             onClick={() => choose(item.onSelect)}
           >
             <span>{item.label}</span>
-            {item.hint && <span className="text-[10px] text-ink/50">{item.hint}</span>}
+            {item.hint && <span className="text-2xs text-ink/50">{item.hint}</span>}
           </button>
         );
       })}

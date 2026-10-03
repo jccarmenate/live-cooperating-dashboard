@@ -388,7 +388,7 @@ export function SheetGrid({
               style={{ ...box, borderColor: peer.user.color }}
             >
               <span
-                className="absolute -top-4 left-0 whitespace-nowrap px-1 font-mono text-[9px] font-bold text-white"
+                className="absolute -top-4 left-0 whitespace-nowrap px-1 font-mono text-3xs font-bold text-white"
                 style={{ background: peer.user.color }}
               >
                 {editing ? `${peer.user.name} · typing…` : peer.user.name}

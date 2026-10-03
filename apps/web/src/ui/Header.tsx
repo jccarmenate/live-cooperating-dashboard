@@ -72,7 +72,7 @@ export function Header({ session }: { session: BoardSession }) {
           type="button"
           data-testid="comments-toggle"
           aria-pressed={panelOpen}
-          className={`flex items-center gap-1 border-2 border-ink px-2 py-0.5 font-mono text-[11px] font-bold uppercase ${panelOpen ? 'bg-sun' : 'bg-white hover:bg-paper'}`}
+          className={`flex items-center gap-1 border-2 border-ink px-2 py-0.5 pointer-coarse:py-2 font-mono text-[11px] font-bold uppercase ${panelOpen ? 'bg-sun' : 'bg-white hover:bg-paper'}`}
           onClick={() => session.controller.toggleCommentsPanel()}
         >
           {/* Phones show an icon; the words stay for screen readers. */}
@@ -83,7 +83,7 @@ export function Header({ session }: { session: BoardSession }) {
         <button
           type="button"
           data-testid="share-open"
-          className="flex items-center border-2 border-ink bg-cobalt px-2 py-0.5 font-mono text-[11px] font-bold uppercase text-white hover:brightness-110"
+          className="flex items-center border-2 border-ink bg-cobalt px-2 py-0.5 pointer-coarse:py-2 font-mono text-[11px] font-bold uppercase text-white hover:brightness-110"
           onClick={() => setSharing(true)}
         >
           <Share2 aria-hidden className="size-3.5 sm:hidden" />
@@ -96,7 +96,7 @@ export function Header({ session }: { session: BoardSession }) {
               title={u.name}
               role="img"
               aria-label={u.name}
-              className="grid size-7 place-items-center border-2 border-ink font-mono text-[10px] font-bold text-white"
+              className="grid size-7 place-items-center border-2 border-ink font-mono text-2xs font-bold text-white"
               style={{ background: u.color }}
             >
               {initials(u.name)}
@@ -105,7 +105,7 @@ export function Header({ session }: { session: BoardSession }) {
         </div>
         <span
           data-testid="online-count"
-          className="flex items-center gap-1.5 border-2 border-ink px-2 py-0.5 font-mono text-[11px]"
+          className="flex items-center gap-1.5 border-2 border-ink px-2 py-0.5 pointer-coarse:py-2 font-mono text-[11px]"
         >
           <span className="inline-block size-2 bg-flame" aria-hidden />
           {users.length}

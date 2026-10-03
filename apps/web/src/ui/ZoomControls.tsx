@@ -11,7 +11,7 @@ export function ZoomControls({ session }: { session: BoardSession }) {
   const { controller } = session;
   const zoom = useStore(controller.ui, (s) => s.camera.zoom);
   const pointer = useStore(controller.ui, (s) => s.pointer);
-  const step = 'grid size-8 place-items-center hover:bg-sun';
+  const step = 'grid size-ctl place-items-center hover:bg-sun';
   return (
     <div className="absolute bottom-4 left-4 flex items-center gap-3">
       <div className="flex items-center border-2 border-ink bg-white shadow-hard">
@@ -29,7 +29,7 @@ export function ZoomControls({ session }: { session: BoardSession }) {
           type="button"
           data-testid="zoom-reset"
           aria-label="Reset zoom to 100%"
-          className="h-8 min-w-14 border-x-2 border-ink px-2 font-mono text-xs font-bold hover:bg-sun"
+          className="h-ctl min-w-14 border-x-2 border-ink px-2 font-mono text-xs font-bold hover:bg-sun"
           onMouseDown={noFocus}
           onClick={() => controller.resetZoom()}
         >

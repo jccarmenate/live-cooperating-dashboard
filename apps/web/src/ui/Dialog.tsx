@@ -110,7 +110,7 @@ export function ConfirmDialog({
         <button
           type="button"
           data-testid="confirm-cancel"
-          className="border-2 border-ink px-3 py-1 font-mono text-xs uppercase hover:bg-paper"
+          className="border-2 border-ink px-3 py-1 pointer-coarse:py-2 font-mono text-xs uppercase hover:bg-paper"
           onClick={onClose}
         >
           Cancel
@@ -118,7 +118,7 @@ export function ConfirmDialog({
         <button
           type="button"
           data-testid="confirm-ok"
-          className="border-2 border-ink bg-flame px-3 py-1 font-mono text-xs font-bold uppercase text-white"
+          className="border-2 border-ink bg-flame px-3 py-1 pointer-coarse:py-2 font-mono text-xs font-bold uppercase text-white"
           onClick={() => {
             onClose();
             onConfirm();

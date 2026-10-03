@@ -170,6 +170,44 @@ found:
 - **Tests:** unit tests for the pan; a phone e2e scenario that shrinks the layout (as Android
   does) and then only the visual viewport (as iOS does). It fails on the previous code.
 
+## Done: visual polish
+
+- **Control sizes are tokens.** `app/globals.css` defines `--spacing-tool`, `--spacing-ctl`,
+  `--spacing-ctl-sm`, `--spacing-swatch` and `--spacing-row` (used as `size-tool`, `h-ctl`, …),
+  and one `@media (pointer: coarse)` block gives them finger-sized values. With a mouse nothing
+  changes; on a touch screen:
+
+  | Control | Mouse | Touch |
+  |---|---|---|
+  | Toolbar buttons | 36px | 40px |
+  | Page tabs, zoom, calendar header buttons | 32px | 40px |
+  | Undo, redo, new page, format and properties buttons | 28px | 36px |
+  | Colour swatches | 20px | 32px |
+  | Tab row, formula bar | 36px | 44px |
+  | Header buttons (Vote, Comments, Share) | 25px | 37px |
+
+  Text buttons, menu items and dialog fields get more vertical padding on touch screens
+  (`pointer-coarse:py-*`).
+- **Type:** `text-[10px]` and `text-[9px]` became the tokens `text-2xs` and `text-3xs`; on touch
+  screens both are 11px, so no text is smaller than that.
+- **Empty-page hint:** on touch screens it reads "Tap a tool, then the board · Two fingers to pan
+  and zoom · ? for help" instead of listing keys, and on phones and short screens it centres in
+  the room beside the toolbar instead of under it.
+- **Toolbar:** the room it leaves for the zoom controls follows their size. In landscape on a
+  phone it is three rows of four.
+- **Tests:** the phone scenario asserts the touch sizes and the hint (it fails on the previous
+  code); a desktop scenario asserts the mouse sizes and the key hint stay as they were.
+
+Left as they are, on purpose:
+
+- The toolbar stays a fixed column on a phone (58px of 375), and in landscape the header and tab
+  row take 92 of 360px. Collapsing either is a design change, not a fix.
+- Controls stop at 36–40px rather than 44–48px: at 44px the phone toolbar would need two columns
+  in portrait. The 6px gaps bring the pitch to 46px.
+- Sheet rows stay 28px high and calendar chips 18px: both are layout constants shared with the
+  mouse layout.
+- With the larger swatches the properties bar is wider than a phone; it scrolls sideways.
+
 ## Next steps
 
 1. **Real devices:** everything above was checked in Chromium's touch emulation. Check iOS
@@ -177,14 +215,8 @@ found:
    the tap after a fast drag, a sticky edited under the keyboard) and Android Chrome on hardware.
 2. **WebKit:** Playwright's WebKit is not installed here. It is the closest engine to iOS Safari
    that can run in CI: add a WebKit project for the phone spec. It does not replace hardware.
-3. **Polish:**
-   - the empty-page hint lists keys ("S sticky · Space-drag to pan") on phones too, and the
-     toolbar covers part of it;
-   - most buttons are 28–36px and the swatches 20px, under the 44–48px advised for fingers;
-   - much text is 10–11px;
-   - the board toolbar is a fixed 54px column on a phone, and in landscape the header and tab
-     row take 84 of 360px.
-4. **Comment pins at the edge:** a pin anchored within ~40px of the right edge is clipped; pan
+3. **Comment pins at the edge:** a pin anchored within ~40px of the right edge is clipped; pan
    to reach it. A pin could keep itself inside the board.
-5. **Sheet:** a multi-row selection's menu moves only the row that was pressed.
-6. **Tests:** no visual regression tests.
+4. **Sheet:** a multi-row selection's menu moves only the row that was pressed; rows are 28px
+   high on touch screens too.
+5. **Tests:** no visual regression tests.
