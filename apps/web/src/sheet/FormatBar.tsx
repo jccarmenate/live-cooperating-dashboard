@@ -13,12 +13,12 @@ export function FormatBar({ session, ctl }: { session: BoardSession; ctl: SheetC
     anchor ? s.sheet?.cells[cellKey(anchor.row, anchor.col)]?.fmt : undefined,
   );
   const button = (active: boolean) =>
-    `grid size-7 place-items-center border-2 ${active ? 'border-ink bg-sun' : 'border-transparent hover:border-ink'}`;
+    `grid size-ctl-sm place-items-center border-2 ${active ? 'border-ink bg-sun' : 'border-transparent hover:border-ink'}`;
   return (
     <div
       role="toolbar"
       aria-label="Cell format"
-      className="flex h-10 shrink-0 items-center gap-1 border-b-2 border-ink bg-white px-2"
+      className="flex h-10 shrink-0 items-center gap-1 pointer-coarse:h-11 border-b-2 border-ink bg-white px-2 short:border-r-2 short:border-b-0"
     >
       <button
         type="button"
@@ -51,7 +51,7 @@ export function FormatBar({ session, ctl }: { session: BoardSession; ctl: SheetC
         );
       })}
       <span className="mx-1 h-5 w-px bg-ink/20" aria-hidden />
-      <label className="flex items-center gap-1 font-mono text-[10px] uppercase text-ink/60">
+      <label className="flex items-center gap-1 font-mono text-2xs uppercase text-ink/60">
         Format
         <select
           data-testid="sheet-num-format"

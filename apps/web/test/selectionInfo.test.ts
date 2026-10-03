@@ -81,4 +81,10 @@ describe('barPosition', () => {
     });
     expect(barPosition({ x: 950, y: 790, w: 100, h: 100 }, bar, viewport).left).toBe(692);
   });
+
+  it('keeps clear of the toolbar on the left', () => {
+    expect(barPosition({ x: 0, y: 300, w: 100, h: 100 }, bar, viewport, 70).left).toBe(78);
+    // Still inside the viewport on the right when the target is far right.
+    expect(barPosition({ x: 950, y: 300, w: 100, h: 100 }, bar, viewport, 70).left).toBe(692);
+  });
 });

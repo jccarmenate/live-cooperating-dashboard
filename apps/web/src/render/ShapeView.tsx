@@ -58,7 +58,7 @@ function Body({ s, editing, session }: { s: Shape; editing: boolean; session: Bo
               >
                 {s.text}
               </p>
-              <p className="font-mono text-[9px] uppercase tracking-wider opacity-70">
+              <p className="font-mono text-3xs uppercase tracking-wider opacity-70">
                 {initials(s.authorName)} · {timeOf(s.createdAt)}
               </p>
             </div>

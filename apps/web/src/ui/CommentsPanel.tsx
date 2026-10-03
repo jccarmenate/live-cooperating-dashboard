@@ -19,13 +19,15 @@ export function CommentsPanel({ session }: { session: BoardSession }) {
         t !== undefined && t.pageId === page && t.resolved === (tab === 'resolved'),
     );
   const tabClass = (t: 'open' | 'resolved') =>
-    `flex-1 py-1.5 font-mono text-[11px] font-bold uppercase ${tab === t ? 'bg-sun' : 'bg-white hover:bg-paper'}`;
+    `flex-1 py-1.5 pointer-coarse:py-2.5 font-mono text-[11px] font-bold uppercase ${tab === t ? 'bg-sun' : 'bg-white hover:bg-paper'}`;
 
   return (
     <aside
       data-testid="comments-panel"
       aria-label="Comments"
-      className="absolute top-3 right-3 bottom-44 z-10 flex w-72 flex-col border-[3px] border-ink bg-white shadow-hard"
+      // Above the selection's properties bar. Phones and short screens: clear of the toolbar on
+      // the left and the zoom controls below, covering the minimap while open.
+      className="absolute top-3 right-3 bottom-44 z-20 flex w-72 flex-col border-[3px] border-ink bg-white shadow-hard max-sm:left-20 max-sm:w-auto max-sm:bottom-16 short:bottom-16"
     >
       <div className="flex border-b-2 border-ink">
         <button
@@ -63,7 +65,7 @@ export function CommentsPanel({ session }: { session: BoardSession }) {
                   controller.openThread(t.id);
                 }}
               >
-                <p className="font-mono text-[10px] uppercase text-ink/60">
+                <p className="font-mono text-2xs uppercase text-ink/60">
                   {`${first?.author ?? ''} · ${t.entries.length} ${t.entries.length === 1 ? 'message' : 'messages'}`}
                   {point ? '' : ' · (shape deleted)'}
                 </p>

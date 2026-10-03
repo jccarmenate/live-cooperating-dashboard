@@ -73,18 +73,25 @@ const GAP = 12;
 const BELOW_GAP = 36;
 const MARGIN = 8;
 
-/** Where the bar goes (container px): centred above the target, else below, always inside the viewport. */
+/**
+ * Where the bar goes (container px): centred above the target, else below, always inside the
+ * viewport and right of `inset` (the toolbar's right edge), so it never covers the tools.
+ */
 export function barPosition(
   target: Rect,
   bar: { w: number; h: number },
   viewport: { w: number; h: number },
+  inset = 0,
 ): { left: number; top: number } {
   let top = target.y - bar.h - GAP;
   if (top < MARGIN) top = target.y + target.h + BELOW_GAP;
   top = Math.max(MARGIN, Math.min(top, viewport.h - bar.h - MARGIN));
   const left = Math.max(
-    MARGIN,
+    inset + MARGIN,
     Math.min(target.x + target.w / 2 - bar.w / 2, viewport.w - bar.w - MARGIN),
   );
   return { left, top };
 }
+
+/** The widest the bar may be right of `inset` (see barPosition). */
+export const barMaxWidth = (viewportW: number, inset: number) => viewportW - inset - 2 * MARGIN;

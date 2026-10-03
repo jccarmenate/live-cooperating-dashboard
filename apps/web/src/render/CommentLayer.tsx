@@ -1,7 +1,8 @@
-import { type CommentThread, commentPoint, worldToScreen } from '@relay/core';
+import { type CommentThread, commentPoint, type Point, worldToScreen } from '@relay/core';
 import { MessageCircle } from 'lucide-react';
 import { useStore } from 'zustand';
 import type { BoardSession } from '../board/session';
+import { clampBox, threadPlacement } from './popover';
 
 const ago = (ts: number) => {
   const s = Math.max(0, Math.round((Date.now() - ts) / 1000));
@@ -12,18 +13,43 @@ const ago = (ts: number) => {
       : `${Math.floor(s / 3600)}h ago`;
 };
 
-function Thread({ session, thread }: { session: BoardSession; thread: CommentThread }) {
+/** Pin height (h-7) and the gap to its thread. */
+const PIN_H = 28;
+const THREAD_W = 288;
+/** The reply box under the entries (editors only). */
+const REPLY_H = 60;
+
+function Thread({
+  session,
+  thread,
+  place,
+}: {
+  session: BoardSession;
+  thread: CommentThread;
+  /** Offset and width from the pin, which side it opens on and the height it has. */
+  place: { left: number; width: number; above: boolean; room: number };
+}) {
   const { controller } = session;
   const canEdit = useStore(session.conn.clock, (c) => c.role === 'edit');
   return (
     <div
       data-testid="comment-thread"
-      className="absolute top-8 left-0 z-20 w-72 border-2 border-ink bg-white shadow-hard"
+      className="absolute z-20 border-2 border-ink bg-white shadow-hard"
+      style={{
+        left: place.left,
+        width: place.width,
+        ...(place.above ? { bottom: PIN_H + 4 } : { top: PIN_H + 4 }),
+      }}
     >
-      <ul data-scroll-region className="max-h-64 overflow-y-auto">
+      <ul
+        data-scroll-region
+        className="overflow-y-auto"
+        // Up to 16rem, less when the board is short (a landscape phone).
+        style={{ maxHeight: Math.max(48, Math.min(256, place.room - (canEdit ? REPLY_H : 0))) }}
+      >
         {thread.entries.map((e) => (
           <li key={e.id} data-testid="comment-entry" className="border-b border-ink/15 px-3 py-2">
-            <p className="font-mono text-[10px] uppercase text-ink/60">{`${e.author} · ${ago(e.ts)}`}</p>
+            <p className="font-mono text-2xs uppercase text-ink/60">{`${e.author} · ${ago(e.ts)}`}</p>
             <p className="whitespace-pre-wrap break-words text-sm">{e.body}</p>
           </li>
         ))}
@@ -51,7 +77,7 @@ function Thread({ session, thread }: { session: BoardSession; thread: CommentThr
           <button
             type="button"
             data-testid="comment-resolve"
-            className="border-2 border-ink px-2 py-1 font-mono text-[11px] font-bold uppercase hover:bg-sun"
+            className="border-2 border-ink px-2 py-1 pointer-coarse:py-2 font-mono text-[11px] font-bold uppercase hover:bg-sun"
             onClick={() => {
               controller.resolveComment(thread.id, !thread.resolved);
               controller.openThread(null);
@@ -65,6 +91,14 @@ function Thread({ session, thread }: { session: BoardSession; thread: CommentThr
   );
 }
 
+/** Where a pin's thread opens: inside the board, below the pin or above it. */
+function placeThread(p: Point, board: { w: number; h: number } | null) {
+  if (!board) return { left: 0, width: THREAD_W, above: false, room: 400 };
+  const width = Math.min(THREAD_W, board.w - 16);
+  const left = clampBox(p, { w: width, h: 0 }, board).x - p.x;
+  return { left, width, ...threadPlacement(p.y - PIN_H, PIN_H, board.h) };
+}
+
 /** Speech-bubble pins in screen space for open threads; they follow shapes during local drags. */
 export function CommentLayer({ session }: { session: BoardSession }) {
   const { controller } = session;
@@ -75,6 +109,7 @@ export function CommentLayer({ session }: { session: BoardSession }) {
   const overlay = useStore(controller.ui, (s) => s.overlay);
   const camera = useStore(controller.ui, (s) => s.camera);
   const openId = useStore(controller.ui, (s) => s.openThread);
+  const viewport = useStore(controller.ui, (s) => s.viewport);
   const live = overlay ? { ...shapes, ...overlay } : shapes;
 
   return (
@@ -90,8 +125,10 @@ export function CommentLayer({ session }: { session: BoardSession }) {
         return (
           <div
             key={id}
-            className="pointer-events-auto absolute left-0 top-0"
-            style={{ transform: `translate(${p.x}px, ${p.y - 28}px)` }}
+            // An open thread stacks above the minimap, zoom controls and toolbar: the translate
+            // makes this its stacking context, so the z-index goes here.
+            className={`pointer-events-auto absolute left-0 top-0 ${open ? 'z-20' : ''}`}
+            style={{ transform: `translate(${p.x}px, ${p.y - PIN_H}px)` }}
           >
             <button
               type="button"
@@ -105,7 +142,7 @@ export function CommentLayer({ session }: { session: BoardSession }) {
               <MessageCircle size={12} />
               {thread.entries.length}
             </button>
-            {open && <Thread session={session} thread={thread} />}
+            {open && <Thread session={session} thread={thread} place={placeThread(p, viewport)} />}
           </div>
         );
       })}

@@ -4,6 +4,7 @@ import { type ChangeEvent, useCallback, useRef, useState } from 'react';
 import { useStore } from 'zustand';
 import type { BoardSession } from '../board/session';
 import { ContextMenu, type MenuEntry } from '../ui/ContextMenu';
+import { MEDIA, useMediaQuery } from '../ui/responsive';
 import { toast } from '../ui/toasts';
 import type { CalendarController } from './calendarController';
 import { IcsImport, type IcsImportResult } from './IcsImport';
@@ -22,7 +23,7 @@ function download(text: string, title: string) {
 
 /** A header button without a background: one bg class each, so none overrides another. */
 const base =
-  'grid h-8 place-items-center border-2 border-ink px-2 font-mono text-xs uppercase hover:bg-paper';
+  'grid h-ctl place-items-center border-2 border-ink px-2 font-mono text-xs uppercase hover:bg-paper';
 const btn = `${base} bg-white`;
 
 export function CalendarHeader({
@@ -44,6 +45,8 @@ export function CalendarHeader({
   const fileInput = useRef<HTMLInputElement>(null);
   const closeMenu = useCallback(() => setMenu(null), []);
   const closeResult = useCallback(() => setResult(null), []);
+  // Matches the `max-sm:` and `short:` that hide the zone label in the header.
+  const small = useMediaQuery(`${MEDIA.compact}, ${MEDIA.short}`);
 
   const onFile = async (e: ChangeEvent<HTMLInputElement>) => {
     const input = e.target;
@@ -62,6 +65,17 @@ export function CalendarHeader({
   };
 
   const items: MenuEntry[] = [
+    ...(small
+      ? [
+          {
+            label: `Times in ${ctl.zone}`,
+            testId: 'cal-menu-zone',
+            disabled: true,
+            onSelect: () => {},
+          },
+          { separator: true as const },
+        ]
+      : []),
     {
       label: 'Export .ics',
       testId: 'cal-export',
@@ -134,7 +148,11 @@ export function CalendarHeader({
             </span>
           </button>
         )}
-        <span data-testid="cal-zone" className="font-mono text-[11px] text-ink/60">
+        {/* Phones and short screens: in the ⋯ menu instead, so the header keeps to one row. */}
+        <span
+          data-testid="cal-zone"
+          className="font-mono text-[11px] text-ink/60 max-sm:hidden short:hidden"
+        >
           Times in {ctl.zone}
         </span>
         <button

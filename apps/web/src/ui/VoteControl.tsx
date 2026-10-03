@@ -4,7 +4,8 @@ import { useStore } from 'zustand';
 import type { BoardSession } from '../board/session';
 import { cachedTallies, useServerNow } from '../render/voting';
 
-const pill = 'border-2 border-ink px-2 py-0.5 font-mono text-[11px] font-bold uppercase';
+const pill =
+  'border-2 border-ink px-2 py-0.5 pointer-coarse:py-2 font-mono text-[11px] font-bold uppercase';
 
 export function VoteControl({ session }: { session: BoardSession }) {
   const { controller } = session;
@@ -30,7 +31,9 @@ export function VoteControl({ session }: { session: BoardSession }) {
     return (
       <div className="flex items-center gap-1.5">
         <span data-testid="vote-status" className={`${pill} bg-sun`}>
-          {`VOTE OPEN · ${mm}:${ss}${remaining}`}
+          {/* Phones show the timer and votes left; the words stay for screen readers. */}
+          <span className="max-sm:sr-only">VOTE OPEN · </span>
+          {`${mm}:${ss}${remaining}`}
         </span>
         {canEdit && (
           <button

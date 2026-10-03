@@ -4,7 +4,7 @@ import { type ReactNode, useLayoutEffect, useRef, useState } from 'react';
 import { useStore } from 'zustand';
 import type { BoardSession } from '../board/session';
 import { FONT_CLASS } from '../render/typography';
-import { barPosition, selectionInfo } from './selectionInfo';
+import { barMaxWidth, barPosition, selectionInfo } from './selectionInfo';
 import {
   FILL_SWATCHES,
   STROKE_SWATCHES,
@@ -39,7 +39,7 @@ function Toggle({
       aria-pressed={pressed}
       disabled={disabled}
       onClick={onClick}
-      className={`grid h-7 min-w-7 place-items-center border-2 px-1 font-mono text-[11px] font-bold ${pressed ? 'border-ink bg-sun' : 'border-transparent hover:border-ink'} disabled:cursor-not-allowed disabled:opacity-40 ${className}`}
+      className={`grid h-ctl-sm min-w-ctl-sm place-items-center border-2 px-1 font-mono text-[11px] font-bold ${pressed ? 'border-ink bg-sun' : 'border-transparent hover:border-ink'} disabled:cursor-not-allowed disabled:opacity-40 ${className}`}
     >
       {children}
     </button>
@@ -61,7 +61,7 @@ function Swatches({
 }) {
   return (
     <fieldset aria-label={kind === 'fill' ? 'Fill' : 'Stroke'} className="flex items-center gap-1">
-      <span className="font-mono text-[9px] uppercase text-ink/50">{kind}</span>
+      <span className="font-mono text-3xs uppercase text-ink/50">{kind}</span>
       {swatches.map((s) => (
         <button
           key={s.name}
@@ -72,7 +72,7 @@ function Swatches({
           aria-pressed={sameColor(current, s.color)}
           disabled={disabled}
           onClick={() => onPick(s.color)}
-          className={`size-5 border-2 ${sameColor(current, s.color) ? 'border-cobalt outline-2 outline-cobalt' : 'border-ink'} disabled:cursor-not-allowed disabled:opacity-40`}
+          className={`size-swatch shrink-0 border-2 ${sameColor(current, s.color) ? 'border-cobalt outline-2 outline-cobalt' : 'border-ink'} disabled:cursor-not-allowed disabled:opacity-40`}
           style={{ background: swatchBackground(s.color) }}
         />
       ))}
@@ -94,14 +94,22 @@ export function PropertiesBar({ session }: { session: BoardSession }) {
   const canEdit = useStore(session.conn.clock, (c) => c.role === 'edit');
   const ref = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ w: 0, h: 0 });
+  // The toolbar's right edge (container px): the bar stays right of it, so the tools stay
+  // reachable on a phone, where the bar would otherwise cover them.
+  const [inset, setInset] = useState(0);
 
-  // Measure after every render: the content (and so the width) depends on the selection.
+  // Measure after every render: the content (and so the width) depends on the selection, and
+  // the toolbar grows a column on short screens.
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return;
     const w = el.offsetWidth;
     const h = el.offsetHeight;
     setSize((s) => (s.w === w && s.h === h ? s : { w, h }));
+    const tools = el.parentElement?.querySelector('[data-toolbar]');
+    const box = el.parentElement?.getBoundingClientRect();
+    const right = tools && box ? Math.round(tools.getBoundingClientRect().right - box.left) : 0;
+    setInset(right);
   });
 
   const info = selectionInfo(selection, shapes, connectors);
@@ -113,7 +121,7 @@ export function PropertiesBar({ session }: { session: BoardSession }) {
     w: info.bounds.w * camera.zoom,
     h: info.bounds.h * camera.zoom,
   };
-  const pos = barPosition(target, size, viewport);
+  const pos = barPosition(target, size, viewport, inset);
   const locked = info.allLocked;
 
   return (
@@ -122,8 +130,10 @@ export function PropertiesBar({ session }: { session: BoardSession }) {
       role="toolbar"
       aria-label="Selection properties"
       data-testid="props-bar"
-      className="absolute z-20 flex items-center gap-2 border-[3px] border-ink bg-white px-2 py-1 shadow-hard"
-      style={{ left: pos.left, top: pos.top }}
+      // Never wider than the room right of the toolbar; on a phone the swatches and toggles
+      // scroll sideways instead of running off-screen.
+      className="absolute z-20 flex items-center gap-2 overflow-x-auto border-[3px] border-ink bg-white px-2 py-1 shadow-hard"
+      style={{ left: pos.left, top: pos.top, maxWidth: barMaxWidth(viewport.w, inset) }}
     >
       {info.shapes.length > 0 && (
         <>

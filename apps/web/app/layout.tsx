@@ -1,6 +1,7 @@
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import { Archivo_Black, JetBrains_Mono, Space_Grotesk } from 'next/font/google';
 import type { ReactNode } from 'react';
+import { IosInputZoom } from '@/ui/IosInputZoom';
 import './globals.css';
 
 const display = Archivo_Black({
@@ -16,10 +17,23 @@ export const metadata: Metadata = {
   description: 'A live multiplayer whiteboard where cursors, shapes and edits sync instantly.',
 };
 
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  // Draw under notches; the board pads itself back with the `safe-area` utility.
+  viewportFit: 'cover',
+  // The on-screen keyboard shrinks the layout, so fixed bars and the sheet stay above it.
+  interactiveWidget: 'resizes-content',
+  themeColor: '#f4f1ea',
+};
+
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en" className={`${display.variable} ${sans.variable} ${mono.variable}`}>
-      <body className="bg-paper font-sans text-ink antialiased">{children}</body>
+      <body className="bg-paper font-sans text-ink antialiased">
+        <IosInputZoom />
+        {children}
+      </body>
     </html>
   );
 }

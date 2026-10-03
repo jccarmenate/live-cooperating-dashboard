@@ -1,3 +1,14 @@
+/** Touch gestures on the board, listed first in the help dialog on touch screens. */
+export const TOUCH_GROUP = {
+  title: 'Touch',
+  items: [
+    ['Two fingers', 'Pan and pinch to zoom'],
+    ['Double-tap', 'Edit text'],
+    ['Press and hold', 'Menu'],
+    ['Add to selection', 'Toolbar toggle: taps add to the selection'],
+  ],
+} as const satisfies { title: string; items: readonly (readonly [string, string])[] };
+
 /** Every board shortcut, grouped, for the help dialog. Keep in sync with shortcuts.ts. */
 export const SHORTCUT_GROUPS = [
   {

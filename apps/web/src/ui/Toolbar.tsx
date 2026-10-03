@@ -9,6 +9,7 @@ import {
   Network,
   Slash,
   Square,
+  SquareDashedMousePointer,
   StickyNote,
   Type,
 } from 'lucide-react';
@@ -44,7 +45,7 @@ const AFTER_SHAPES: readonly Tool[] = [
 ];
 
 const buttonClass = (pressed: boolean) =>
-  `grid size-9 place-items-center border-2 border-ink ${pressed ? 'bg-sun' : 'bg-white hover:bg-paper'}`;
+  `grid size-tool place-items-center border-2 border-ink ${pressed ? 'bg-sun' : 'bg-white hover:bg-paper'}`;
 
 function ToolButton({ tool, active, onPick }: { tool: Tool; active: boolean; onPick(): void }) {
   const { id, label, key, Icon } = tool;
@@ -112,7 +113,7 @@ function ShapesButton({ session, active }: { session: BoardSession; active: Tool
         <fieldset
           aria-label="Shapes"
           data-testid="shapes-flyout"
-          className="absolute left-full top-0 ml-2 flex gap-1.5 border-[3px] border-ink bg-white p-1.5 shadow-hard"
+          className="absolute left-full top-0 z-30 ml-2 flex gap-1.5 border-[3px] border-ink bg-white p-1.5 shadow-hard"
         >
           {SHAPES.map((tool) => (
             <ToolButton
@@ -203,12 +204,17 @@ function GraphButton({ session, canEdit }: { session: BoardSession; canEdit: boo
 
 export function Toolbar({ session }: { session: BoardSession }) {
   const active = useStore(session.controller.ui, (s) => s.tool.tool);
+  const multiSelect = useStore(session.controller.ui, (s) => s.multiSelect);
   const role = useStore(session.conn.clock, (c) => c.role);
   const pick = (id: ToolId) => session.controller.dispatch({ type: 'setTool', tool: id });
   return (
     <nav
       aria-label="Tools"
-      className="absolute left-3 top-3 flex flex-col gap-1.5 border-[3px] border-ink bg-white p-1.5 shadow-hard"
+      // The properties bar keeps right of this.
+      data-toolbar
+      // One column while it fits; on short screens (landscape phones) the buttons wrap into a
+      // second column instead of running under the zoom controls and off the bottom.
+      className="absolute left-3 top-3 grid max-h-[calc(100%-var(--spacing-ctl)-3rem)] grid-flow-col grid-rows-[repeat(auto-fit,var(--spacing-tool))] gap-1.5 border-[3px] border-ink bg-white p-1.5 shadow-hard"
     >
       {BEFORE_SHAPES.map((tool) => (
         <ToolButton
@@ -218,6 +224,18 @@ export function Toolbar({ session }: { session: BoardSession }) {
           onPick={() => pick(tool.id)}
         />
       ))}
+      {/* Touch screens only: the stand-in for Shift+click, which a finger cannot do. */}
+      <button
+        type="button"
+        data-testid="multi-select"
+        aria-label="Add to selection"
+        aria-pressed={multiSelect}
+        title="Add to selection"
+        onClick={() => session.controller.setMultiSelect(!multiSelect)}
+        className={`hidden pointer-coarse:grid ${buttonClass(multiSelect)}`}
+      >
+        <SquareDashedMousePointer className="size-4" />
+      </button>
       <ShapesButton session={session} active={active} />
       {AFTER_SHAPES.filter((t) => t.id !== 'comment' || role === 'edit').map((tool) => (
         <ToolButton
@@ -228,14 +246,14 @@ export function Toolbar({ session }: { session: BoardSession }) {
         />
       ))}
       <GraphButton session={session} canEdit={role === 'edit'} />
-      <span className="my-0.5 h-px bg-ink/20" aria-hidden />
       <button
         type="button"
         data-testid="help-button"
         aria-label="Keyboard shortcuts (?)"
         title="Keyboard shortcuts (?)"
         onClick={() => session.controller.setHelp(true)}
-        className="grid size-9 place-items-center border-2 border-ink bg-white font-display text-sm hover:bg-paper"
+        // The divider above it lives in the grid gap, so it takes no row of its own.
+        className="relative grid size-tool place-items-center border-2 border-ink bg-white font-display text-sm before:absolute before:-inset-x-0.5 before:-top-[5px] before:h-px before:bg-ink/20 hover:bg-paper"
       >
         ?
       </button>

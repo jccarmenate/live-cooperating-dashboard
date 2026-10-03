@@ -21,7 +21,7 @@ export function FormulaBar({
   const stored = sheet && anchor ? (sheet.cells[cellKey(anchor.row, anchor.col)]?.src ?? '') : '';
   const shown = editing ? editing.draft : sheet ? toDisplay(stored, gridOf(sheet)) : '';
   return (
-    <div className="flex h-9 shrink-0 items-center gap-2 border-b-2 border-ink bg-white px-2">
+    <div className="flex h-row shrink-0 items-center gap-2 border-b-2 border-ink bg-white px-2 short:h-auto short:min-w-0 short:flex-1 short:border-b-0">
       <span data-testid="sheet-address" className="w-14 shrink-0 font-mono text-xs font-bold">
         {address}
       </span>

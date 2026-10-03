@@ -77,6 +77,8 @@ export interface SheetController {
   copy(): string | null;
   cut(): string | null;
   paste(text: string): boolean;
+  /** The last text copied or cut from this sheet (the fallback when the clipboard is unreadable). */
+  lastCopied(): string | null;
   fillDown(): void;
   fillTo(target: CellPos): void;
   destroy(): void;
@@ -461,6 +463,7 @@ export function createSheetController(opts: {
       if (text !== null && opts.canEdit()) clear();
       return text;
     },
+    lastCopied: () => clip?.text ?? null,
     paste(text) {
       const s = snap();
       const r = range();

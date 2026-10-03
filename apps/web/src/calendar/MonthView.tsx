@@ -12,6 +12,7 @@ import {
   timeLabel,
   WEEKDAY_SHORT,
 } from './layout';
+import { useCalendarSwipe } from './useCalendarSwipe';
 import { useEventDrag } from './useEventDrag';
 import { useNow } from './useNow';
 
@@ -42,6 +43,8 @@ export function MonthView({
     [occurrences, monthStart, ctl.zone],
   );
   const drag = useEventDrag(ctl, canEdit);
+  const grid = useRef<HTMLDivElement>(null);
+  useCalendarSwipe(grid, ctl);
   const isSel = (o: Occurrence) => selected?.eventId === o.eventId && selected.key === o.key;
   const eventProps = (o: Occurrence) => ({
     'data-testid': 'cal-event',
@@ -54,7 +57,7 @@ export function MonthView({
     onPointerUp: drag.onPointerUp,
     onPointerCancel: drag.onPointerCancel,
     onLostPointerCapture: drag.onLostPointerCapture,
-    onDoubleClick: () => ctl.openEditor({ eventId: o.eventId, key: o.key }),
+    onDoubleClick: drag.onDoubleClick(o),
   });
   const popIndex = openDate ? cells.findIndex((c) => c.date === openDate) : -1;
   /** Every occurrence on a day, including those hidden behind "+N more". */
@@ -76,7 +79,7 @@ export function MonthView({
           </div>
         ))}
       </div>
-      <div className="grid min-h-0 flex-1 grid-rows-6">
+      <div ref={grid} className="grid min-h-0 flex-1 grid-rows-6 pointer-coarse:touch-none">
         {[0, 1, 2, 3, 4, 5].map((row) => (
           <div key={row} className="relative grid grid-cols-7 border-b border-ink/20">
             {cells.slice(row * 7, row * 7 + 7).map((cell, col) => {

@@ -80,8 +80,11 @@ function SheetBody({
 
   return (
     <div data-testid="sheet-page" className="flex h-full min-h-0 flex-col">
-      {canEdit && <FormatBar session={session} ctl={ctl} />}
-      <FormulaBar session={session} ctl={ctl} canEdit={canEdit} />
+      {/* Short screens (landscape phones): the two bars share one row to leave room for cells. */}
+      <div className="flex flex-col short:flex-row short:border-b-2 short:border-ink">
+        {canEdit && <FormatBar session={session} ctl={ctl} />}
+        <FormulaBar session={session} ctl={ctl} canEdit={canEdit} />
+      </div>
       <SheetGrid
         session={session}
         ctl={ctl}

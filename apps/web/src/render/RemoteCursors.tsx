@@ -31,7 +31,7 @@ export function RemoteCursors({ session }: { session: BoardSession }) {
                 />
               </svg>
               <span
-                className="ml-3 inline-block border-2 border-ink px-1.5 font-mono text-[10px] font-bold text-white"
+                className="ml-3 inline-block border-2 border-ink px-1.5 font-mono text-2xs font-bold text-white"
                 style={{ background: peer.user.color }}
               >
                 {peer.user.name}

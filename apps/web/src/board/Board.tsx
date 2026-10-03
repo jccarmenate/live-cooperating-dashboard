@@ -38,7 +38,7 @@ function BoardView({ session }: { session: BoardSession }) {
   const hasPages = useStore(session.doc, (d) => d.pages.length > 0);
   const canEdit = useStore(session.conn.clock, (c) => c.role === 'edit');
   return (
-    <div className="fixed inset-0 flex flex-col bg-paper">
+    <div className="safe-area fixed inset-0 flex flex-col bg-paper">
       <Header session={session} />
       <PageTabs session={session} />
       {type === 'board' ? (
@@ -91,7 +91,7 @@ function BoardView({ session }: { session: BoardSession }) {
               {canEdit && (
                 <button
                   type="button"
-                  className="border-2 border-ink bg-white px-3 py-1.5 font-mono text-xs uppercase hover:bg-sun"
+                  className="border-2 border-ink bg-white px-3 py-1.5 pointer-coarse:py-2.5 font-mono text-xs uppercase hover:bg-sun"
                   onClick={() => session.setPage(session.controller.createPage('board'))}
                 >
                   New board

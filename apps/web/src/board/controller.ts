@@ -128,6 +128,11 @@ export interface BoardUiState {
   synced: boolean;
   /** The sticky whose "Add to calendar" dialog is open. */
   addToCalendar: string | null;
+  /** Touch stand-in for Shift: presses add to (or toggle in) the selection. */
+  multiSelect: boolean;
+  /** Whether this user has a step to undo or redo (the undo and redo buttons). */
+  canUndo: boolean;
+  canRedo: boolean;
 }
 
 export interface BoardController {
@@ -232,6 +237,7 @@ export interface BoardController {
   /** Fits the active page's content into the viewport. */
   zoomToFit(): void;
   setHelp(open: boolean): void;
+  setMultiSelect(on: boolean): void;
   /** The toolbar's Graph menu. */
   setGraphMenu(open: boolean): void;
   /** The New graph dialog (opening it closes the menu). */
@@ -310,8 +316,17 @@ export function createBoardController(opts: {
     ...noGraphResult(),
     synced: false,
     addToCalendar: null,
+    multiSelect: false,
+    canUndo: false,
+    canRedo: false,
   }));
   const undoStack = createUndo(opts.doc, { captureTimeout: UNDO_CAPTURE_TIMEOUT });
+  const stopUndoWatch = undoStack.onChange(() => {
+    const canUndo = undoStack.canUndo();
+    const canRedo = undoStack.canRedo();
+    const s = ui.getState();
+    if (s.canUndo !== canUndo || s.canRedo !== canRedo) ui.setState({ canUndo, canRedo });
+  });
 
   const commit = (command: Command) => applyCommand(opts.doc, command, LOCAL_ORIGIN);
   const throttledCommit = throttle(commit, 50);
@@ -896,6 +911,9 @@ export function createBoardController(opts: {
     setHelp(open) {
       ui.setState({ help: open });
     },
+    setMultiSelect(on) {
+      ui.setState({ multiSelect: on });
+    },
     setGraphMenu(open) {
       ui.setState({ graphMenu: open });
     },
@@ -983,6 +1001,7 @@ export function createBoardController(opts: {
     destroy() {
       throttledCommit.cancel();
       unsubscribe();
+      stopUndoWatch();
       undoStack.destroy();
     },
   };
