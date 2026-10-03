@@ -1,3 +1,4 @@
+import * as encoding from 'lib0/encoding';
 import { describe, expect, it } from 'vitest';
 import { Awareness, encodeAwarenessUpdate as yEncode } from 'y-protocols/awareness';
 import * as Y from 'yjs';
@@ -51,6 +52,93 @@ describe('awareness codec', () => {
     expect(readAwarenessMessage(Uint8Array.of(...good, 0))).toBeNull();
     expect(readAwarenessMessage(Uint8Array.of(0, 0))).toBeNull();
     expect(readAwarenessMessage(new Uint8Array())).toBeNull();
+  });
+
+  it('rejects a client id or clock that is not a uint32', { timeout: 2000 }, async () => {
+    // Helper: build an awareness update with manually crafted varints
+    const buildUpdate = (clientIdBytes: Uint8Array, clockBytes: Uint8Array): Uint8Array => {
+      const stateStr = JSON.stringify(presence('Test'));
+      // Manually construct: count (1 byte), clientId bytes, clock bytes, state varint + string
+      const stateEncoder = encoding.createEncoder();
+      encoding.writeVarString(stateEncoder, stateStr);
+      const stateBytes = encoding.toUint8Array(stateEncoder);
+
+      const countEncoder = encoding.createEncoder();
+      encoding.writeVarUint(countEncoder, 1);
+      const countBytes = encoding.toUint8Array(countEncoder);
+
+      return new Uint8Array([...countBytes, ...clientIdBytes, ...clockBytes, ...stateBytes]);
+    };
+
+    // Craft varints that decode to Infinity, NaN, huge non-integers, or out-of-range
+    // 147 bytes of 0x80 followed by 0x01 decodes to Infinity
+    const infinityBytes = Uint8Array.from([...Array(147).fill(0x80), 0x01]);
+    // 147 bytes of 0x80 followed by 0x00 decodes to NaN
+    const nanBytes = Uint8Array.from([...Array(147).fill(0x80), 0x00]);
+    // 146 bytes of 0x80 followed by 0x01 decodes to ~4.49e307 (huge non-integer)
+    const hugeBytes = Uint8Array.from([...Array(146).fill(0x80), 0x01]);
+    // 0x1_0000_0000 (4294967296) is just over uint32 max
+    const outOfRangeEncoder = encoding.createEncoder();
+    encoding.writeVarUint(outOfRangeEncoder, 0x1_0000_0000);
+    const outOfRangeBytes = encoding.toUint8Array(outOfRangeEncoder);
+
+    const validClockBytes = (() => {
+      const enc = encoding.createEncoder();
+      encoding.writeVarUint(enc, 5);
+      return encoding.toUint8Array(enc);
+    })();
+    const validClientIdBytes = (() => {
+      const enc = encoding.createEncoder();
+      encoding.writeVarUint(enc, 123);
+      return encoding.toUint8Array(enc);
+    })();
+
+    // Test: clientId = Infinity
+    expect(
+      readAwarenessMessage(wrapAwareness(buildUpdate(infinityBytes, validClockBytes))),
+    ).toBeNull();
+
+    // Test: clientId = NaN
+    expect(readAwarenessMessage(wrapAwareness(buildUpdate(nanBytes, validClockBytes)))).toBeNull();
+
+    // Test: clientId = huge non-integer
+    expect(readAwarenessMessage(wrapAwareness(buildUpdate(hugeBytes, validClockBytes)))).toBeNull();
+
+    // Test: clientId = out of range (0x1_0000_0000)
+    expect(
+      readAwarenessMessage(wrapAwareness(buildUpdate(outOfRangeBytes, validClockBytes))),
+    ).toBeNull();
+
+    // Test: clock = Infinity
+    expect(
+      readAwarenessMessage(wrapAwareness(buildUpdate(validClientIdBytes, infinityBytes))),
+    ).toBeNull();
+
+    // Test: clock = NaN
+    expect(
+      readAwarenessMessage(wrapAwareness(buildUpdate(validClientIdBytes, nanBytes))),
+    ).toBeNull();
+
+    // Test: clock = huge non-integer
+    expect(
+      readAwarenessMessage(wrapAwareness(buildUpdate(validClientIdBytes, hugeBytes))),
+    ).toBeNull();
+
+    // Test: clock = out of range
+    expect(
+      readAwarenessMessage(wrapAwareness(buildUpdate(validClientIdBytes, outOfRangeBytes))),
+    ).toBeNull();
+  });
+
+  it('accepts the largest uint32 client id and clock', () => {
+    const entries = [
+      {
+        clientId: 0xffffffff,
+        clock: 0xffffffff,
+        state: JSON.stringify(presence('Max')),
+      },
+    ];
+    expect(readAwarenessMessage(wrapAwareness(encodeAwarenessUpdate(entries)))).toEqual(entries);
   });
 });
 

@@ -5,7 +5,17 @@ import * as encoding from 'lib0/encoding';
 /** Yjs awareness protocol message type byte. */
 const MESSAGE_AWARENESS = 1;
 
-/** One client's state in an awareness update. `state` is JSON text; `'null'` removes the state. */
+/**
+ * Maximum value for Yjs client id and awareness clock (uint32).
+ * lib0's readVarUint can return Infinity, NaN, or non-integers for over-long varints; encoding such
+ * values back never terminates.
+ */
+const MAX_UINT32 = 0xffffffff;
+
+/**
+ * One client's state in an awareness update. `state` is JSON text; `'null'` removes the state.
+ * clientId and clock are guaranteed to be integers in range [0, 0xffffffff] (uint32).
+ */
 export interface AwarenessEntry {
   clientId: number;
   clock: number;
@@ -19,6 +29,17 @@ function readEntries(update: Uint8Array): AwarenessEntry[] | null {
   for (let i = 0; i < count; i++) {
     const clientId = decoding.readVarUint(decoder);
     const clock = decoding.readVarUint(decoder);
+    // Validate that clientId and clock are integers in range [0, MAX_UINT32]
+    if (
+      !Number.isInteger(clientId) ||
+      clientId < 0 ||
+      clientId > MAX_UINT32 ||
+      !Number.isInteger(clock) ||
+      clock < 0 ||
+      clock > MAX_UINT32
+    ) {
+      return null;
+    }
     const state = decoding.readVarString(decoder);
     entries.push({ clientId, clock, state });
   }
