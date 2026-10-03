@@ -4,6 +4,7 @@ import YProvider from 'y-partyserver/provider';
 import * as Y from 'yjs';
 import { createStore, type StoreApi } from 'zustand/vanilla';
 import { type ClockState, nextClock, TIME_REFRESH_MS } from './clock';
+import { sendOnlyOwnAwareness } from './ownAwareness';
 
 export type ConnStatus = 'connecting' | 'online' | 'offline' | 'unauthorized';
 
@@ -28,6 +29,7 @@ export function connectRoom(opts: {
     party: 'room',
     params: opts.key ? { key: opts.key } : {},
   });
+  sendOnlyOwnAwareness(provider);
   const status = createStore<{ status: ConnStatus }>(() => ({ status: 'connecting' }));
 
   provider.on('status', ({ status: s }: { status: string }) => {
