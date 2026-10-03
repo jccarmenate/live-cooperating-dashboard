@@ -306,28 +306,52 @@ geometry is derived from the shapes they attach to.
 ```
 
 Awareness updates are throttled to 50 ms (≈20 messages/s per active user).
-Inactive clients are dropped by the standard awareness timeout. There is no
+A client's state is removed when its connection closes. There is no
 separate "typing" field: shapes are created on click, so a peer's `editing`
 id is enough to show a "Name · typing…" tag on the shape being edited.
 Untrusted `viewport` values are accepted only when finite with a positive,
 bounded size (≤ 1e6 world units per side).
+
+Bounds (F5a): `selection` carries at most 100 ids (the client publishes the
+first 100 and the validator drops the rest), and every id in `selection`,
+`editing`, `page` and `calEvent` is at most 64 characters. `parsePresence` in
+`packages/core/presence` is the only validator. The server runs it on every
+incoming state before relaying it, and the client runs it again on every
+state it renders (see Protocol Hardening). A new awareness field must be
+added to `parsePresence` first, or the server strips it.
 
 ## Client
 
 ### Sync Layer (`apps/web/src/sync`)
 
 - `YProvider` from `y-partyserver/provider` connects to
-  `/parties/room/<roomId>` with the capability key as a query parameter.
+  `/parties/room/<roomId>` with two query parameters: the capability key and
+  `sid`, a random 128-bit session id made once per tab and kept in memory.
 - `y-indexeddb` persists the doc locally for instant load and offline edits.
 - Connection status (`connecting` / `online` / `offline · N pending`) is
-  surfaced in the header.
+  surfaced in the header. Four more statuses are terminal, meaning the
+  provider is disconnected and does not retry by itself: `unauthorized`,
+  `crowded`, `throttled` and `too-large` (see Protocol Hardening).
+- The provider's built-in handler re-sends every awareness change it sees,
+  including peers' changes. Relay replaces it with a handler that sends only
+  changes to the local client id.
 - Custom messages from the server (y-partyserver's `__YPS:` channel) carry
-  JSON: `{ type: 'hello', role, now, viewKey? }` on every connect (`viewKey`
-  only for the `edit` role, so editors can share a read-only link) and
-  `{ type: 'time', now }` in reply to the client's `{ type: 'time?' }`, sent
-  every 5 minutes. The client keeps `offset = now − Date.now()` at receipt
-  (error ≤ one-way latency) and its `role` (`edit` | `view`) in the
-  connection's `clock` store; unknown or malformed messages are ignored.
+  JSON, each with the server time `now`:
+  - `{ type: 'hello', role, now, full, viewKey? }` on every connect. `viewKey`
+    is sent only to the `edit` role, so editors can share a read-only link.
+    `full` says whether the board is over its size cap.
+  - `{ type: 'time', now }` in reply to the client's `{ type: 'time?' }`, sent
+    every 5 minutes.
+  - `{ type: 'room', full, now }` to everyone when the board becomes full or
+    stops being full.
+  - `{ type: 'rejected', now }` to a connection whose change the server
+    refused because the board was full.
+- The connection's `clock` store keeps `offset = now − Date.now()` at receipt
+  (error ≤ one-way latency), the `role` (`edit` | `view`), `full` and
+  `unsaved` (set by `rejected`). Unknown or malformed messages are ignored.
+- One selector, `capability(clock)`, returns `edit`, `delete-only` (an editor
+  on a full board) or `view`. Components and controllers read it instead of
+  comparing `role` themselves.
 
 ### Commands and Undo
 
@@ -1143,7 +1167,7 @@ separate pan gesture, so the FSM stays about document edits.
 | Route | Purpose |
 |---|---|
 | `WS /parties/room/:roomId` | Room Durable Object (`YServer` subclass) |
-| `POST /api/rooms` | Create a room → `{ roomId, editKey, viewKey }` |
+| `POST /api/rooms` | Create a room → `{ roomId, editKey, viewKey }`; `429` with `Retry-After` over the per-IP limit |
 | `POST /api/rooms/:roomId/ai/cluster` | AI proposal (requires edit key) |
 
 ### Capability Links
@@ -1179,18 +1203,101 @@ snapshot row per room; update-log compaction is unnecessary at this scale.
 
 | Limit | Value |
 |---|---|
-| Document size | 1 MB, enforced on arrival (running estimate of accepted updates, re-measured exactly when the estimate crosses the limit); snapshots over 1.9 MB are never written |
-| Message size | 256 KB |
-| Awareness frame | 8 KB, at most 2 awareness client ids per connection |
+| Document size | Full above 1 MB, editable again at or below 900 KB (see Protocol Hardening); snapshots over 1.9 MB are never written |
+| Message size | 256 KB; a larger message closes the socket (1009) |
+| Awareness frame | 8 KB (a larger frame is dropped), at most 2 awareness client ids per connection |
 | Per-connection rate | Token bucket, 60 messages/s, burst 120; exceeding it closes the socket (4429) so the reconnect resyncs |
-| Connections per room | 25 |
-| `POST /api/rooms` | Per-IP rate limit |
+| Connections per room | 25; one more is closed with 4503 |
+| `POST /api/rooms` | 10 per minute per IP |
 | AI requests | Per-room daily cap plus a global daily cap |
+
+### Protocol Hardening (F5a)
+
+`Room.onMessage` inspects every frame before `y-partyserver` handles it. The
+rules are pure functions in `apps/sync-server/src`, tested without a socket.
+
+**Why a limit exists.** The room is stored as one SQLite row and Cloudflare
+caps a row at 2 MB, so a larger document cannot be saved. Each save re-encodes
+the whole document inside the free plan's CPU budget, and everyone who opens
+the board downloads all of it. 1 MB keeps a safety margin under the row cap.
+
+**Awareness.** The server decodes each awareness frame and handles its
+entries one by one:
+
+- An awareness client id belongs to the connection that first claimed it.
+  Ownership is kept in the connection's state, so it survives hibernation.
+  An entry for an id that another connection owns is dropped. This is not an
+  error: clients older than F5a echo their peers' states.
+- A connection may own at most 2 ids. Claiming a third closes it (4429).
+- A removal (`null` state) is accepted only for an id the connection owns.
+- Any other state is parsed as JSON and passed through `parsePresence`. A
+  state that fails is dropped. A state that passes is re-encoded from the
+  parsed value, so peers never receive a field the validator does not know.
+- The accepted entries are applied and relayed as one frame. With no accepted
+  entry, nothing is applied or relayed.
+- A frame over 8 KB is dropped. A frame that does not decode closes the
+  socket (4400).
+
+**Sessions.** When a connection arrives with a `sid` that another connection
+in the room already uses, the older connection is closed (4409) and its
+awareness ids move to the new one. One tab has one provider and one socket,
+so a second socket with the same `sid` means the first is dead. This runs
+before the capacity check, so a reconnecting user is never locked out by
+their own stale socket. The `sid` goes only to the server and is never
+relayed, so a peer cannot use it to take over someone's ids. A connection
+without a valid `sid` is accepted but cannot take over anything.
+
+**Document size.** The size estimate is the last exact size plus the bytes of
+every update the document emits. Yjs emits only what was new, so a resend
+adds nothing. The exact size is measured when the estimate crosses 1 MB and
+on every save.
+
+- The board becomes full when the exact size is over 1 MB.
+- It stops being full when a save measures 900 KB or less. The gap keeps the
+  board from switching back and forth. The full flag lives in memory, so a
+  room that reloads between the two sizes starts editable.
+- On each change the server sends `room` to everyone.
+
+**Full, but deletable.** While the board is full the server still accepts a
+document update from an editor when it is a pure deletion: it adds no
+structs, and every range in its delete set is inside what the server already
+has. Any other update is dropped, and the server sends `rejected` to that
+connection once.
+
+On the client, `allowedWhenFull(command)` in `packages/core/commands` names
+the commands that produce pure deletions: `DeleteShapes`, `DeleteRows`,
+`DeleteCols`, `DeleteEvent`, and a `SetCells` that only clears cells.
+`DeletePage` is not one of them, because it writes a tombstone. In
+`delete-only` capability:
+
+- controllers apply only those commands;
+- undo and redo are off;
+- the UI hides everything that creates or edits, as it does for viewers, and
+  keeps the delete actions;
+- a fixed notice reads "This board is full — delete something to keep
+  editing".
+
+**Closes and refusals on the client.**
+
+| Event | Client behaviour |
+|---|---|
+| 1009, message too large | Stop reconnecting (status `too-large`): the provider would send the same change again. Dialog "Some changes couldn't be saved" with **Reload board**, which clears the room's IndexedDB copy and reloads the page |
+| `rejected` | Set `unsaved` and show the same dialog. The connection stays up |
+| 4503, too many people | Stop reconnecting (status `crowded`). Dialog "This board has too many people right now" with **Try again** |
+| 4429, rate limited | Wait 5 s, then reconnect. The third 4429 within a minute stops (status `throttled`) with **Try again** |
+| 4401, bad key | Unchanged: status `unauthorized`, "This link is invalid" |
+| 4400, 4409, anything else | The provider's normal reconnect |
+
+**Creating rooms.** `POST /api/rooms` goes through a Workers rate limiting
+binding keyed by `CF-Connecting-IP`: 10 requests per 60 s. Over the limit it
+answers `429` with `Retry-After: 60` and the CORS headers, and the landing
+page shows "Too many new boards. Try again in a minute." Miniflare implements
+the binding, so the limit is tested locally.
 
 ### Server Time
 
-On connect the DO sends `{ type: 'hello', role, now, viewKey? }` (the view
-key is included for editors only) through
+On connect the DO sends `{ type: 'hello', role, now, full, viewKey? }` (the
+view key is included for editors only) through
 `sendCustomMessage`; it answers a client's `{ type: 'time?' }` with
 `{ type: 'time', now }`. Custom messages go through the same per-connection
 rate limit and size checks as every other message; anything else is
@@ -1256,8 +1363,9 @@ table in the README. CI runs the pipeline with a mocked model.
 | Geometry & tool FSM | Vitest | Bounds, hit-testing, resize from each of 8 handles including flips, connector clipping (rect/ellipse), elbow routing, camera transforms, FSM transition tables |
 | Commands & normalization | Vitest | Each command against an in-memory `Y.Doc`; orphan connectors, missing parents, `z` ties |
 | Convergence | Vitest + `fast-check` | 3 replicas, random concurrent command sequences, delayed/reordered delivery; identical `toJSON()` and invariants; undo interleaved with remote ops; 10,000 runs in a nightly job, fewer on PRs |
-| Server | Vitest + `@cloudflare/vitest-pool-workers` | HMAC verification, viewer write rejection, size/rate limits, persistence round-trip, demo reset |
-| End-to-end | Playwright, two browser contexts | Sticky created in A appears in B; named cursor visible; concurrent drags converge; offline edit + reconnect via `setOffline`; read-only link blocks editing; visual snapshot of the retro frame |
+| Server | Vitest + `@cloudflare/vitest-pool-workers` | HMAC verification, viewer write rejection, size/rate limits, persistence round-trip, demo reset. F5a: awareness ownership, spoofed and invalid states dropped, echoes not relayed, session takeover, a full board accepting deletions and refusing the rest, resuming under 900 KB, `429` on room creation |
+| Hardening (F5a) | Vitest + `fast-check` | Every command `allowedWhenFull` accepts produces an update with no structs, over random documents; the awareness frame codec round-trips; the client's connection status for each close code |
+| End-to-end | Playwright, two browser contexts | Sticky created in A appears in B; named cursor visible; concurrent drags converge; offline edit + reconnect via `setOffline`; read-only link blocks editing; visual snapshot of the retro frame. F5a: a board filled over the cap shows the notice in both browsers, deleting brings it back, and editing works again |
 | AI | `eval:ai` | ARI, schema-validity rate (mocked model in CI) |
 
 CI (GitHub Actions): lint, typecheck, unit/property tests, Playwright
@@ -1273,7 +1381,7 @@ workflow.
 | F2 — Editing | Ellipse, lines, connectors, selection + marquee, resize, undo/redo, frames with columns, code block | 50 |
 | F3 — Navigation & session | F3a: pan/zoom, zoom controls, coordinates, camera persistence, interactive minimap with peer viewports, remote selections and "typing…", frame adoption and F2b polish. F3b: server time, voting + timer, comments | 40 |
 | F4 — Workspace | P1: pages (tabs, per-page content and presence, share dialog, editable title, toasts). P2: canvas UX (context menus, system clipboard, properties bar, z-order, style, lock, help, empty state, polish). P3: spreadsheet page with basic formulas. P4: graphs (generator for graph families and edge lists, connector labels, visual algorithms), Shapes flyout, no live-demo link on the landing page. P5: calendar page (month and week views, recurrence with per-occurrence exceptions, per-viewer time zones, RSVP, .ics export and import, "Add to calendar…" from a sticky) | — |
-| F5 — Ship | Offline, capability links, demo room + cron, E2E, deploy, bilingual README, mermaid, GIF | 40 |
+| F5 — Ship | F5a: protocol hardening (awareness validation and ownership, a full board that stays deletable, visible closes, room-creation limit). F5b: demo room with a seed and a nightly reset. F5c: offline polish. F5d: deploy (Vercel + Workers). Already done in earlier phases: capability links, E2E, bilingual README, mermaid, GIF | 40 |
 | F6 — AI | Clustering pipeline, proposal UI, evaluation | 15 |
 | **Total** | | **~185** |
 
