@@ -168,11 +168,27 @@ describe('awareness filter', () => {
     expect(v.owned).toEqual([]);
   });
 
-  it('accepts a removal only for an owned id, and releases it', () => {
+  it('accepts a removal only for an owned id, and the id stays owned', () => {
     expect(filterAwareness([entry(7, 2, null)], ctx()).accepted).toEqual([]);
     const v = filterAwareness([entry(7, 2, null)], ctx([7]));
     expect(v.accepted).toEqual([{ clientId: 7, clock: 2, state: 'null' }]);
-    expect(v.owned).toEqual([]);
+    // The room releases it once the removal has really taken the state away.
+    expect(v.owned).toEqual([7]);
+  });
+
+  it('ids claimed and removed inside one frame still count towards the cap', () => {
+    const v = filterAwareness(
+      [
+        entry(1, 5, presence('a')),
+        entry(1, 3, null),
+        entry(2, 5, presence('b')),
+        entry(2, 3, null),
+        entry(3, 5, presence('c')),
+      ],
+      ctx(),
+    );
+    expect(v.tooMany).toBe(true);
+    expect(v.accepted).toEqual([]);
   });
 
   it('an update to an owned id is not a new claim', () => {

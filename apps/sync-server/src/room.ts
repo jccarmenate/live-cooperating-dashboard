@@ -248,8 +248,11 @@ export class Room extends YServer {
     }
     if (verdict.accepted.length === 0) return;
     const update = encodeAwarenessUpdate(verdict.accepted);
-    applyAwarenessUpdate(this.document.awareness, update, connection);
-    patchState(connection, { __ypsAwarenessIds: verdict.owned });
+    const { awareness } = this.document;
+    applyAwarenessUpdate(awareness, update, connection);
+    // An id stays owned while its state is there: a removal the protocol ignored frees nothing.
+    const states = awareness.getStates();
+    patchState(connection, { __ypsAwarenessIds: verdict.owned.filter((id) => states.has(id)) });
     const frame = wrapAwareness(update);
     for (const peer of this.getConnections()) {
       try {

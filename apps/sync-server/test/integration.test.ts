@@ -423,6 +423,62 @@ describe('sync server', () => {
     expect((await closed).code).toBe(4429);
   });
 
+  it('a connection updates and removes the state of an id it owns', async () => {
+    const { roomId, editKey } = await createRoom();
+    const watcher = connect(roomId, editKey);
+    await synced(watcher.provider);
+    const ann = rawConnect(roomId, { key: editKey });
+    await waitForOpen(ann);
+    ann.send(awarenessFrame([{ clientId: 7001, clock: 1, state: presence('Ann') }]));
+    await waitFor(() => nameOf(watcher.provider, 7001) === 'Ann');
+    ann.send(awarenessFrame([{ clientId: 7001, clock: 2, state: presence('Ann B') }]));
+    await waitFor(() => nameOf(watcher.provider, 7001) === 'Ann B');
+    ann.send(awarenessFrame([{ clientId: 7001, clock: 3, state: null }]));
+    await waitFor(() => !watcher.provider.awareness.getStates().has(7001));
+    // The id was released with its state: two others fit the cap again.
+    ann.send(awarenessFrame([{ clientId: 7002, clock: 1, state: presence('two') }]));
+    ann.send(awarenessFrame([{ clientId: 7003, clock: 1, state: presence('three') }]));
+    await waitFor(() => nameOf(watcher.provider, 7003) === 'three');
+    expect(nameOf(watcher.provider, 7002)).toBe('two');
+  });
+
+  it('a removal with a stale clock does not free the id, and a close removes what was left', async () => {
+    const { roomId, editKey } = await createRoom();
+    const watcher = connect(roomId, editKey);
+    await synced(watcher.provider);
+    const mallory = rawConnect(roomId, { key: editKey });
+    await waitForOpen(mallory);
+    const closed = waitForClose(mallory);
+    for (const id of [7101, 7102, 7103]) {
+      mallory.send(awarenessFrame([{ clientId: id, clock: 5, state: presence(`ghost ${id}`) }]));
+      mallory.send(awarenessFrame([{ clientId: id, clock: 3, state: null }]));
+    }
+    expect((await closed).code).toBe(4429);
+    await settle();
+    const left = [7101, 7102, 7103].filter((id) => watcher.provider.awareness.getStates().has(id));
+    expect(left).toEqual([]);
+  });
+
+  it('ids claimed and removed inside one frame cannot pass the cap', async () => {
+    const { roomId, editKey } = await createRoom();
+    const watcher = rawConnect(roomId, { key: editKey });
+    const mallory = rawConnect(roomId, { key: editKey });
+    await Promise.all([waitForOpen(watcher), waitForOpen(mallory)]);
+    const seen = countAwarenessFrames(watcher);
+    const closed = waitForClose(mallory);
+    mallory.send(
+      awarenessFrame(
+        [7201, 7202, 7203].flatMap((id) => [
+          { clientId: id, clock: 5, state: presence(`ghost ${id}`) },
+          { clientId: id, clock: 3, state: null },
+        ]),
+      ),
+    );
+    expect((await closed).code).toBe(4429);
+    await settle();
+    expect(seen()).toBe(0);
+  });
+
   it('lets anyone into the demo room and initializes its metadata', async () => {
     const { doc, provider } = connect('demo', null);
     await synced(provider);

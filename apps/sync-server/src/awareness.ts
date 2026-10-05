@@ -97,7 +97,10 @@ function sanitize(json: string): PresenceState | null | undefined {
 export interface AwarenessVerdict {
   /** Entries to apply and relay, with each state re-encoded from the validated value. */
   accepted: AwarenessEntry[];
-  /** The ids the sender owns after this frame. */
+  /**
+   * The ids the sender may own after this frame. The room keeps the ones whose state is still
+   * there once the frame is applied.
+   */
   owned: number[];
   /** The sender tried to hold more ids than allowed; nothing from the frame is accepted. */
   tooMany: boolean;
@@ -107,6 +110,10 @@ export interface AwarenessVerdict {
  * Decides what a connection may say in an awareness frame. An id belongs to the connection that
  * first claimed it, so entries for ids other connections own are dropped (older clients echo
  * their peers' states; that is not an error). States must pass `parsePresence`.
+ *
+ * A removal does not release its id here. The awareness protocol ignores a removal whose clock
+ * is stale, and an id released on one would leave its state live and owned by no one: a state
+ * nothing ever removes, outside the cap on ids. The room releases an id when its state is gone.
  */
 export function filterAwareness(
   entries: readonly AwarenessEntry[],
@@ -120,9 +127,7 @@ export function filterAwareness(
     if (state === undefined) continue;
     const at = owned.indexOf(e.clientId);
     if (state === null) {
-      if (at === -1) continue;
-      owned.splice(at, 1);
-      accepted.push({ clientId: e.clientId, clock: e.clock, state: 'null' });
+      if (at !== -1) accepted.push({ clientId: e.clientId, clock: e.clock, state: 'null' });
       continue;
     }
     if (at === -1) {
