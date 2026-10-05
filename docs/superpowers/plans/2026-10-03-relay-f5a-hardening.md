@@ -19,6 +19,7 @@
 - Presence bounds: `selection` at most 100 ids; ids in `selection`, `editing`, `page`, `calEvent` at most 64 characters.
 - Presence kept on a connection: `3000` characters per state (a longer one is kept without its selection). Request URL: at most `2048` characters; a longer one is refused with `414`.
 - Connections are told apart by socket (`a !== b`), never by `connection.id`: the provider keeps its `_pk`, and so its connection id, across reconnects.
+- A frame is routed by its decoded message type (`readMessageType`), never by its first byte, and the room relays what it applied, as it holds it (`heldFrame`), never what it was sent.
 - A close the server starts on a socket that never sent anything takes about ten seconds to complete in workerd (about 50 ms once the socket has sent any message). A test that waits for such a close makes the socket speak first (`ping`) or waits 20 s.
 - UI copy, verbatim: "This board is full — delete something to keep editing"; "Some changes couldn't be saved"; "Reload board"; "This board has too many people right now"; "Try again"; "Too many new boards. Try again in a minute."
 - `parsePresence` in `@relay/core` is the only presence validator, on the server and on the client.
@@ -37,7 +38,7 @@
 | `packages/core/src/sync/messages.ts` (modify) | `hello.full`, `room`, `rejected` |
 | `packages/core/src/commands/full.ts` (create) | `allowedWhenFull(command)`; `BoardAccess`, `allowedFor(access, command)` |
 | `packages/core/src/tools/machine.ts` (modify) | `ToolContext.access`: the machine for a user who cannot edit |
-| `apps/sync-server/src/awareness.ts` (create) | Awareness frame codec and the ownership/validation filter (pure); `compactState` |
+| `apps/sync-server/src/awareness.ts` (create) | Awareness frame codec and the ownership/validation filter (pure); `compactState`; `readMessageType`, `applyTaken`, `heldFrame` |
 | `apps/sync-server/src/deletion.ts` (create) | Reading a sync update out of a frame; `isPureDeletion` (pure) |
 | `apps/sync-server/src/auth.ts` (modify) | `sessionId` |
 | `apps/sync-server/src/limits.ts` (modify) | `resumeDocBytes`, `maxStoredStateChars`, `maxUrlChars` |
@@ -3603,7 +3604,7 @@ In `apps/web/src/board/Board.tsx`, import `FullNotice` from `'../ui/FullNotice'`
 
 - [ ] **Step 5: Look at it in the browser**
 
-Start the app (`preview_start` with the dev server from `.claude/launch.json`, or `npm run dev`), open a new board and check that nothing changed for a normal board: no notice, the header shows `Live`, the toolbar is complete. The full-board and stop notices are exercised end to end in Task 16.
+Start the app (`preview_start` with the dev server from `.claude/launch.json`, or `npm run dev`), open a new board and check that nothing changed for a normal board: no notice, the header shows `Live`, the toolbar is complete. The full-board and stop notices are exercised end to end in Task 17.
 
 - [ ] **Step 6: Run, lint, commit**
 
@@ -4703,7 +4704,359 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 ---
 
-### Task 16: End to end, and the docs
+### Task 16: No way around the awareness rules — frames routed by their decoded type, only what the room applied relayed
+
+Two things the review of Task 4's fix found, both reproduced against `wrangler dev` on this branch before this task:
+
+- **The rules can be skipped.** The room picks out awareness frames by their first byte. y-partyserver reads the message type as a varint, and a varint has more than one spelling: `0x81 0x00` is 1. A frame that starts that way is not awareness for the room and is awareness for y-partyserver, which applies and relays it as it came. With such frames one socket overwrote another connection's state, delivered a state that is not valid presence, and held four ids, with no close. The overwritten state stayed after the socket closed.
+- **The room relays what it was sent, not what it took.** The awareness protocol ignores an entry whose clock it has already passed, and the room relays it anyway. After a claim at clock 100 and a removal at 101, a claim at clock 5 changes nothing in the room, but a peer who joined after the removal knows no clock for that id and takes it. The room does not hold that state, so nothing ever removes it.
+
+The fix for the first is to route on the decoded type. The fix for the second is to relay the ids the room really took, encoded from the room's own awareness map.
+
+**Files:**
+- Modify: `apps/sync-server/src/awareness.ts`, `apps/sync-server/src/room.ts`
+- Test: `apps/sync-server/test/awareness.test.ts`, `apps/sync-server/test/integration.test.ts`
+
+**Interfaces:**
+- Consumes: Task 3's codec (`wrapAwareness`, `encodeAwarenessUpdate`, `readAwarenessMessage`); Task 8's `onMessage`; Task 14's `#onAwareness`; Task 5's test helper `ping`.
+- Produces (`awareness.ts`): `readMessageType(message: Uint8Array): number | null`; `applyTaken(awareness: Awareness, update: Uint8Array, origin: unknown): number[]`; `heldFrame(awareness: Awareness, ids: number[]): Uint8Array`.
+
+- [ ] **Step 1: Write the failing unit tests**
+
+In `apps/sync-server/test/awareness.test.ts`, add `applyTaken`, `heldFrame` and `readMessageType` to the import from `'../src/awareness'` and append:
+
+```ts
+describe('readMessageType', () => {
+  it('reads the type as a varint, whatever its length', () => {
+    expect(readMessageType(Uint8Array.of(0, 1))).toBe(0);
+    expect(readMessageType(Uint8Array.of(1, 0))).toBe(1);
+    // The same 1 in two bytes: the first byte alone reads 129.
+    expect(readMessageType(Uint8Array.of(0x81, 0x00, 0))).toBe(1);
+    expect(readMessageType(Uint8Array.of(3))).toBe(3);
+  });
+
+  it('has no type for an empty frame or a varint that never ends', () => {
+    expect(readMessageType(new Uint8Array())).toBeNull();
+    expect(readMessageType(Uint8Array.of(0x80))).toBeNull();
+  });
+});
+
+describe('applyTaken and heldFrame', () => {
+  const room = () => {
+    const awareness = new Awareness(new Y.Doc());
+    awareness.setLocalState(null);
+    return awareness;
+  };
+  const apply = (awareness: Awareness, entries: AwarenessEntry[]) =>
+    applyTaken(awareness, encodeAwarenessUpdate(entries), 'test');
+
+  it('reports the ids whose entry was applied, a removal included', () => {
+    const awareness = room();
+    expect(apply(awareness, [entry(7, 1, presence('Ann')), entry(8, 1, presence('Bob'))])).toEqual([
+      7, 8,
+    ]);
+    expect(apply(awareness, [entry(7, 2, null)])).toEqual([7]);
+    awareness.destroy();
+  });
+
+  it('reports nothing for an entry whose clock the awareness has passed', () => {
+    const awareness = room();
+    apply(awareness, [entry(7, 100, presence('seed'))]);
+    apply(awareness, [entry(7, 101, null)]);
+    expect(apply(awareness, [entry(7, 5, presence('ghost'))])).toEqual([]);
+    expect(awareness.getStates().has(7)).toBe(false);
+    awareness.destroy();
+  });
+
+  it('frames the states as the awareness holds them, with a null for a removed one', () => {
+    const awareness = room();
+    apply(awareness, [entry(7, 3, presence('Ann')), entry(8, 4, presence('Bob'))]);
+    apply(awareness, [entry(8, 5, null)]);
+    expect(readAwarenessMessage(heldFrame(awareness, [7, 8]))).toEqual([
+      entry(7, 3, presence('Ann')),
+      entry(8, 5, null),
+    ]);
+    awareness.destroy();
+  });
+});
+```
+
+- [ ] **Step 2: Run them and see them fail**
+
+Run: `npm test -w @relay/sync-server -- awareness`
+Expected: FAIL — `readMessageType`, `applyTaken` and `heldFrame` are not exported.
+
+- [ ] **Step 3: Implement the pure part**
+
+In `apps/sync-server/src/awareness.ts`, add the import below the two `lib0` imports:
+
+```ts
+import {
+  type Awareness,
+  applyAwarenessUpdate,
+  encodeAwarenessUpdate as encodeHeldStates,
+} from 'y-protocols/awareness';
+```
+
+Add above the comment of `AwarenessEntry`:
+
+```ts
+/**
+ * The message type of a wire frame, read the way y-partyserver reads it: as a varint. Routing on
+ * the first byte alone lets a type written as a longer varint (0x81 0x00 is 1) pass for another
+ * and skip every rule in this file. Null when the frame is empty or the type does not decode.
+ */
+export function readMessageType(message: Uint8Array): number | null {
+  try {
+    return decoding.readVarUint(decoding.createDecoder(message));
+  } catch {
+    return null;
+  }
+}
+```
+
+Append at the end of the file:
+
+```ts
+/**
+ * Applies an awareness update and returns the ids whose entry the awareness took. The protocol
+ * ignores an entry whose clock it has already passed, and says nothing about it.
+ */
+export function applyTaken(awareness: Awareness, update: Uint8Array, origin: unknown): number[] {
+  let taken: number[] = [];
+  const onUpdate = (change: { added: number[]; updated: number[]; removed: number[] }): void => {
+    taken = [...change.added, ...change.updated, ...change.removed];
+  };
+  awareness.on('update', onUpdate);
+  try {
+    applyAwarenessUpdate(awareness, update, origin);
+  } finally {
+    awareness.off('update', onUpdate);
+  }
+  return taken;
+}
+
+/** The wire frame for the states of `ids` as the awareness holds them now (null for a removed one). */
+export function heldFrame(awareness: Awareness, ids: number[]): Uint8Array {
+  return wrapAwareness(encodeHeldStates(awareness, ids));
+}
+```
+
+Run: `npm test -w @relay/sync-server -- awareness`
+Expected: PASS.
+
+- [ ] **Step 4: Write the failing integration tests**
+
+In `apps/sync-server/test/integration.test.ts`, add:
+
+```ts
+  it('a frame whose type is written as a longer varint meets the same rules', async () => {
+    const { roomId, editKey } = await createRoom();
+    const watcher = connect(roomId, editKey);
+    await synced(watcher.provider);
+    const ann = rawConnect(roomId, { key: editKey });
+    const mallory = rawConnect(roomId, { key: editKey });
+    await Promise.all([waitForOpen(ann), waitForOpen(mallory)]);
+    ann.send(awarenessFrame([{ clientId: 8001, clock: 1, state: presence('Ann') }]));
+    await waitFor(() => nameOf(watcher.provider, 8001) === 'Ann');
+
+    // 0x81 0x00 is the varint 1, the awareness type, in two bytes instead of one.
+    const longType = (frame: Uint8Array) => Uint8Array.of(0x81, 0x00, ...frame.slice(1));
+    const send = (clientId: number, clock: number, state: unknown) =>
+      mallory.send(longType(awarenessFrame([{ clientId, clock, state }])));
+    const closed = waitForClose(mallory);
+    send(8001, 9, presence('Mallory'));
+    send(8002, 1, { name: 'INTRUDER' });
+    for (const id of [8003, 8004, 8005]) send(id, 1, presence(`extra ${id}`));
+    // Ann's id is hers, the invalid state is dropped, and the third id of her own closes her.
+    expect((await closed).code).toBe(4429);
+    await settle();
+    expect(nameOf(watcher.provider, 8001)).toBe('Ann');
+    expect(watcher.provider.awareness.getStates().has(8002)).toBe(false);
+    expect(watcher.provider.awareness.getStates().has(8003)).toBe(false);
+  });
+
+  it('drops a message type the protocol does not have, and closes on a frame with no type', async () => {
+    const { roomId, editKey } = await createRoom();
+    const ws = rawConnect(roomId, { key: editKey });
+    const hello = nextCustom(ws);
+    await waitForOpen(ws);
+    await hello;
+    ws.send(Uint8Array.of(3));
+    ws.send(Uint8Array.of(7, 1, 2, 3));
+    await ping(ws);
+    const closed = waitForClose(ws);
+    ws.send(Uint8Array.of(0x80));
+    expect((await closed).code).toBe(4400);
+  });
+
+  it('does not relay an entry it ignored', async () => {
+    const { roomId, editKey } = await createRoom();
+    const mallory = rawConnect(roomId, { key: editKey });
+    await waitForOpen(mallory);
+    // The room's clock for the id goes up, and no state is left behind.
+    mallory.send(awarenessFrame([{ clientId: 8101, clock: 100, state: presence('seed') }]));
+    mallory.send(awarenessFrame([{ clientId: 8101, clock: 101, state: null }]));
+    await ping(mallory);
+    const late = connect(roomId, editKey);
+    await synced(late.provider);
+
+    // The room has passed clock 5 and ignores this. A peer who joined after the removal knows no
+    // clock for the id and would take it.
+    mallory.send(awarenessFrame([{ clientId: 8101, clock: 5, state: presence('ghost') }]));
+    await ping(mallory);
+    await settle();
+    expect(late.provider.awareness.getStates().has(8101)).toBe(false);
+
+    // What the room does take still reaches everyone.
+    mallory.send(awarenessFrame([{ clientId: 8101, clock: 102, state: presence('Mal') }]));
+    await waitFor(() => nameOf(late.provider, 8101) === 'Mal');
+  });
+```
+
+- [ ] **Step 5: Run them and see them fail**
+
+Run: `npm test -w @relay/sync-server -- integration`
+Expected: FAIL in the three new tests — the socket that sends the longer varint is never closed with 4429 (`timed out waiting for close`); the frame with no type does not close with 4400; and the late joiner holds the state the room ignored.
+
+- [ ] **Step 6: Route by the decoded type**
+
+In `apps/sync-server/src/room.ts`:
+
+In the import from `'./awareness'`, add `applyTaken`, `heldFrame` and `readMessageType`, and drop `wrapAwareness`, which this file no longer uses:
+
+```ts
+import {
+  type AwarenessEntry,
+  applyTaken,
+  compactState,
+  encodeAwarenessUpdate,
+  filterAwareness,
+  heldFrame,
+  readAwarenessMessage,
+  readMessageType,
+} from './awareness';
+```
+
+Replace the constant:
+
+```ts
+/** Yjs awareness protocol message type byte. */
+const MESSAGE_AWARENESS = 1;
+```
+
+with:
+
+```ts
+/** Yjs protocol message types (the varint a frame starts with). */
+const MESSAGE_SYNC = 0;
+const MESSAGE_AWARENESS = 1;
+```
+
+Delete `isAwarenessMessage` (the function and its comment).
+
+In `onMessage`, replace the block that handles binary frames:
+
+```ts
+    if (typeof message !== 'string') {
+      if (isAwarenessMessage(message)) {
+        this.#onAwareness(connection, toBytes(message));
+        return;
+      }
+      if (this.#full && roleOf(connection) === 'edit') {
+        const update = readSyncUpdate(toBytes(message));
+        if (update) {
+          this.#onUpdateWhileFull(connection, update);
+          return;
+        }
+      }
+    }
+    super.onMessage(connection, message);
+```
+
+with:
+
+```ts
+    if (typeof message !== 'string') {
+      const bytes = toBytes(message);
+      // Routed by the decoded type, as y-partyserver reads it. Routed by the first byte, a type
+      // written as a longer varint would skip the awareness rules and be applied as it came.
+      const type = readMessageType(bytes);
+      if (type === MESSAGE_AWARENESS) {
+        this.#onAwareness(connection, bytes);
+        return;
+      }
+      if (type !== MESSAGE_SYNC) {
+        // A type this protocol does not have is dropped; a frame with no type at all is malformed.
+        if (type === null) connection.close(4400, 'bad frame');
+        return;
+      }
+      if (this.#full && roleOf(connection) === 'edit') {
+        const update = readSyncUpdate(bytes);
+        if (update) {
+          this.#onUpdateWhileFull(connection, update);
+          return;
+        }
+      }
+    }
+    super.onMessage(connection, message);
+```
+
+- [ ] **Step 7: Relay what the room took**
+
+In `#onAwareness`, replace:
+
+```ts
+    const { awareness } = this.document;
+    applyAwarenessUpdate(awareness, update, connection);
+```
+
+with:
+
+```ts
+    const { awareness } = this.document;
+    const taken = applyTaken(awareness, update, connection);
+```
+
+and replace the two lines that start the relay:
+
+```ts
+    const frame = wrapAwareness(update);
+    for (const peer of this.getConnections()) {
+```
+
+with:
+
+```ts
+    // Only what the room took is relayed, and as the room holds it. An entry it ignored (a clock
+    // it has already passed) would reach a peer who joined later and knows no clock for that id:
+    // the peer would take a state the room does not hold, and nothing would ever remove it.
+    if (taken.length === 0) return;
+    const frame = heldFrame(awareness, taken);
+    for (const peer of this.getConnections()) {
+```
+
+The lines between them (the ownership and the stored presence, from Task 4's fix and Task 14) stay as they are: they run whether or not anything is relayed.
+
+- [ ] **Step 8: Run all the server tests**
+
+Run: `npm test -w @relay/sync-server`
+Expected: PASS, the older relay tests included (`relays a valid presence state reduced to the fields the validator knows`, `does not relay a peer's state echoed back by another connection`, `presence and the full flag survive the room hibernating`).
+
+- [ ] **Step 9: Lint and commit**
+
+Run: `npm run format && npm run lint && npm run typecheck`
+
+```bash
+git add apps/sync-server
+git commit -m "fix(sync-server): frames are routed by their decoded type and only what the room applied is relayed — two ways around the awareness rules are closed
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+```
+
+---
+
+### Task 17: End to end, and the docs
 
 **Files:**
 - Create: `e2e/helpers/filler.ts`, `e2e/hardening.spec.ts`
@@ -4930,7 +5283,7 @@ In `README.md`:
   - [ ] **F5d deploy:** Vercel + Workers
 ```
 
-3. **Tests:** update the `npm test` and `npm run e2e` lines with the totals from Step 4, and extend the table: the `sync-server` row gains "awareness ownership and validation, session takeover, presence after a hibernation, a full board accepting deletions, the room-creation limit"; the `packages/core` row gains "the tool machine by access"; the `e2e/` row gains "a board that fills, stays deletable and resumes; a viewer who cannot change the board".
+3. **Tests:** update the `npm test` and `npm run e2e` lines with the totals from Step 4, and extend the table: the `sync-server` row gains "awareness ownership and validation, frames routed by their decoded type, nothing relayed that the room ignored, session takeover, presence after a hibernation, a full board accepting deletions, the room-creation limit"; the `packages/core` row gains "the tool machine by access"; the `e2e/` row gains "a board that fills, stays deletable and resumes; a viewer who cannot change the board".
 4. **Engineering highlights:** add two rows:
 
 ```markdown
