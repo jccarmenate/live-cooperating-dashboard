@@ -116,6 +116,17 @@ function nextCustom(
   });
 }
 
+/** Collects the custom (`__YPS:`) messages a raw socket receives. */
+function collectCustom(ws: WebSocket): Record<string, unknown>[] {
+  const seen: Record<string, unknown>[] = [];
+  ws.on('message', (data, isBinary) => {
+    if (isBinary) return;
+    const text = data.toString();
+    if (text.startsWith('__YPS:')) seen.push(JSON.parse(text.slice(6)) as Record<string, unknown>);
+  });
+  return seen;
+}
+
 /**
  * Asks the server time and waits for the answer. The server's close of a socket that never
  * sent anything takes about ten seconds to complete (55 ms once it has spoken), so a test that
@@ -303,6 +314,16 @@ describe('sync server', () => {
     expect(code).toBe(1009);
   });
 
+  it('a connection that floods the room is closed with 4429', async () => {
+    const { roomId, editKey } = await createRoom();
+    const ws = rawConnect(roomId, { key: editKey });
+    await waitForOpen(ws);
+    const closed = waitForClose(ws);
+    // Far past the burst of 120, whatever the refill while the room reads them.
+    for (let i = 0; i < 400; i++) ws.send('__YPS:{"type":"time?"}');
+    expect((await closed).code).toBe(4429);
+  });
+
   it('freezes the room once an editor pushes it past the document size cap', async () => {
     const { roomId, editKey } = await createRoom();
     const a = connect(roomId, editKey);
@@ -365,6 +386,58 @@ describe('sync server', () => {
 
     addSticky(a.doc, 'after-duplicates');
     await waitFor(() => getRoots(b.doc).shapes.has('after-duplicates'));
+  });
+
+  it('a full board says so, accepts deletions, refuses the rest and resumes when it shrinks', {
+    timeout: 60_000,
+  }, async () => {
+    const { roomId, editKey } = await createRoom();
+    const filler = connect(roomId, editKey);
+    const clean = connect(roomId, editKey);
+    const watcher = rawConnect(roomId, { key: editKey });
+    const messages = collectCustom(watcher);
+    await Promise.all([synced(filler.provider), synced(clean.provider), waitForOpen(watcher)]);
+    addSticky(filler.doc, 'growing');
+    addSticky(filler.doc, 'small');
+    await waitFor(() => getRoots(clean.doc).shapes.has('small'));
+
+    // Six sub-256 KB updates that together pass the 1 MB cap.
+    for (let i = 0; i < 6; i++) {
+      applyCommand(filler.doc, {
+        type: 'SetText',
+        id: 'growing',
+        index: 0,
+        deleteCount: 0,
+        insert: 'x'.repeat(200_000),
+      });
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    await waitFor(() => messages.some((m) => m.type === 'room' && m.full === true));
+
+    // A connection that arrives now learns it from hello.
+    const late = rawConnect(roomId, { key: editKey });
+    const lateHello = nextCustom(late);
+    await waitForOpen(late);
+    expect((await lateHello).full).toBe(true);
+
+    // Anything that adds content is refused, and its sender is told once.
+    const writer = connect(roomId, editKey);
+    const told: string[] = [];
+    writer.provider.on('custom-message', (raw: string) => told.push(raw));
+    await synced(writer.provider);
+    addSticky(writer.doc, 'after-cap');
+    await waitFor(() => told.some((raw) => raw.includes('"rejected"')));
+    expect(getRoots(clean.doc).shapes.has('after-cap')).toBe(false);
+
+    // A deletion from a client that holds only what the server has is accepted.
+    applyCommand(clean.doc, { type: 'DeleteShapes', ids: ['small'] });
+    await waitFor(() => !getRoots(filler.doc).shapes.has('small'));
+
+    // Deleting the big shape brings the board under 900 KB at the next save.
+    applyCommand(clean.doc, { type: 'DeleteShapes', ids: ['growing'] });
+    await waitFor(() => messages.some((m) => m.type === 'room' && m.full === false), 20_000);
+    addSticky(clean.doc, 'resumed');
+    await waitFor(() => getRoots(filler.doc).shapes.has('resumed'));
   });
 
   it('relays a valid presence state reduced to the fields the validator knows', async () => {
@@ -613,6 +686,23 @@ describe('sync server', () => {
     b.send(awarenessFrame([{ clientId: 4301, clock: 5, state: presence('Mallory') }]));
     await settle();
     expect(nameOf(watcher.provider, 4301)).toBe('Ann');
+  });
+
+  it('two sockets that share a connection id each have their own message allowance', async () => {
+    const { roomId, editKey } = await createRoom();
+    const a = rawConnect(roomId, { key: editKey, pk: 'shared-conn-03' });
+    const b = rawConnect(roomId, { key: editKey, pk: 'shared-conn-03' });
+    const toA = collectCustom(a);
+    const toB = collectCustom(b);
+    await Promise.all([waitForOpen(a), waitForOpen(b)]);
+    // A hundred each: under one socket's burst of 120, and over it if the two shared a bucket.
+    for (let i = 0; i < 100; i++) b.send('__YPS:{"type":"time?"}');
+    for (let i = 0; i < 100; i++) a.send('__YPS:{"type":"time?"}');
+    const answers = (seen: Record<string, unknown>[]) =>
+      seen.filter((m) => m.type === 'time').length;
+    await waitFor(() => answers(toA) === 100 && answers(toB) === 100);
+    expect(a.readyState).toBe(WebSocket.OPEN);
+    expect(b.readyState).toBe(WebSocket.OPEN);
   });
 
   it('lets anyone into the demo room and initializes its metadata', async () => {

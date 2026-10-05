@@ -10,6 +10,7 @@ import {
   readAwarenessMessage,
   wrapAwareness,
 } from './awareness';
+import { isPureDeletion, readSyncUpdate } from './deletion';
 import type { Env } from './env';
 import { LIMITS, messageBytes, TokenBucket } from './limits';
 
@@ -39,13 +40,8 @@ function ownedIds(connection: Connection): number[] {
   return Array.isArray(ids) ? ids.filter((id): id is number => typeof id === 'number') : [];
 }
 
-/** Yjs sync protocol message type byte for a document-update (`messageSync`) frame. */
-const MESSAGE_SYNC = 0;
 /** Yjs awareness protocol message type byte. */
 const MESSAGE_AWARENESS = 1;
-/** Sync-protocol sub-types (the varuint right after the message-type byte). */
-const SYNC_STEP2 = 1;
-const SYNC_UPDATE = 2;
 
 function toBytes(message: ArrayBuffer | ArrayBufferView): Uint8Array {
   return message instanceof ArrayBuffer
@@ -64,16 +60,6 @@ function isAwarenessMessage(message: WSMessage): boolean {
   return messageTypeByte(message) === MESSAGE_AWARENESS;
 }
 
-/**
- * The sync sub-type (SyncStep1/SyncStep2/Update) of a sync-protocol message,
- * i.e. the varuint immediately after the type byte. For these three values
- * (0, 1, 2) the varuint is always a single byte, so byte[1] suffices.
- */
-function syncSubType(message: WSMessage): number | null {
-  if (typeof message === 'string' || messageTypeByte(message) !== MESSAGE_SYNC) return null;
-  return toBytes(message)[1] ?? null;
-}
-
 const encode = (message: ServerMessage): string => JSON.stringify(message);
 
 /** One Durable Object per room: Yjs sync, capability roles, limits, SQLite persistence. */
@@ -84,17 +70,19 @@ export class Room extends YServer {
   /** YServer types `env` as the empty `Cloudflare.Env`; narrow it to this worker's bindings. */
   declare protected env: Env;
 
-  /** Set when the persisted document exceeds LIMITS.maxDocBytes; the room becomes read-only. */
-  #frozen = false;
   /**
-   * Running estimate of the document's encoded size: the last saved/loaded
-   * snapshot's byte length, plus every accepted sync-protocol message byte
-   * count from edit-role connections since. Checked on arrival (via
-   * `isReadOnly`) so a burst of updates can't blow past `maxDocBytes` between
-   * debounced saves.
+   * The document is over LIMITS.maxDocBytes: only deletions are accepted until a save measures
+   * LIMITS.resumeDocBytes or less. In memory only, so a room that reloads between the two sizes
+   * starts editable.
+   */
+  #full = false;
+  /**
+   * Running estimate of the document's encoded size: the last exact size plus the bytes of every
+   * update the document has emitted since. Yjs emits only what was new, so a client re-sending
+   * what the room already has adds nothing.
    */
   #estimatedBytes = 0;
-  readonly #buckets = new Map<string, TokenBucket>();
+  readonly #buckets = new WeakMap<Connection, TokenBucket>();
 
   async onLoad(): Promise<void> {
     const sql = this.ctx.storage.sql;
@@ -106,10 +94,11 @@ export class Room extends YServer {
       .toArray()[0];
     if (row) {
       const update = new Uint8Array(row.data);
-      this.#frozen = update.byteLength > LIMITS.maxDocBytes;
+      this.#full = update.byteLength > LIMITS.maxDocBytes;
       this.#estimatedBytes = update.byteLength;
       Y.applyUpdate(this.document, update);
     }
+    this.document.on('update', this.#onDocUpdate);
     initMeta(
       this.document,
       this.name === DEMO_ROOM
@@ -118,10 +107,26 @@ export class Room extends YServer {
     );
   }
 
+  /** Counts what the document really gained, and measures exactly when the estimate crosses the cap. */
+  readonly #onDocUpdate = (update: Uint8Array): void => {
+    this.#estimatedBytes += update.byteLength;
+    if (this.#full || this.#estimatedBytes <= LIMITS.maxDocBytes) return;
+    const real = Y.encodeStateAsUpdate(this.document).byteLength;
+    this.#estimatedBytes = real;
+    if (real > LIMITS.maxDocBytes) this.#setFull(true);
+  };
+
+  #setFull(full: boolean): void {
+    if (this.#full === full) return;
+    this.#full = full;
+    this.broadcastCustomMessage(encode({ type: 'room', full, now: Date.now() }));
+  }
+
   async onSave(): Promise<void> {
     const update = Y.encodeStateAsUpdate(this.document);
     this.#estimatedBytes = update.byteLength;
-    this.#frozen = update.byteLength > LIMITS.maxDocBytes;
+    if (update.byteLength > LIMITS.maxDocBytes) this.#setFull(true);
+    else if (update.byteLength <= LIMITS.resumeDocBytes) this.#setFull(false);
     if (update.byteLength > LIMITS.maxRowBytes) {
       // Writing this would exceed Cloudflare's per-row BLOB limit and throw;
       // skip the write rather than lose the room to an uncaught save error.
@@ -138,9 +143,7 @@ export class Room extends YServer {
   }
 
   isReadOnly(connection: Connection): boolean {
-    return (
-      this.#frozen || this.#estimatedBytes > LIMITS.maxDocBytes || roleOf(connection) !== 'edit'
-    );
+    return this.#full || roleOf(connection) !== 'edit';
   }
 
   onConnect(connection: Connection, ctx: ConnectionContext): void {
@@ -198,7 +201,7 @@ export class Room extends YServer {
         type: 'hello',
         role,
         now: Date.now(),
-        full: this.#frozen,
+        full: this.#full,
         ...(viewKey ? { viewKey } : {}),
       }),
     );
@@ -213,39 +216,45 @@ export class Room extends YServer {
       connection.close(1009, 'message too large');
       return;
     }
-    let bucket = this.#buckets.get(connection.id);
+    let bucket = this.#buckets.get(connection);
     if (!bucket) {
       bucket = new TokenBucket(LIMITS.ratePerSecond, LIMITS.burst);
-      this.#buckets.set(connection.id, bucket);
+      this.#buckets.set(connection, bucket);
     }
     if (!bucket.take()) {
       // Closing (not dropping) keeps clients consistent: the reconnect re-runs a full sync.
       connection.close(4429, 'rate limited');
       return;
     }
-    if (typeof message !== 'string' && isAwarenessMessage(message)) {
-      this.#onAwareness(connection, toBytes(message));
+    if (typeof message !== 'string') {
+      if (isAwarenessMessage(message)) {
+        this.#onAwareness(connection, toBytes(message));
+        return;
+      }
+      if (this.#full && roleOf(connection) === 'edit') {
+        const update = readSyncUpdate(toBytes(message));
+        if (update) {
+          this.#onUpdateWhileFull(connection, update);
+          return;
+        }
+      }
+    }
+    super.onMessage(connection, message);
+  }
+
+  /**
+   * A full board still takes deletions, so people can make room. y-partyserver would drop the
+   * update (the room is read-only), so a pure deletion is applied here; its own update handler
+   * then relays it to everyone.
+   */
+  #onUpdateWhileFull(connection: Connection, update: Uint8Array): void {
+    if (isPureDeletion(update, this.document)) {
+      Y.applyUpdate(this.document, update, connection);
       return;
     }
-    // Only Update and SyncStep2 sub-messages can grow the document; SyncStep1
-    // (a state-vector request, sent on every connect) never does and must
-    // not be mistaken for document growth.
-    const subType = roleOf(connection) === 'edit' ? syncSubType(message) : null;
-    const countsTowardSize = subType === SYNC_STEP2 || subType === SYNC_UPDATE;
-    const wasUnderLimit = this.#estimatedBytes <= LIMITS.maxDocBytes;
-    if (countsTowardSize) this.#estimatedBytes += messageBytes(message);
-
-    super.onMessage(connection, message);
-
-    // The running estimate over-counts no-op resends (a reconnecting editor
-    // re-sending updates the room already has). Rather than trust it forever
-    // once it crosses the cap, re-measure the real encoded size exactly once
-    // per crossing and only freeze if that's actually over.
-    if (countsTowardSize && wasUnderLimit && this.#estimatedBytes > LIMITS.maxDocBytes) {
-      const real = Y.encodeStateAsUpdate(this.document).byteLength;
-      this.#estimatedBytes = real;
-      this.#frozen = real > LIMITS.maxDocBytes;
-    }
+    if (stateOf(connection).rejected) return;
+    patchState(connection, { rejected: true });
+    this.sendCustomMessage(connection, encode({ type: 'rejected', now: Date.now() }));
   }
 
   /**
@@ -299,12 +308,12 @@ export class Room extends YServer {
   }
 
   onClose(connection: Connection, code: number, reason: string, wasClean: boolean): void {
-    this.#buckets.delete(connection.id);
+    this.#buckets.delete(connection);
     super.onClose(connection, code, reason, wasClean);
   }
 
   onError(connection: Connection, error: unknown): void | Promise<void> {
-    this.#buckets.delete(connection.id);
+    this.#buckets.delete(connection);
     return super.onError(connection, error);
   }
 }
