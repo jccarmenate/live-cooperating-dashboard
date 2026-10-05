@@ -19,3 +19,11 @@ export function allowedWhenFull(command: Command): boolean {
       return false;
   }
 }
+
+/** What the board lets a user change: everything, deletions only, or nothing. */
+export type BoardAccess = 'edit' | 'delete-only' | 'read-only';
+
+/** Whether a user with `access` may apply `command`. */
+export function allowedFor(access: BoardAccess, command: Command): boolean {
+  return access === 'edit' || (access === 'delete-only' && allowedWhenFull(command));
+}

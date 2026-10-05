@@ -1,5 +1,6 @@
 import {
   applyCommand,
+  type BoardAccess,
   createUndo,
   DEFAULT_STYLE,
   getRoots,
@@ -31,7 +32,13 @@ const at = (x: number, y: number, hitId: string | null = null): PointerInfo => (
   hitId,
 });
 
-function setup(opts: { cameraStorage?: CameraStorage; serverNow?: () => number } = {}) {
+function setup(
+  opts: {
+    cameraStorage?: CameraStorage;
+    serverNow?: () => number;
+    access?: () => BoardAccess;
+  } = {},
+) {
   const doc = new Y.Doc();
   const docs = createDocStore(doc);
   const activity = createActivityStore(doc);
@@ -850,5 +857,74 @@ describe('pages', () => {
     const { pages, meta } = getRoots(doc);
     expect(pages.get(a)?.get('title')).toBe('p'.repeat(MAX_PAGE_TITLE));
     expect(meta.get('title')).toBe('b'.repeat(MAX_BOARD_TITLE));
+  });
+});
+
+describe('board controller by access', () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  const sticky = (id: string) => ({
+    type: 'CreateShape' as const,
+    shape: {
+      id,
+      type: 'sticky' as const,
+      x: 0,
+      y: 0,
+      w: 180,
+      h: 140,
+      style: DEFAULT_STYLE.sticky,
+      text: 'note',
+      createdBy: 'u1',
+      authorName: 'Test',
+      createdAt: 0,
+    },
+  });
+
+  it('on a full board applies deletions and drops everything else', () => {
+    let access: BoardAccess = 'edit';
+    const { doc, activity, controller } = setup({ access: () => access });
+    controller.commit(sticky('a'), sticky('b'));
+    controller.startVote(3);
+    expect(getRoots(doc).shapes.size).toBe(2);
+
+    access = 'delete-only';
+    controller.commit(sticky('c'));
+    controller.commit({ type: 'MoveShapes', moves: [{ id: 'a', x: 50, y: 50 }] });
+    controller.commitSession({ type: 'EndVote' });
+    expect(getRoots(doc).shapes.has('c')).toBe(false);
+    expect(getRoots(doc).shapes.get('a')?.get('x')).toBe(0);
+    expect(activity.store.getState().vote?.open).toBe(true);
+
+    controller.commit({ type: 'DeleteShapes', ids: ['a'] });
+    expect(getRoots(doc).shapes.has('a')).toBe(false);
+  });
+
+  it('for a viewer applies nothing, a deletion included', () => {
+    let access: BoardAccess = 'edit';
+    const { doc, controller } = setup({ access: () => access });
+    controller.commit(sticky('a'));
+
+    access = 'read-only';
+    controller.commit(sticky('b'));
+    controller.commit({ type: 'DeleteShapes', ids: ['a'] });
+    controller.renameBoard('Mine now');
+    expect(getRoots(doc).shapes.has('b')).toBe(false);
+    expect(getRoots(doc).shapes.has('a')).toBe(true);
+    expect(getRoots(doc).meta.get('title')).toBeUndefined();
+  });
+
+  it('does not undo or redo unless the board takes edits: an undo would write content back', () => {
+    let access: BoardAccess = 'edit';
+    const { doc, controller } = setup({ access: () => access });
+    controller.commit(sticky('a'));
+    for (const blocked of ['delete-only', 'read-only'] as const) {
+      access = blocked;
+      controller.undo();
+      expect(getRoots(doc).shapes.has('a')).toBe(true);
+    }
+    access = 'edit';
+    controller.undo();
+    expect(getRoots(doc).shapes.has('a')).toBe(false);
   });
 });

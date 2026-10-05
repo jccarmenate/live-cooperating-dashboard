@@ -1,4 +1,4 @@
-import type { Role, ServerMessage } from '@relay/core';
+import type { BoardAccess, Role, ServerMessage } from '@relay/core';
 
 export interface ClockState {
   /** Capability from the server's hello; null until the first hello arrives. */
@@ -52,3 +52,13 @@ export function capability(c: Capable): Capability {
 export const mayEdit = (c: Capable): boolean => capability(c) === 'edit';
 /** Deleting stays available on a full board. */
 export const mayDelete = (c: Capable): boolean => c.role === 'edit';
+
+/**
+ * What the board lets this user change in their own copy. It differs from `capability` in one
+ * case: a role not known yet (before the server's hello, or offline) still edits, so an editor
+ * who opens a board offline keeps working. Only a role the server named `view` is read-only.
+ */
+export function boardAccess(c: Capable): BoardAccess {
+  if (c.role === 'view') return 'read-only';
+  return c.role === 'edit' && c.full ? 'delete-only' : 'edit';
+}

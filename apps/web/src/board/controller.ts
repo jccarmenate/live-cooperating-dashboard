@@ -1,7 +1,9 @@
 import {
   type AlgorithmKind,
   type AlgorithmResult,
+  allowedFor,
   applyCommand,
+  type BoardAccess,
   type Camera,
   CLIP_PREFIX,
   type ClipPayload,
@@ -287,6 +289,8 @@ export function createBoardController(opts: {
   cameraStorage?: CameraStorage;
   /** Shows a transient notice (toasts in the app). */
   notify?: (message: string) => void;
+  /** What the board lets this user change right now (default: edit). */
+  access?: () => BoardAccess;
 }): BoardController {
   const newId = opts.newId ?? (() => crypto.randomUUID());
   const now = opts.now ?? Date.now;
@@ -328,13 +332,22 @@ export function createBoardController(opts: {
     if (s.canUndo !== canUndo || s.canRedo !== canRedo) ui.setState({ canUndo, canRedo });
   });
 
-  const commit = (command: Command) => applyCommand(opts.doc, command, LOCAL_ORIGIN);
+  const access = opts.access ?? ((): BoardAccess => 'edit');
+  /**
+   * A command the server would refuse is not applied at all: it would stay in this user's own
+   * copy and never reach the others. For a viewer that is every command; on a full board,
+   * every command that is not a pure deletion.
+   */
+  const apply = (command: Command, origin: string) => {
+    if (allowedFor(access(), command)) applyCommand(opts.doc, command, origin);
+  };
+  const commit = (command: Command) => apply(command, LOCAL_ORIGIN);
   const throttledCommit = throttle(commit, 50);
-  const commitSession = (command: Command) => applyCommand(opts.doc, command, SESSION_ORIGIN);
+  const commitSession = (command: Command) => apply(command, SESSION_ORIGIN);
   // Page commands touch untracked roots, except DeletePage, which also deletes the page's
   // shapes: on SESSION_ORIGIN a page delete never becomes an undo step that resurrects
   // shapes on a tombstoned page.
-  const commitPage = (command: Command) => applyCommand(opts.doc, command, SESSION_ORIGIN);
+  const commitPage = (command: Command) => apply(command, SESSION_ORIGIN);
 
   /** New shapes and connectors land on the active page. */
   const withPage = (c: Command): Command => {
@@ -383,6 +396,9 @@ export function createBoardController(opts: {
   };
 
   const travel = (direction: 'undo' | 'redo') => {
+    // Undoing a deletion (or redoing a creation) writes content, which only an editor on a
+    // board that takes edits may do.
+    if (access() !== 'edit') return;
     if (ui.getState().tool.mode !== 'idle') return;
     throttledCommit.cancel();
     if (ui.getState().editingId) stopEditing();

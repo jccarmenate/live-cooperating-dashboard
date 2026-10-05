@@ -13,6 +13,7 @@ import { type CalendarState, createCalendarStore } from '../store/calendarStore'
 import { createDocStore, type DocState } from '../store/docStore';
 import { createPresenceStore } from '../store/presenceStore';
 import { createSheetStore, type SheetState } from '../store/sheetStore';
+import { boardAccess } from '../sync/clock';
 import { connectRoom, type RoomConnection } from '../sync/connection';
 import { hashFor, hashTarget, pageFromHash } from '../sync/key';
 import { createPresencePublisher, type PresencePublisher } from '../sync/presence';
@@ -90,6 +91,7 @@ export function createBoardSession(
     serverNow: conn.serverNow,
     cameraStorage: cameraStorage(roomId),
     notify: toast,
+    access: () => boardAccess(conn.clock.getState()),
   });
 
   const unsubscribe = controller.ui.subscribe((state, prev) => {

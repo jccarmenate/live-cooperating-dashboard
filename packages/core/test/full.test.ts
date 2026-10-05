@@ -4,6 +4,7 @@ import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import * as Y from 'yjs';
 import {
+  allowedFor,
   allowedWhenFull,
   applyCommand,
   type Command,
@@ -183,5 +184,19 @@ describe('allowedWhenFull', () => {
       }),
       { numRuns: RUNS },
     );
+  });
+});
+
+describe('allowedFor', () => {
+  const move = { type: 'MoveShapes' as const, moves: [] };
+  const remove = { type: 'DeleteShapes' as const, ids: ['a'] };
+
+  it('edit applies everything, delete-only what only deletes, read-only nothing', () => {
+    expect(allowedFor('edit', move)).toBe(true);
+    expect(allowedFor('edit', remove)).toBe(true);
+    expect(allowedFor('delete-only', move)).toBe(false);
+    expect(allowedFor('delete-only', remove)).toBe(true);
+    expect(allowedFor('read-only', move)).toBe(false);
+    expect(allowedFor('read-only', remove)).toBe(false);
   });
 });

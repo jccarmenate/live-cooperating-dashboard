@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { capability, INITIAL_CLOCK, mayDelete, mayEdit, nextClock } from '../src/sync/clock';
+import {
+  boardAccess,
+  capability,
+  INITIAL_CLOCK,
+  mayDelete,
+  mayEdit,
+  nextClock,
+} from '../src/sync/clock';
 
 describe('clock', () => {
   it('hello sets the role, the offset and whether the board is full', () => {
@@ -57,5 +64,15 @@ describe('capability', () => {
     expect(mayEdit({ role: 'edit', full: true })).toBe(false);
     expect(mayDelete({ role: 'edit', full: true })).toBe(true);
     expect(mayDelete({ role: 'view', full: false })).toBe(false);
+  });
+});
+
+describe('boardAccess', () => {
+  it('a viewer is read-only, an editor on a full board only deletes, and an unknown role edits', () => {
+    expect(boardAccess({ role: 'view', full: false })).toBe('read-only');
+    expect(boardAccess({ role: 'view', full: true })).toBe('read-only');
+    expect(boardAccess({ role: 'edit', full: false })).toBe('edit');
+    expect(boardAccess({ role: 'edit', full: true })).toBe('delete-only');
+    expect(boardAccess({ role: null, full: false })).toBe('edit');
   });
 });
