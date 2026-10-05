@@ -5,6 +5,7 @@ export * from './calendar/recurrence';
 export * from './calendar/time';
 export * from './clipboard/clip';
 export * from './commands/apply';
+export * from './commands/full';
 export * from './commands/origins';
 export * from './commands/types';
 export * from './commands/undo';
