@@ -1246,7 +1246,7 @@ snapshot row per room; update-log compaction is unnecessary at this scale.
 | Awareness frame | 8 KB (a larger frame is dropped), at most 2 awareness client ids per connection |
 | Presence kept on a connection | 3,000 characters per state; a longer one is kept without its selection |
 | Request URL | 2,048 characters; a longer one is refused with `414` |
-| Per-connection rate | Token bucket, 60 messages/s, burst 120; exceeding it closes the socket (4429) so the reconnect resyncs |
+| Per-connection rate | Token bucket kept per socket, 60 messages/s, burst 120; exceeding it closes the socket (4429) so the reconnect resyncs |
 | Connections per room | 25; one more is closed with 4503 |
 | `POST /api/rooms` | 10 per minute per IP |
 | AI requests | Per-room daily cap plus a global daily cap |
@@ -1304,7 +1304,10 @@ without a valid `sid` is accepted but cannot take over anything.
 
 The room tells connections apart by socket, never by connection id. The
 provider keeps its connection id (`_pk`) for its whole life, so the stale
-socket of a reconnecting tab has the same id as the new one.
+socket of a reconnecting tab has the same id as the new one. The rate bucket
+is kept per socket for the same reason: keyed by the id, two sockets that
+share one would share an allowance, and the close of one would hand the other
+a new one.
 
 **Hibernation.** A Durable Object that receives nothing for about ten seconds
 hibernates: its sockets stay open and its memory is discarded, the awareness
@@ -1326,6 +1329,24 @@ room wakes.
 every update the document emits. Yjs emits only what was new, so a resend
 adds nothing. The exact size is measured when the estimate crosses 1 MB and
 on every save.
+
+The estimate is true only because the room holds nothing it could not apply.
+An update that depends on content the room has not received (a gap in a
+client's clocks, or a deletion of content the room lacks) cannot be applied.
+Yjs parks it in the store and emits no update: nothing counts it, it is saved
+with the document and handed to every client that syncs, and no deletion can
+remove it. So after an editor's frame the room drops whatever was parked.
+
+- When the frame was an update, the room also closes the sender (4400). The
+  sender's reconnect syncs from what the room really has, which is how a
+  client that was only ahead of the room gets its change in: one whose change
+  was refused on a full board, or one of two tabs of a browser.
+- When the frame was a sync reply (SyncStep2), the room only drops. That
+  reply is the full sync already, so what it could not apply is data parked
+  in the sender's own document; a close would make the client send the same
+  bytes again, for ever.
+- A snapshot loaded from storage is cleaned the same way, so the room never
+  hands parked data to a client.
 
 - The board becomes full when the exact size is over 1 MB.
 - It stops being full when a save measures 900 KB or less. The gap keeps the
@@ -1364,6 +1385,15 @@ the commands that produce pure deletions: `DeleteShapes`, `DeleteRows`,
 | 4429, rate limited | Wait 5 s, then reconnect. The third 4429 within a minute stops (status `throttled`) with **Try again** |
 | 4401, bad key | Unchanged: status `unauthorized`, "This link is invalid" |
 | 4400, 4409, anything else | The provider's normal reconnect |
+
+**One socket per tab.** The provider's `connect()` is asynchronous, so a
+connection destroyed in the task that created it would still open its socket
+afterwards. React StrictMode does exactly that in development: it mounts,
+cleans up and mounts again. Such a socket has none of the app's listeners,
+takes one of the room's places and follows the library's reconnect policy,
+not the table above. So `connectRoom` creates the provider without
+connecting, and every connect waits one microtask and does nothing once the
+connection has been destroyed.
 
 **Creating rooms.** `POST /api/rooms` goes through a Workers rate limiting
 binding keyed by `CF-Connecting-IP`: 10 requests per 60 s. Over the limit it
