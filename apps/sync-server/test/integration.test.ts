@@ -643,6 +643,7 @@ describe('sync server', () => {
     const h = await hello;
     expect(h.type).toBe('hello');
     expect(h.role).toBe('edit');
+    expect(h.full).toBe(false);
     expect(Math.abs((h.now as number) - Date.now())).toBeLessThan(5000);
 
     const time = nextCustom(editor);

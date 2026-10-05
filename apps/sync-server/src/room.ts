@@ -178,7 +178,10 @@ export class Room extends YServer {
     void this.#sendHello(connection, role);
   }
 
-  /** Capability, server clock and — for editors only — the view key for sharing a read-only link. */
+  /**
+   * Capability, server clock, whether the board is full and — for editors only — the view key for
+   * sharing a read-only link.
+   */
   async #sendHello(connection: Connection, role: Role): Promise<void> {
     let viewKey: string | undefined;
     // Every key edits the demo room, so a "view" link there would open an editable board.
@@ -191,7 +194,13 @@ export class Room extends YServer {
     }
     this.sendCustomMessage(
       connection,
-      encode({ type: 'hello', role, now: Date.now(), ...(viewKey ? { viewKey } : {}) }),
+      encode({
+        type: 'hello',
+        role,
+        now: Date.now(),
+        full: this.#frozen,
+        ...(viewKey ? { viewKey } : {}),
+      }),
     );
   }
 

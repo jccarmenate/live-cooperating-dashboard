@@ -3,7 +3,7 @@ import { IndexeddbPersistence } from 'y-indexeddb';
 import YProvider from 'y-partyserver/provider';
 import * as Y from 'yjs';
 import { createStore, type StoreApi } from 'zustand/vanilla';
-import { type ClockState, nextClock, TIME_REFRESH_MS } from './clock';
+import { type ClockState, INITIAL_CLOCK, nextClock, TIME_REFRESH_MS } from './clock';
 import { newSessionId } from './key';
 import { sendOnlyOwnAwareness } from './ownAwareness';
 
@@ -47,7 +47,7 @@ export function connectRoom(opts: {
     }
   });
 
-  const clock = createStore<ClockState>(() => ({ role: null, offset: 0, viewKey: null }));
+  const clock = createStore<ClockState>(() => INITIAL_CLOCK);
   provider.on('custom-message', (raw: string) => {
     const msg = parseServerMessage(raw);
     if (msg) clock.setState(nextClock(clock.getState(), msg, Date.now()));
