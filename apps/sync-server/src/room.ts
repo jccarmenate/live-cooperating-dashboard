@@ -79,7 +79,8 @@ export class Room extends YServer {
   /**
    * Running estimate of the document's encoded size: the last exact size plus the bytes of every
    * update the document has emitted since. Yjs emits only what was new, so a client re-sending
-   * what the room already has adds nothing.
+   * what the room already has adds nothing. It is exact about what the document holds because the
+   * room holds nothing parked (see `#dropParked`).
    */
   #estimatedBytes = 0;
   readonly #buckets = new WeakMap<Connection, TokenBucket>();
@@ -94,9 +95,14 @@ export class Room extends YServer {
       .toArray()[0];
     if (row) {
       const update = new Uint8Array(row.data);
-      this.#full = update.byteLength > LIMITS.maxDocBytes;
-      this.#estimatedBytes = update.byteLength;
       Y.applyUpdate(this.document, update);
+      // A snapshot saved before the room refused parked data may carry some; without it the
+      // document is smaller than the snapshot.
+      const size = this.#dropParked()
+        ? Y.encodeStateAsUpdate(this.document).byteLength
+        : update.byteLength;
+      this.#full = size > LIMITS.maxDocBytes;
+      this.#estimatedBytes = size;
     }
     this.document.on('update', this.#onDocUpdate);
     initMeta(
@@ -120,6 +126,20 @@ export class Room extends YServer {
     if (this.#full === full) return;
     this.#full = full;
     this.broadcastCustomMessage(encode({ type: 'room', full, now: Date.now() }));
+  }
+
+  /**
+   * An update that depends on content the room has not received cannot be applied. Yjs parks it
+   * in the store: it emits no update, so the size estimate never sees it; it is saved with the
+   * document and handed to every client that syncs; and no deletion can remove it. So the room
+   * keeps none. True when there was something to drop.
+   */
+  #dropParked(): boolean {
+    const { store } = this.document;
+    if (!store.pendingStructs && !store.pendingDs) return false;
+    store.pendingStructs = null;
+    store.pendingDs = null;
+    return true;
   }
 
   async onSave(): Promise<void> {
@@ -240,6 +260,9 @@ export class Room extends YServer {
       }
     }
     super.onMessage(connection, message);
+    // The sender's reconnect syncs from what the room really has: a client that was only ahead of
+    // the room gets its change in that way.
+    if (typeof message !== 'string' && this.#dropParked()) connection.close(4400, 'bad frame');
   }
 
   /**

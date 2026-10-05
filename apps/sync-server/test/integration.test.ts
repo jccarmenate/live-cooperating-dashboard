@@ -440,6 +440,43 @@ describe('sync server', () => {
     await waitFor(() => getRoots(filler.doc).shapes.has('resumed'));
   });
 
+  it('keeps nothing it cannot apply: an update with a gap closes its sender with 4400', async () => {
+    const { roomId, editKey } = await createRoom();
+    const mallory = rawConnect(roomId, { key: editKey });
+    await waitForOpen(mallory);
+    // The second change of a document whose first change the room never got. Yjs cannot apply it
+    // and would park it in the store, where nothing counts it and no deletion reaches it.
+    const doc = new Y.Doc();
+    doc.getMap('m').set('a', 1);
+    const afterFirst = Y.encodeStateVector(doc);
+    doc.getMap('m').set('b', 'x'.repeat(100_000));
+    const closed = waitForClose(mallory);
+    mallory.send(encodeUpdateMessage(Y.encodeStateAsUpdate(doc, afterFirst)));
+    expect((await closed).code).toBe(4400);
+
+    // Nobody who syncs afterwards is handed the parked data.
+    const late = connect(roomId, editKey);
+    await synced(late.provider);
+    expect(late.doc.store.pendingStructs).toBeNull();
+    expect(late.doc.store.pendingDs).toBeNull();
+  });
+
+  it('a deletion of content the room does not have closes its sender with 4400', async () => {
+    const { roomId, editKey } = await createRoom();
+    const mallory = rawConnect(roomId, { key: editKey });
+    await waitForOpen(mallory);
+    const doc = new Y.Doc();
+    doc.getMap('m').set('never-sent', 1);
+    let deletion: Uint8Array | undefined;
+    doc.on('update', (u: Uint8Array) => {
+      deletion = u;
+    });
+    doc.getMap('m').delete('never-sent');
+    const closed = waitForClose(mallory);
+    mallory.send(encodeUpdateMessage(deletion as Uint8Array));
+    expect((await closed).code).toBe(4400);
+  });
+
   it('relays a valid presence state reduced to the fields the validator knows', async () => {
     const { roomId, editKey } = await createRoom();
     const watcher = connect(roomId, editKey);
