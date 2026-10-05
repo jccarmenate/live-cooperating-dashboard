@@ -1256,6 +1256,12 @@ snapshot row per room; update-log compaction is unnecessary at this scale.
 `Room.onMessage` inspects every frame before `y-partyserver` handles it. The
 rules are pure functions in `apps/sync-server/src`, tested without a socket.
 
+A frame is routed by its decoded message type, the varint y-partyserver
+reads, and never by its first byte: a varint has more than one spelling
+(`0x81 0x00` is 1), and a frame routed by its first byte could pass for
+another kind and skip the rules below. A type this protocol does not have is
+dropped. A frame with no type at all closes the socket (4400).
+
 **Why a limit exists.** The room is stored as one SQLite row and Cloudflare
 caps a row at 2 MB, so a larger document cannot be saved. Each save re-encodes
 the whole document inside the free plan's CPU budget, and everyone who opens
@@ -1278,8 +1284,12 @@ entries one by one:
 - Any other state is parsed as JSON and passed through `parsePresence`. A
   state that fails is dropped. A state that passes is re-encoded from the
   parsed value, so peers never receive a field the validator does not know.
-- The accepted entries are applied and relayed as one frame. With no accepted
-  entry, nothing is applied or relayed.
+- The accepted entries are applied as one update. The room then relays the
+  ids it really took, encoded from its own awareness map, and nothing else.
+  The awareness protocol ignores an entry whose clock it has already passed;
+  relayed anyway, such an entry would be taken by a peer who joined later
+  and knows no clock for that id, as a state the room does not hold and
+  nothing removes. With no accepted entry, nothing is applied or relayed.
 - A frame over 8 KB is dropped. A frame that does not decode closes the
   socket (4400).
 
@@ -1430,7 +1440,7 @@ table in the README. CI runs the pipeline with a mocked model.
 | Geometry & tool FSM | Vitest | Bounds, hit-testing, resize from each of 8 handles including flips, connector clipping (rect/ellipse), elbow routing, camera transforms, FSM transition tables |
 | Commands & normalization | Vitest | Each command against an in-memory `Y.Doc`; orphan connectors, missing parents, `z` ties |
 | Convergence | Vitest + `fast-check` | 3 replicas, random concurrent command sequences, delayed/reordered delivery; identical `toJSON()` and invariants; undo interleaved with remote ops; 10,000 runs in a nightly job, fewer on PRs |
-| Server | Vitest + `@cloudflare/vitest-pool-workers` | HMAC verification, viewer write rejection, size/rate limits, persistence round-trip, demo reset. F5a: awareness ownership, spoofed and invalid states dropped, echoes not relayed, session takeover, a full board accepting deletions and refusing the rest, resuming under 900 KB, `429` on room creation, a stale removal that frees no id, presence and the full flag after a real hibernation (the test idles 15 s), `414` for an overlong URL |
+| Server | Vitest + `@cloudflare/vitest-pool-workers` | HMAC verification, viewer write rejection, size/rate limits, persistence round-trip, demo reset. F5a: awareness ownership, spoofed and invalid states dropped, echoes not relayed, session takeover, a full board accepting deletions and refusing the rest, resuming under 900 KB, `429` on room creation, a stale removal that frees no id, a message type written as a longer varint meeting the same rules, an ignored entry that is not relayed, presence and the full flag after a real hibernation (the test idles 15 s), `414` for an overlong URL |
 | Hardening (F5a) | Vitest + `fast-check` | Every command `allowedWhenFull` accepts produces an update with no structs, over random documents; the awareness frame codec round-trips; the client's connection status for each close code; the tool machine by access as a table test; the controller applying nothing for a viewer and only deletions on a full board |
 | End-to-end | Playwright, two browser contexts | Sticky created in A appears in B; named cursor visible; concurrent drags converge; offline edit + reconnect via `setOffline`; read-only link blocks editing; visual snapshot of the retro frame. F5a: a board filled over the cap shows the notice in both browsers, deleting brings it back, and editing works again; a viewer draws, drags and types and nothing changes, in the viewer's own copy either |
 | AI | `eval:ai` | ARI, schema-validity rate (mocked model in CI) |
