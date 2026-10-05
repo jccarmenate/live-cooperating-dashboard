@@ -1,12 +1,13 @@
 import { useStore } from 'zustand';
 import type { BoardSession } from '../board/session';
+import { mayEdit } from '../sync/clock';
 import { MEDIA, useMediaQuery } from '../ui/responsive';
 
 /** First steps on an empty board page (editors only, after the first sync so it never flashes). */
 export function EmptyHint({ session }: { session: BoardSession }) {
   const empty = useStore(session.doc, (d) => d.order.length === 0);
   const synced = useStore(session.controller.ui, (s) => s.synced);
-  const canEdit = useStore(session.conn.clock, (c) => c.role === 'edit');
+  const canEdit = useStore(session.conn.clock, mayEdit);
   const touch = useMediaQuery(MEDIA.coarse);
   if (!empty || !synced || !canEdit) return null;
   return (

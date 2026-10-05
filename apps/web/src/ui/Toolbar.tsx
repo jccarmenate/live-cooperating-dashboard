@@ -16,6 +16,7 @@ import {
 import { type ComponentType, useEffect, useRef, useState } from 'react';
 import { useStore } from 'zustand';
 import type { BoardSession } from '../board/session';
+import { mayEdit } from '../sync/clock';
 
 interface Tool {
   id: ToolId;
@@ -205,7 +206,7 @@ function GraphButton({ session, canEdit }: { session: BoardSession; canEdit: boo
 export function Toolbar({ session }: { session: BoardSession }) {
   const active = useStore(session.controller.ui, (s) => s.tool.tool);
   const multiSelect = useStore(session.controller.ui, (s) => s.multiSelect);
-  const role = useStore(session.conn.clock, (c) => c.role);
+  const editable = useStore(session.conn.clock, mayEdit);
   const pick = (id: ToolId) => session.controller.dispatch({ type: 'setTool', tool: id });
   return (
     <nav
@@ -237,7 +238,7 @@ export function Toolbar({ session }: { session: BoardSession }) {
         <SquareDashedMousePointer className="size-4" />
       </button>
       <ShapesButton session={session} active={active} />
-      {AFTER_SHAPES.filter((t) => t.id !== 'comment' || role === 'edit').map((tool) => (
+      {AFTER_SHAPES.filter((t) => t.id !== 'comment' || editable).map((tool) => (
         <ToolButton
           key={tool.id}
           tool={tool}
@@ -245,7 +246,7 @@ export function Toolbar({ session }: { session: BoardSession }) {
           onPick={() => pick(tool.id)}
         />
       ))}
-      <GraphButton session={session} canEdit={role === 'edit'} />
+      <GraphButton session={session} canEdit={editable} />
       <button
         type="button"
         data-testid="help-button"

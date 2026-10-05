@@ -55,6 +55,7 @@ function actions(): CanvasMenuActions {
 function ctx(extra: Partial<CanvasMenuContext> = {}): CanvasMenuContext {
   return {
     canEdit: true,
+    canDelete: true,
     selection: [],
     shapes: { s1: shape('s1'), s2: shape('s2', { locked: true }) },
     connectors: { k1: connector },
@@ -125,7 +126,10 @@ describe('canvasMenu', () => {
   });
 
   it('a viewer gets no Add to calendar', () => {
-    const items = canvasMenu(ctx({ canEdit: false, selection: ['s1'], hitId: 's1' }), actions());
+    const items = canvasMenu(
+      ctx({ canEdit: false, canDelete: false, selection: ['s1'], hitId: 's1' }),
+      actions(),
+    );
     expect(ids(items)).not.toContain('menu-add-calendar');
   });
 
@@ -165,10 +169,42 @@ describe('canvasMenu', () => {
   });
 
   it('viewers get only Copy (with a selection) and Zoom to fit', () => {
-    expect(ids(canvasMenu(ctx({ canEdit: false, selection: ['s1'] }), actions()))).toEqual([
-      'menu-copy',
+    expect(
+      ids(canvasMenu(ctx({ canEdit: false, canDelete: false, selection: ['s1'] }), actions())),
+    ).toEqual(['menu-copy', 'menu-fit']);
+    expect(ids(canvasMenu(ctx({ canEdit: false, canDelete: false }), actions()))).toEqual([
       'menu-fit',
     ]);
-    expect(ids(canvasMenu(ctx({ canEdit: false }), actions()))).toEqual(['menu-fit']);
+  });
+
+  it('on a full board a selection offers Copy, Delete and Zoom to fit', () => {
+    const a = actions();
+    const items = canvasMenu(
+      ctx({ canEdit: false, canDelete: true, selection: ['s1'], hitId: 's1' }),
+      a,
+    );
+    expect(ids(items)).toEqual(['menu-copy', 'menu-delete', 'menu-fit']);
+    const remove = items.find((e) => 'label' in e && e.testId === 'menu-delete');
+    expect(remove).toMatchObject({ label: 'Delete', danger: true, disabled: false });
+    if (remove && 'label' in remove) remove.onSelect();
+    expect(a.remove).toHaveBeenCalledTimes(1);
+  });
+
+  it('on a full board a locked selection keeps Delete disabled', () => {
+    const items = canvasMenu(
+      ctx({ canEdit: false, canDelete: true, selection: ['s2'], hitId: 's2' }),
+      actions(),
+    );
+    expect(items.find((e) => 'label' in e && e.testId === 'menu-delete')).toMatchObject({
+      disabled: true,
+    });
+  });
+
+  it('a viewer still gets only Copy and Zoom to fit', () => {
+    const items = canvasMenu(
+      ctx({ canEdit: false, canDelete: false, selection: ['s1'], hitId: 's1' }),
+      actions(),
+    );
+    expect(ids(items)).toEqual(['menu-copy', 'menu-fit']);
   });
 });

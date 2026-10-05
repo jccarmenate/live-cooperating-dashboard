@@ -4,6 +4,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import { useStore } from 'zustand';
 import type { BoardSession } from '../board/session';
 import { onPage } from '../render/pageFilter';
+import { mayEdit } from '../sync/clock';
 import { ContextMenu, type MenuItem } from './ContextMenu';
 import { ConfirmDialog } from './Dialog';
 import { MEDIA, overflowEdges, useMediaQuery } from './responsive';
@@ -27,7 +28,7 @@ export function PageTabs({ session }: { session: BoardSession }) {
   const active = useStore(session.doc, (d) => d.activePage);
   useStore(session.presence, (s) => peerDotsSignature(s.peers));
   const peers = session.presence.getState().peers;
-  const canEdit = useStore(session.conn.clock, (c) => c.role === 'edit');
+  const canEdit = useStore(session.conn.clock, mayEdit);
   const touch = useMediaQuery(MEDIA.coarse);
   const [renaming, setRenaming] = useState<string | null>(null);
   const [menu, setMenu] = useState<Menu>(null);

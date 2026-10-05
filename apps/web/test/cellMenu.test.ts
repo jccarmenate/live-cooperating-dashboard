@@ -18,6 +18,20 @@ describe('cellMenu', () => {
   });
 });
 
+describe('cellMenu on a full board', () => {
+  it('offers Copy and Clear contents when the user may only delete', () => {
+    expect(cellMenu(false, actions, true).map((i) => i.testId)).toEqual([
+      'cell-menu-copy',
+      'cell-menu-clear',
+    ]);
+  });
+
+  it('offers only Copy to a viewer', () => {
+    expect(cellMenu(false, actions, false).map((i) => i.testId)).toEqual(['cell-menu-copy']);
+    expect(cellMenu(false, actions).map((i) => i.testId)).toEqual(['cell-menu-copy']);
+  });
+});
+
 describe('insideRange', () => {
   const range = { r0: 1, r1: 3, c0: 0, c1: 2 };
 

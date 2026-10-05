@@ -3,6 +3,7 @@ import { ChevronLeft, ChevronRight, Ellipsis, Plus } from 'lucide-react';
 import { type ChangeEvent, useCallback, useRef, useState } from 'react';
 import { useStore } from 'zustand';
 import type { BoardSession } from '../board/session';
+import { mayEdit } from '../sync/clock';
 import { ContextMenu, type MenuEntry } from '../ui/ContextMenu';
 import { MEDIA, useMediaQuery } from '../ui/responsive';
 import { toast } from '../ui/toasts';
@@ -35,7 +36,7 @@ export function CalendarHeader({
 }) {
   const view = useStore(ctl.ui, (s) => s.view);
   const anchor = useStore(ctl.ui, (s) => s.anchor);
-  const canEdit = useStore(session.conn.clock, (c) => c.role === 'edit');
+  const canEdit = useStore(session.conn.clock, mayEdit);
   const title = useStore(
     session.doc,
     (d) => d.pages.find((p) => p.id === d.activePage)?.title ?? 'Calendar',

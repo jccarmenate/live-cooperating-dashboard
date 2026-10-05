@@ -1,7 +1,8 @@
 import { useEffect } from 'react';
 import type { BoardSession } from '../board/session';
+import { capability } from '../sync/clock';
 import { onBoardPage } from './pageKind';
-import { gateByRole, keyDownAction, keyUpAction, type ShortcutAction } from './shortcuts';
+import { gateByCapability, keyDownAction, keyUpAction, type ShortcutAction } from './shortcuts';
 import { leavesKeyAlone } from './typing';
 
 export function useShortcuts(session: BoardSession) {
@@ -51,11 +52,14 @@ export function useShortcuts(session: BoardSession) {
           break;
       }
     };
-    // The role is read at keydown time, so a late `hello` (or a role change) applies immediately.
+    // The capability is read at keydown time, so a late `hello` or a board becoming full applies at once.
     const onKeyDown = (e: KeyboardEvent) => {
       if (!onBoardPage(session)) return;
       run(
-        gateByRole(keyDownAction(e, leavesKeyAlone(e.target, e.key)), conn.clock.getState().role),
+        gateByCapability(
+          keyDownAction(e, leavesKeyAlone(e.target, e.key)),
+          capability(conn.clock.getState()),
+        ),
         e,
       );
     };

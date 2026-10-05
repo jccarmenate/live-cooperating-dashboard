@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import type { BoardSession } from '../board/session';
+import { mayDelete, mayEdit } from '../sync/clock';
 import { isTyping } from '../ui/typing';
 import type { SheetController } from './sheetController';
 
@@ -51,7 +52,7 @@ export function useSheetKeys(session: BoardSession, ctl: SheetController | null)
         e.target.blur();
         return;
       }
-      const canEdit = session.conn.clock.getState().role === 'edit';
+      const canEdit = mayEdit(session.conn.clock.getState());
       if ((e.ctrlKey || e.metaKey) && char === null) {
         const k = e.key.toLowerCase();
         if (k === 'a') {
@@ -91,7 +92,15 @@ export function useSheetKeys(session: BoardSession, ctl: SheetController | null)
         ctl.move(e.shiftKey ? -1 : 1, 0);
         return;
       }
-      if (!canEdit) return;
+      if (!canEdit) {
+        // A full board: Delete still clears the selected cells.
+        const del = e.key === 'Delete' || e.key === 'Backspace';
+        if (del && mayDelete(session.conn.clock.getState())) {
+          e.preventDefault();
+          ctl.clear();
+        }
+        return;
+      }
       if (e.key === 'F2') {
         e.preventDefault();
         ctl.startEdit();

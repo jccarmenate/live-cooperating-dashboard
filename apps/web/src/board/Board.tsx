@@ -13,6 +13,7 @@ import { Minimap } from '../render/Minimap';
 import { RemoteCursors } from '../render/RemoteCursors';
 import { TextEditor } from '../render/TextEditor';
 import { SheetPage } from '../sheet/SheetPage';
+import { mayEdit } from '../sync/clock';
 import { keyFromHash, pageFromHash } from '../sync/key';
 import { AddToCalendarDialog } from '../ui/AddToCalendarDialog';
 import { AlgorithmsPanel } from '../ui/AlgorithmsPanel';
@@ -36,7 +37,7 @@ function BoardView({ session }: { session: BoardSession }) {
   useClipboard(session);
   const type = useStore(session.doc, (d) => d.pages.find((p) => p.id === d.activePage)?.type);
   const hasPages = useStore(session.doc, (d) => d.pages.length > 0);
-  const canEdit = useStore(session.conn.clock, (c) => c.role === 'edit');
+  const canEdit = useStore(session.conn.clock, mayEdit);
   return (
     <div className="safe-area fixed inset-0 flex flex-col bg-paper">
       <Header session={session} />

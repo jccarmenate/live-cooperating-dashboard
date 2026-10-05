@@ -1,4 +1,5 @@
-import type { Role, ToolEvent, ToolId } from '@relay/core';
+import type { ToolEvent, ToolId } from '@relay/core';
+import type { Capability } from '../sync/clock';
 
 /** The parts of a KeyboardEvent the shortcut table reads (plain objects in tests). */
 export interface KeyInput {
@@ -92,15 +93,23 @@ const MUTATING_EVENTS: ReadonlySet<ToolEvent['type']> = new Set([
 ]);
 
 /**
- * Drops shortcuts the role may not use: only editors change the document (delete, nudge,
- * routing, duplicate, restack, undo, redo) or pick the comment tool. The server drops a
- * viewer's updates anyway; this keeps the viewer's local doc and IndexedDB from forking.
+ * Drops shortcuts the user may not use. Only an editor changes the document (delete, nudge,
+ * routing, duplicate, restack, undo, redo) or picks the comment tool; on a full board an editor
+ * keeps the delete shortcut only. The server drops the rest anyway; this keeps the local doc
+ * and IndexedDB from forking.
  */
-export function gateByRole(
+export function gateByCapability(
   action: ShortcutAction | null,
-  role: Role | null,
+  cap: Capability,
 ): ShortcutAction | null {
-  if (!action || role === 'edit') return action;
+  if (!action || cap === 'edit') return action;
+  if (
+    cap === 'delete-only' &&
+    action.type === 'dispatch' &&
+    action.event.type === 'deleteSelection'
+  ) {
+    return action;
+  }
   switch (action.type) {
     case 'duplicate':
     case 'z':

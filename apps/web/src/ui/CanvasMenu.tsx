@@ -3,6 +3,7 @@ import { useCallback } from 'react';
 import { useStore } from 'zustand';
 import type { BoardSession } from '../board/session';
 import { useVoteOpen } from '../render/voting';
+import { mayDelete, mayEdit } from '../sync/clock';
 import { ContextMenu } from './ContextMenu';
 import { canvasMenu } from './canvasMenuItems';
 import { readClip, writeClip } from './clipboard';
@@ -14,7 +15,8 @@ export function CanvasMenu({ session }: { session: BoardSession }) {
   const selection = useStore(controller.ui, (s) => s.tool.selection);
   const shapes = useStore(session.doc, (d) => d.shapes);
   const connectors = useStore(session.doc, (d) => d.connectors);
-  const canEdit = useStore(session.conn.clock, (c) => c.role === 'edit');
+  const canEdit = useStore(session.conn.clock, mayEdit);
+  const deletable = useStore(session.conn.clock, mayDelete);
   const voteKeys = useStore(session.activity, (a) => a.voteKeys);
   const voteOpen = useVoteOpen(session);
   const close = useCallback(() => controller.closeMenu(), [controller]);
@@ -29,6 +31,7 @@ export function CanvasMenu({ session }: { session: BoardSession }) {
   const items = canvasMenu(
     {
       canEdit,
+      canDelete: deletable,
       selection,
       shapes,
       connectors,

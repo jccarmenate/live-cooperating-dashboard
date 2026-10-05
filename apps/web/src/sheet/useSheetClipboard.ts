@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import type { BoardSession } from '../board/session';
+import { mayEdit } from '../sync/clock';
 import { isTyping } from '../ui/typing';
 import type { SheetController } from './sheetController';
 
@@ -14,7 +15,7 @@ export function useSheetClipboard(session: BoardSession, ctl: SheetController | 
       (e.target instanceof Element && e.target.closest('[role="dialog"]') !== null) ||
       // Selected page text (a header, a toast) copies natively; a paste still goes to the grid.
       (e.type !== 'paste' && window.getSelection()?.isCollapsed === false);
-    const canEdit = () => session.conn.clock.getState().role === 'edit';
+    const canEdit = () => mayEdit(session.conn.clock.getState());
     const onCopy = (e: ClipboardEvent) => {
       if (skip(e)) return;
       const text = ctl.copy();

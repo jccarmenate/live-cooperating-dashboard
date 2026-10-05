@@ -12,6 +12,7 @@ import { type MouseEvent, type PointerEvent, useEffect, useRef, useState } from 
 import { useStore } from 'zustand';
 import { useShallow } from 'zustand/react/shallow';
 import type { BoardSession } from '../board/session';
+import { mayEdit } from '../sync/clock';
 import { blurStrayFocus } from '../ui/typing';
 import { ConnectorView } from './ConnectorView';
 import { GraphOverlay } from './GraphOverlay';
@@ -182,7 +183,7 @@ export function Canvas({ session }: { session: BoardSession }) {
 
   const doubleClick = (p: PointerInfo) => {
     // A double-click on a connector (not on a shape) edits its label; editors only.
-    if (!p.hitId && p.connectorId && session.conn.clock.getState().role === 'edit') {
+    if (!p.hitId && p.connectorId && mayEdit(session.conn.clock.getState())) {
       controller.editConnectorLabel(p.connectorId);
       return;
     }

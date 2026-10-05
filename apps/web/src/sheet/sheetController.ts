@@ -136,6 +136,8 @@ export function createSheetController(opts: {
   sheet: StoreApi<SheetState>;
   commit: (...commands: Command[]) => boolean;
   canEdit: () => boolean;
+  /** Deleting is allowed (an editor on a full board); defaults to `canEdit`. */
+  canDelete?: () => boolean;
   newId?: () => string;
   notify?: (message: string) => void;
 }): SheetController {
@@ -181,16 +183,20 @@ export function createSheetController(opts: {
 
   const run = (...commands: Command[]): boolean =>
     opts.canEdit() && commands.length > 0 && opts.commit(...commands);
+  const canDelete = () => (opts.canDelete ?? opts.canEdit)();
+  /** For commands that only delete: they still go through on a full board. */
+  const runDelete = (...commands: Command[]): boolean =>
+    canDelete() && commands.length > 0 && opts.commit(...commands);
 
   /** Writes cells (edit, clear, format, fill); paste checks its budget with its own wording. */
-  const setCells = (cells: SheetCellWrite[]): boolean => {
+  const setCells = (cells: SheetCellWrite[], gate: typeof run = run): boolean => {
     const pageId = page();
     if (!pageId || cells.length === 0) return false;
     if (batchBytes(cells) > MAX_SHEET_BATCH_BYTES) {
       notify('Too many cells at once');
       return false;
     }
-    return run({ type: 'SetCells', pageId, cells });
+    return gate({ type: 'SetCells', pageId, cells });
   };
 
   const cellAt = (
@@ -235,13 +241,21 @@ export function createSheetController(opts: {
     const s = snap();
     const r = range();
     if (!s || !r) return;
+    // Clearing keeps a cell's format. On a full board that would write the cell again, which
+    // the server refuses, so there the format goes with the content.
+    const keepFormat = opts.canEdit();
     const writes: SheetCellWrite[] = [];
     for (let i = r.r0; i <= r.r1; i++)
       for (let j = r.c0; j <= r.c1; j++) {
         const c = cellAt(s, i, j);
-        if (c?.cell?.src) writes.push(write(c.row, c.col, '', c.cell.fmt));
+        if (!c?.cell) continue;
+        if (keepFormat) {
+          if (c.cell.src) writes.push(write(c.row, c.col, '', c.cell.fmt));
+        } else {
+          writes.push(write(c.row, c.col, ''));
+        }
       }
-    setCells(writes);
+    setCells(writes, keepFormat ? run : runDelete);
   };
 
   const setFormat = (patch: FormatPatch) => {
@@ -424,7 +438,11 @@ export function createSheetController(opts: {
         notify('A sheet needs at least one row');
         return;
       }
-      run({ type: 'DeleteRows', pageId, ids: s.rows.slice(r.r0, r.r1 + 1).map((x) => x.id) });
+      runDelete({
+        type: 'DeleteRows',
+        pageId,
+        ids: s.rows.slice(r.r0, r.r1 + 1).map((x) => x.id),
+      });
     },
     deleteCols() {
       const s = snap();
@@ -435,7 +453,11 @@ export function createSheetController(opts: {
         notify('A sheet needs at least one column');
         return;
       }
-      run({ type: 'DeleteCols', pageId, ids: s.cols.slice(r.c0, r.c1 + 1).map((x) => x.id) });
+      runDelete({
+        type: 'DeleteCols',
+        pageId,
+        ids: s.cols.slice(r.c0, r.c1 + 1).map((x) => x.id),
+      });
     },
     moveRow(id, toIndex) {
       const s = snap();

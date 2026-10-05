@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import type { BoardSession } from '../board/session';
+import { mayDelete, mayEdit } from '../sync/clock';
 import { isTyping } from '../ui/typing';
 import type { CalendarController } from './calendarController';
 
@@ -90,7 +91,7 @@ export function useCalendarKeys(session: BoardSession, ctl: CalendarController) 
       if (editor || question) return;
       const action = calendarKey(e);
       if (!action) return;
-      const canEdit = session.conn.clock.getState().role === 'edit';
+      const canEdit = mayEdit(session.conn.clock.getState());
       e.preventDefault();
       switch (action) {
         case 'today':
@@ -109,7 +110,7 @@ export function useCalendarKeys(session: BoardSession, ctl: CalendarController) 
           if (selected) ctl.openEditor(selected);
           return;
         case 'delete':
-          if (selected && canEdit) ctl.remove(selected);
+          if (selected && mayDelete(session.conn.clock.getState())) ctl.remove(selected);
           return;
         case 'deselect':
           return ctl.select(null);

@@ -106,6 +106,8 @@ export interface CalendarControllerOptions {
   /** SESSION origin (RSVP), never undoable. */
   commitSession(command: Command): void;
   canEdit(): boolean;
+  /** Deleting is allowed (an editor on a full board); defaults to `canEdit`. */
+  canDelete?(): boolean;
   notify(message: string): void;
   user: { id: string; name: string };
   zone: string;
@@ -277,6 +279,7 @@ export function createCalendarController(opts: CalendarControllerOptions): Calen
   };
 
   const commitEvent = (...commands: Command[]) => opts.commit(...commands);
+  const canDelete = () => (opts.canDelete ? opts.canDelete() : opts.canEdit());
 
   /** A when as the viewer sees it: dates and times in the viewer's zone. */
   const viewerFields = (w: When) => {
@@ -840,28 +843,35 @@ export function createCalendarController(opts: CalendarControllerOptions): Calen
     remove(ref) {
       const page = pageId();
       const ev = eventById(ref.eventId);
-      if (!opts.canEdit() || !page || !ev) return;
+      if (!canDelete() || !page || !ev) return;
       const done = () => ui.setState({ selected: null, editor: null });
       if (!ev.rule) {
         if (commitEvent({ type: 'DeleteEvent', pageId: page, id: ev.id })) done();
         return;
       }
-      ask(ref, { action: 'delete', drops: 0 }, (scope) => {
-        const cur = eventById(ref.eventId);
-        if (!cur) return;
-        const ok =
-          scope === 'one'
-            ? setOccurrence(cur, ref.key, { cancelled: true })
-            : commitEvent({ type: 'DeleteEvent', pageId: page, id: cur.id });
-        if (ok) done();
-      });
+      // Cancelling one occurrence writes an exception. A full board refuses that, so there
+      // only the whole series can be removed.
+      const allOnly = !opts.canEdit();
+      ask(
+        ref,
+        { action: 'delete', drops: 0, ...(allOnly ? { allOnly: true as const } : {}) },
+        (scope) => {
+          const cur = eventById(ref.eventId);
+          if (!cur) return;
+          const ok =
+            scope === 'one'
+              ? setOccurrence(cur, ref.key, { cancelled: true })
+              : commitEvent({ type: 'DeleteEvent', pageId: page, id: cur.id });
+          if (ok) done();
+        },
+      );
     },
     answer(scope) {
       const p = pending;
       if (scope === 'one' && ui.getState().question?.allOnly) return;
       pending = null;
       ui.setState({ question: null });
-      if (!scope || !p || !opts.canEdit() || !eventById(p.ref.eventId)) return;
+      if (!scope || !p || !canDelete() || !eventById(p.ref.eventId)) return;
       p.run(scope);
     },
     rsvp(eventId, status) {

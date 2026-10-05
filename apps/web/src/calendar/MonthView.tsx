@@ -2,6 +2,7 @@ import { dayNumber, type Occurrence, parseDate, todayIn, toWall } from '@relay/c
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from 'zustand';
 import type { BoardSession } from '../board/session';
+import { mayEdit } from '../sync/clock';
 import type { CalendarController } from './calendarController';
 import { EventDots } from './EventDots';
 import {
@@ -30,7 +31,7 @@ export function MonthView({
 }) {
   const anchor = useStore(ctl.ui, (s) => s.anchor);
   const selected = useStore(ctl.ui, (s) => s.selected);
-  const canEdit = useStore(session.conn.clock, (c) => c.role === 'edit');
+  const canEdit = useStore(session.conn.clock, mayEdit);
   // The popover belongs to the period it was opened in: navigating closes it.
   const [popover, setPopover] = useState<{ date: string; anchor: string } | null>(null);
   const openDate = popover?.anchor === anchor ? popover.date : null;

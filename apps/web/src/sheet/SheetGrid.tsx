@@ -57,12 +57,15 @@ export function SheetGrid({
   session,
   ctl,
   canEdit,
+  canDelete,
   headers,
   overlay,
 }: {
   session: BoardSession;
   ctl: SheetController;
   canEdit: boolean;
+  /** Deleting is allowed (an editor, even on a full board). */
+  canDelete: boolean;
   /** Column and row header renderers (Task 10 adds menus, reorder and resize). */
   headers?: {
     col(index: number, id: string, width: number): ReactNode;
@@ -113,22 +116,26 @@ export function SheetGrid({
     scroller.current?.focus({ preventScroll: true });
   }, []);
 
-  const menuItems = cellMenu(canEdit, {
-    copy: () => {
-      const text = ctl.copy();
-      if (text !== null) void writeClip(text);
+  const menuItems = cellMenu(
+    canEdit,
+    {
+      copy: () => {
+        const text = ctl.copy();
+        if (text !== null) void writeClip(text);
+      },
+      cut: () => {
+        const text = ctl.cut();
+        if (text !== null) void writeClip(text);
+      },
+      // When the browser refuses to read the clipboard, the sheet's own last copy is pasted.
+      paste: () =>
+        void readClip(ctl.lastCopied()).then((text) => {
+          if (text === null || !ctl.paste(text)) toast('Nothing to paste');
+        }),
+      clear: () => ctl.clear(),
     },
-    cut: () => {
-      const text = ctl.cut();
-      if (text !== null) void writeClip(text);
-    },
-    // When the browser refuses to read the clipboard, the sheet's own last copy is pasted.
-    paste: () =>
-      void readClip(ctl.lastCopied()).then((text) => {
-        if (text === null || !ctl.paste(text)) toast('Nothing to paste');
-      }),
-    clear: () => ctl.clear(),
-  });
+    canDelete,
+  );
 
   // Non-passive, so a range selection can stop the grid scrolling under the finger.
   useEffect(() => {

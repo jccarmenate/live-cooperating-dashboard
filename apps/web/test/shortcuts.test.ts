@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { gateByRole, type KeyInput, keyDownAction, keyUpAction } from '../src/ui/shortcuts';
+import { gateByCapability, type KeyInput, keyDownAction, keyUpAction } from '../src/ui/shortcuts';
 
 const k = (key: string, mods: Partial<KeyInput> = {}): KeyInput => ({
   key,
@@ -34,13 +34,13 @@ describe('keyboard shortcuts', () => {
 
   it('M reaches the comment tool only for editors; other shortcuts pass through', () => {
     const m = keyDownAction(k('m'), false);
-    expect(gateByRole(m, 'edit')).toEqual(m);
-    expect(gateByRole(m, 'view')).toBeNull();
-    expect(gateByRole(m, null)).toBeNull();
+    expect(gateByCapability(m, 'edit')).toEqual(m);
+    expect(gateByCapability(m, 'view')).toBeNull();
+    expect(gateByCapability(m, 'delete-only')).toBeNull();
     const rect = keyDownAction(k('r'), false);
-    expect(gateByRole(rect, 'view')).toEqual(rect);
-    expect(gateByRole({ type: 'undo' }, 'edit')).toEqual({ type: 'undo' });
-    expect(gateByRole(null, 'edit')).toBeNull();
+    expect(gateByCapability(rect, 'view')).toEqual(rect);
+    expect(gateByCapability({ type: 'undo' }, 'edit')).toEqual({ type: 'undo' });
+    expect(gateByCapability(null, 'edit')).toBeNull();
   });
 
   it('E toggles connector routing', () => {
@@ -139,12 +139,12 @@ describe('canvas UX shortcuts', () => {
   });
 
   it('viewers cannot duplicate or restack but can select all, fit and open help', () => {
-    expect(gateByRole({ type: 'duplicate' }, 'view')).toBeNull();
-    expect(gateByRole({ type: 'z', where: 'front' }, 'view')).toBeNull();
-    expect(gateByRole({ type: 'selectAll' }, 'view')).toEqual({ type: 'selectAll' });
-    expect(gateByRole({ type: 'zoomToFit' }, null)).toEqual({ type: 'zoomToFit' });
-    expect(gateByRole({ type: 'help' }, 'view')).toEqual({ type: 'help' });
-    expect(gateByRole({ type: 'duplicate' }, 'edit')).toEqual({ type: 'duplicate' });
+    expect(gateByCapability({ type: 'duplicate' }, 'view')).toBeNull();
+    expect(gateByCapability({ type: 'z', where: 'front' }, 'view')).toBeNull();
+    expect(gateByCapability({ type: 'selectAll' }, 'view')).toEqual({ type: 'selectAll' });
+    expect(gateByCapability({ type: 'zoomToFit' }, 'view')).toEqual({ type: 'zoomToFit' });
+    expect(gateByCapability({ type: 'help' }, 'view')).toEqual({ type: 'help' });
+    expect(gateByCapability({ type: 'duplicate' }, 'edit')).toEqual({ type: 'duplicate' });
   });
 
   const down = (key: string, mods: Partial<KeyInput> = {}) => keyDownAction(k(key, mods), false);
@@ -172,19 +172,26 @@ describe('canvas UX shortcuts', () => {
     ['Escape (cancel)', down('Escape')],
   ];
 
-  for (const role of ['view', null] as const) {
-    it.each(mutating)(`role ${role}: drops %s`, (_name, action) => {
-      expect(action).not.toBeNull();
-      expect(gateByRole(action, role)).toBeNull();
-    });
-    it.each(harmless)(`role ${role}: keeps %s`, (_name, action) => {
-      expect(action).not.toBeNull();
-      expect(gateByRole(action, role)).toEqual(action);
-    });
-  }
+  it.each(mutating)('view: drops %s', (_name, action) => {
+    expect(action).not.toBeNull();
+    expect(gateByCapability(action, 'view')).toBeNull();
+  });
+  it.each(harmless)('view: keeps %s', (_name, action) => {
+    expect(action).not.toBeNull();
+    expect(gateByCapability(action, 'view')).toEqual(action);
+  });
 
   it.each([...mutating, ...harmless])('editors keep %s', (_name, action) => {
-    expect(gateByRole(action, 'edit')).toEqual(action);
+    expect(gateByCapability(action, 'edit')).toEqual(action);
+  });
+
+  it('on a full board only the delete shortcut changes the document', () => {
+    const del = keyDownAction(key('Delete'), false);
+    expect(gateByCapability(del, 'delete-only')).toEqual(del);
+    expect(gateByCapability({ type: 'undo' }, 'delete-only')).toBeNull();
+    expect(gateByCapability({ type: 'duplicate' }, 'delete-only')).toBeNull();
+    expect(gateByCapability({ type: 'selectAll' }, 'delete-only')).toEqual({ type: 'selectAll' });
+    expect(gateByCapability(del, 'view')).toBeNull();
   });
 });
 
@@ -192,6 +199,6 @@ describe('graph menu key', () => {
   it('G opens the graph menu for everyone', () => {
     const g = { key: 'g', ctrlKey: false, metaKey: false, shiftKey: false, altKey: false };
     expect(keyDownAction(g, false)).toEqual({ type: 'graphMenu' });
-    expect(gateByRole({ type: 'graphMenu' }, 'view')).toEqual({ type: 'graphMenu' });
+    expect(gateByCapability({ type: 'graphMenu' }, 'view')).toEqual({ type: 'graphMenu' });
   });
 });

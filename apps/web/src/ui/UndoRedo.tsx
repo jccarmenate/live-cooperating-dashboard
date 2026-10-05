@@ -2,6 +2,7 @@ import { Redo2, Undo2 } from 'lucide-react';
 import type { MouseEvent, PointerEvent } from 'react';
 import { useStore } from 'zustand';
 import type { BoardSession } from '../board/session';
+import { mayEdit } from '../sync/clock';
 
 // Focus stays where it is: a press never blurs (and so commits) a cell or text being edited.
 // Cancelling pointerdown covers fingers; mousedown is what moves the focus with a mouse.
@@ -18,7 +19,7 @@ export function UndoRedo({ session }: { session: BoardSession }) {
   const { controller } = session;
   const canUndo = useStore(controller.ui, (s) => s.canUndo);
   const canRedo = useStore(controller.ui, (s) => s.canRedo);
-  const canEdit = useStore(session.conn.clock, (c) => c.role === 'edit');
+  const canEdit = useStore(session.conn.clock, mayEdit);
   if (!canEdit) return null;
   return (
     <div className="flex h-row shrink-0 items-end gap-1 border-b-2 border-ink bg-paper pr-3 pb-0.5 pl-1">

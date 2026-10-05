@@ -4,6 +4,7 @@ import { type ReactNode, useLayoutEffect, useRef, useState } from 'react';
 import { useStore } from 'zustand';
 import type { BoardSession } from '../board/session';
 import { FONT_CLASS } from '../render/typography';
+import { mayEdit } from '../sync/clock';
 import { barMaxWidth, barPosition, selectionInfo } from './selectionInfo';
 import {
   FILL_SWATCHES,
@@ -91,7 +92,7 @@ export function PropertiesBar({ session }: { session: BoardSession }) {
   const viewport = useStore(controller.ui, (s) => s.viewport);
   const shapes = useStore(session.doc, (d) => d.shapes);
   const connectors = useStore(session.doc, (d) => d.connectors);
-  const canEdit = useStore(session.conn.clock, (c) => c.role === 'edit');
+  const canEdit = useStore(session.conn.clock, mayEdit);
   const ref = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ w: 0, h: 0 });
   // The toolbar's right edge (container px): the bar stays right of it, so the tools stay

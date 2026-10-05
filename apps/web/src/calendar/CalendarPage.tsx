@@ -4,6 +4,7 @@ import { viewerZone } from '@relay/core';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from 'zustand';
 import type { BoardSession } from '../board/session';
+import { mayDelete, mayEdit } from '../sync/clock';
 import { toast } from '../ui/toasts';
 import { CalendarHeader } from './CalendarHeader';
 import { type CalendarController, createCalendarController } from './calendarController';
@@ -24,7 +25,8 @@ export function CalendarPage({ session }: { session: BoardSession }) {
       calendar: session.calendar,
       commit: session.controller.commit,
       commitSession: session.controller.commitSession,
-      canEdit: () => session.conn.clock.getState().role === 'edit',
+      canEdit: () => mayEdit(session.conn.clock.getState()),
+      canDelete: () => mayDelete(session.conn.clock.getState()),
       notify: toast,
       user: session.user,
       zone: viewerZone(),
