@@ -46,10 +46,12 @@ function connect(room: string, key: string | null) {
 /** Connects directly to the room's WebSocket endpoint, bypassing the Yjs provider. */
 function rawConnect(
   room: string,
-  opts: { key?: string; headers?: Record<string, string> } = {},
+  opts: { key?: string; sid?: string; pk?: string; headers?: Record<string, string> } = {},
 ): WebSocket {
-  const params = new URLSearchParams({ _pk: Math.random().toString(36).slice(2) });
+  // The app's provider keeps one `_pk` for its whole life: a reconnect arrives with the same one.
+  const params = new URLSearchParams({ _pk: opts.pk ?? Math.random().toString(36).slice(2) });
   if (opts.key !== undefined) params.set('key', opts.key);
+  if (opts.sid !== undefined) params.set('sid', opts.sid);
   const ws = new WebSocket(`ws://127.0.0.1:${PORT}/parties/room/${room}?${params.toString()}`, {
     headers: opts.headers,
   });
@@ -98,6 +100,16 @@ function nextCustom(ws: WebSocket, timeoutMs = 5000): Promise<Record<string, unk
     };
     ws.on('message', onMessage);
   });
+}
+
+/**
+ * Asks the server time and waits for the answer. The server's close of a socket that never
+ * sent anything takes about ten seconds to complete (55 ms once it has spoken), so a test that
+ * waits for the close code of a socket the server retires makes it speak first.
+ */
+async function ping(ws: WebSocket): Promise<void> {
+  ws.send('__YPS:{"type":"time?"}');
+  for (;;) if ((await nextCustom(ws)).type === 'time') return;
 }
 
 /** Encodes a raw `messageAwareness` (type byte 1) frame carrying the given state. */
@@ -477,6 +489,72 @@ describe('sync server', () => {
     expect((await closed).code).toBe(4429);
     await settle();
     expect(seen()).toBe(0);
+  });
+
+  it('a reconnecting tab retires its old socket and keeps its presence', async () => {
+    const { roomId, editKey } = await createRoom();
+    const watcher = connect(roomId, editKey);
+    await synced(watcher.provider);
+    // What the app's provider sends: the same `_pk` and the same `sid` on every reconnect.
+    const tab = { key: editKey, sid: 'tab-session-0001', pk: 'tab-conn-01' };
+    const first = rawConnect(roomId, tab);
+    await waitForOpen(first);
+    first.send(awarenessFrame([{ clientId: 4001, clock: 1, state: presence('Ann') }]));
+    await waitFor(() => nameOf(watcher.provider, 4001) === 'Ann');
+
+    const firstClosed = waitForClose(first);
+    const second = rawConnect(roomId, tab);
+    await waitForOpen(second);
+    expect((await firstClosed).code).toBe(4409);
+    await settle();
+    // The old socket's close did not remove the state the new socket inherited.
+    expect(nameOf(watcher.provider, 4001)).toBe('Ann');
+    second.send(awarenessFrame([{ clientId: 4001, clock: 2, state: presence('Ann B') }]));
+    await waitFor(() => nameOf(watcher.provider, 4001) === 'Ann B');
+
+    // Another session cannot take the id.
+    const stranger = rawConnect(roomId, { key: editKey, sid: 'tab-session-0002' });
+    await waitForOpen(stranger);
+    stranger.send(awarenessFrame([{ clientId: 4001, clock: 9, state: presence('Mallory') }]));
+    await settle();
+    expect(nameOf(watcher.provider, 4001)).toBe('Ann B');
+  });
+
+  it('the session id alone retires the old socket, whatever the connection ids', async () => {
+    const { roomId, editKey } = await createRoom();
+    const first = rawConnect(roomId, { key: editKey, sid: 'tab-session-0003' });
+    await waitForOpen(first);
+    await ping(first);
+    const firstClosed = waitForClose(first);
+    const second = rawConnect(roomId, { key: editKey, sid: 'tab-session-0003' });
+    await waitForOpen(second);
+    expect((await firstClosed).code).toBe(4409);
+  });
+
+  it('a full room refuses a new session with 4503 but lets an existing session reconnect', {
+    timeout: 60_000,
+  }, async () => {
+    const { roomId, editKey } = await createRoom();
+    const sockets: WebSocket[] = [];
+    for (let i = 0; i < LIMITS.maxConnections; i++) {
+      const ws = rawConnect(roomId, { key: editKey, sid: `full-room-session-${i}` });
+      const hello = nextCustom(ws);
+      await waitForOpen(ws);
+      await hello;
+      sockets.push(ws);
+    }
+    // The refused socket never spoke, so its close takes about ten seconds to complete.
+    const extra = rawConnect(roomId, { key: editKey, sid: 'full-room-session-new' });
+    expect((await waitForClose(extra, 20_000)).code).toBe(4503);
+
+    const old = sockets[0] as WebSocket;
+    await ping(old);
+    const oldClosed = waitForClose(old);
+    const back = rawConnect(roomId, { key: editKey, sid: 'full-room-session-0' });
+    const hello = nextCustom(back);
+    await waitForOpen(back);
+    expect((await hello).type).toBe('hello');
+    expect((await oldClosed).code).toBe(4409);
   });
 
   it('lets anyone into the demo room and initializes its metadata', async () => {

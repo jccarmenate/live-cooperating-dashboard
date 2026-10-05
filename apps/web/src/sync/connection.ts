@@ -4,6 +4,7 @@ import YProvider from 'y-partyserver/provider';
 import * as Y from 'yjs';
 import { createStore, type StoreApi } from 'zustand/vanilla';
 import { type ClockState, nextClock, TIME_REFRESH_MS } from './clock';
+import { newSessionId } from './key';
 import { sendOnlyOwnAwareness } from './ownAwareness';
 
 export type ConnStatus = 'connecting' | 'online' | 'offline' | 'unauthorized';
@@ -25,9 +26,10 @@ export function connectRoom(opts: {
 }): RoomConnection {
   const doc = new Y.Doc();
   const local = new IndexeddbPersistence(`relay:${opts.roomId}`, doc);
+  const sid = newSessionId();
   const provider = new YProvider(opts.host, opts.roomId, doc, {
     party: 'room',
-    params: opts.key ? { key: opts.key } : {},
+    params: opts.key ? { key: opts.key, sid } : { sid },
   });
   sendOnlyOwnAwareness(provider);
   const status = createStore<{ status: ConnStatus }>(() => ({ status: 'connecting' }));

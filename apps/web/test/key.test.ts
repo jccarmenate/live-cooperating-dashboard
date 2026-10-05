@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { hashFor, hashTarget, keyFromHash, pageFromHash } from '../src/sync/key';
+import { hashFor, hashTarget, keyFromHash, newSessionId, pageFromHash } from '../src/sync/key';
 
 describe('keyFromHash', () => {
   it('extracts k from the fragment', () => {
@@ -40,5 +40,13 @@ describe('hashTarget', () => {
   it('asks for a reload when the key changes', () => {
     expect(hashTarget('#k=other&p=main', 'abc', 'main')).toBe('reload');
     expect(hashTarget('#p=main', 'abc', 'main')).toBe('reload');
+  });
+});
+
+describe('newSessionId', () => {
+  it('is 32 hex characters and different each time', () => {
+    const a = newSessionId();
+    expect(a).toMatch(/^[0-9a-f]{32}$/);
+    expect(newSessionId()).not.toBe(a);
   });
 });

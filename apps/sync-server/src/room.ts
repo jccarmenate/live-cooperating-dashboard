@@ -3,7 +3,7 @@ import type { Connection, ConnectionContext, WSMessage } from 'partyserver';
 import { YServer } from 'y-partyserver';
 import { applyAwarenessUpdate } from 'y-protocols/awareness';
 import * as Y from 'yjs';
-import { DEMO_ROOM, deriveKey, ROLE_HEADER, type Role } from './auth';
+import { DEMO_ROOM, deriveKey, ROLE_HEADER, type Role, sessionId } from './auth';
 import {
   encodeAwarenessUpdate,
   filterAwareness,
@@ -150,11 +150,29 @@ export class Room extends YServer {
       connection.close(4401, 'unauthorized');
       return;
     }
-    if ([...this.getConnections()].length > LIMITS.maxConnections) {
+    const sid = sessionId(new URL(ctx.request.url).searchParams.get('sid'));
+    // By socket, not by id: the provider keeps its connection id across reconnects, so the
+    // socket a reconnecting tab left behind has the same id as the new one.
+    const others = [...this.getConnections()].filter((c) => c !== connection);
+    // One tab has one socket, so an older connection with this session id is dead. It is
+    // retired before counting, or a reconnecting user would be locked out by their own ghost.
+    const stale = sid ? others.filter((c) => stateOf(c).sid === sid) : [];
+    if (others.length - stale.length >= LIMITS.maxConnections) {
       connection.close(4503, 'room full');
       return;
     }
-    patchState(connection, { role });
+    const inherited: number[] = [];
+    for (const old of stale) {
+      inherited.push(...ownedIds(old));
+      // Emptied first: closing the stale socket must not remove the states the new one keeps.
+      patchState(old, { __ypsAwarenessIds: [] });
+      old.close(4409, 'superseded');
+    }
+    patchState(connection, {
+      role,
+      ...(sid ? { sid } : {}),
+      __ypsAwarenessIds: [...new Set(inherited)].slice(0, LIMITS.maxAwarenessIds),
+    });
     super.onConnect(connection, ctx);
     // Tell the client its capability and the server clock (vote timers use server time).
     void this.#sendHello(connection, role);
@@ -235,7 +253,8 @@ export class Room extends YServer {
     }
     const ownedByOthers = new Set<number>();
     for (const other of this.getConnections()) {
-      if (other.id !== connection.id) for (const id of ownedIds(other)) ownedByOthers.add(id);
+      // By socket, not by id: a reconnecting tab keeps its connection id.
+      if (other !== connection) for (const id of ownedIds(other)) ownedByOthers.add(id);
     }
     const verdict = filterAwareness(entries, {
       owned: ownedIds(connection),

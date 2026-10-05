@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { base32, DEMO_ROOM, deriveKey, newRoomId, roleForKey } from '../src/auth';
+import { base32, DEMO_ROOM, deriveKey, newRoomId, roleForKey, sessionId } from '../src/auth';
 
 describe('auth', () => {
   it('newRoomId is 26 lowercase base32 chars and unique', () => {
@@ -40,5 +40,14 @@ describe('auth', () => {
 
   it('refuses to derive keys without a secret', async () => {
     await expect(deriveKey('', 'room1', 'edit')).rejects.toThrow('ROOM_SECRET');
+  });
+
+  it('accepts a session id of 16 to 64 url-safe characters and nothing else', () => {
+    expect(sessionId('a'.repeat(16))).toBe('a'.repeat(16));
+    expect(sessionId('Ab0_-'.repeat(8))).toBe('Ab0_-'.repeat(8));
+    expect(sessionId('a'.repeat(15))).toBeNull();
+    expect(sessionId('a'.repeat(65))).toBeNull();
+    expect(sessionId(`${'a'.repeat(15)}!`)).toBeNull();
+    expect(sessionId(null)).toBeNull();
   });
 });
