@@ -14,6 +14,9 @@ const STATUS_LABEL: Record<ConnStatus, string> = {
   online: 'Live',
   offline: 'Offline',
   unauthorized: 'No access',
+  crowded: 'Board busy',
+  throttled: 'Paused',
+  'too-large': 'Not saved',
 };
 
 export function Header({ session }: { session: BoardSession }) {
