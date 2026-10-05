@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { applyCommand, DEFAULT_STYLE, getRoots, readMeta } from '@relay/core';
 import * as encoding from 'lib0/encoding';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import WebSocket from 'ws';
 import YProvider from 'y-partyserver/provider';
 import { Awareness, encodeAwarenessUpdate } from 'y-protocols/awareness';
@@ -23,8 +23,13 @@ beforeAll(async () => {
   worker = await startWorker({ port: PORT, persistDir });
 });
 
+afterEach(() => {
+  // A provider adds a listener to the process's `exit` event and removes it only when it is
+  // destroyed: more than ten alive at once make Node print a MaxListenersExceededWarning.
+  for (const p of open.splice(0)) p.destroy();
+});
+
 afterAll(async () => {
-  for (const p of open) p.destroy();
   for (const ws of rawSockets) {
     if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) ws.terminate();
   }
@@ -83,8 +88,15 @@ function waitForOpen(ws: WebSocket, timeoutMs = 5000): Promise<void> {
   });
 }
 
-/** Resolves with the next custom (`__YPS:`) JSON message on a raw socket. */
-function nextCustom(ws: WebSocket, timeoutMs = 5000): Promise<Record<string, unknown>> {
+/**
+ * Resolves with the next custom (`__YPS:`) JSON message on a raw socket; with `type`, with the
+ * next one of that type.
+ */
+function nextCustom(
+  ws: WebSocket,
+  timeoutMs = 5000,
+  type?: string,
+): Promise<Record<string, unknown>> {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(
       () => reject(new Error('timed out waiting for a custom message')),
@@ -94,9 +106,11 @@ function nextCustom(ws: WebSocket, timeoutMs = 5000): Promise<Record<string, unk
       if (isBinary) return;
       const text = data.toString();
       if (!text.startsWith('__YPS:')) return;
+      const message = JSON.parse(text.slice(6)) as Record<string, unknown>;
+      if (type !== undefined && message.type !== type) return;
       clearTimeout(timer);
       ws.off('message', onMessage);
-      resolve(JSON.parse(text.slice(6)) as Record<string, unknown>);
+      resolve(message);
     };
     ws.on('message', onMessage);
   });
@@ -109,7 +123,9 @@ function nextCustom(ws: WebSocket, timeoutMs = 5000): Promise<Record<string, unk
  */
 async function ping(ws: WebSocket): Promise<void> {
   ws.send('__YPS:{"type":"time?"}');
-  for (;;) if ((await nextCustom(ws)).type === 'time') return;
+  // One listener until the answer. Messages that arrive in one chunk are emitted in one turn, so
+  // a listener attached after the first of them (a `hello`, say) would miss the second.
+  await nextCustom(ws, 5000, 'time');
 }
 
 /** Encodes a raw `messageAwareness` (type byte 1) frame carrying the given state. */
@@ -555,6 +571,48 @@ describe('sync server', () => {
     await waitForOpen(back);
     expect((await hello).type).toBe('hello');
     expect((await oldClosed).code).toBe(4409);
+  });
+
+  it('the new socket of a session owns the ids it inherited, until it closes', async () => {
+    const { roomId, editKey } = await createRoom();
+    const watcher = connect(roomId, editKey);
+    await synced(watcher.provider);
+    const tab = { key: editKey, sid: 'tab-session-0004', pk: 'tab-conn-04' };
+    const first = rawConnect(roomId, tab);
+    await waitForOpen(first);
+    first.send(awarenessFrame([{ clientId: 4201, clock: 1, state: presence('Ann') }]));
+    await waitFor(() => nameOf(watcher.provider, 4201) === 'Ann');
+
+    const firstClosed = waitForClose(first);
+    const second = rawConnect(roomId, tab);
+    await waitForOpen(second);
+    expect((await firstClosed).code).toBe(4409);
+    // The new socket has sent no presence yet, and already owns the id: another session cannot
+    // take it.
+    const stranger = rawConnect(roomId, { key: editKey, sid: 'tab-session-0005' });
+    await waitForOpen(stranger);
+    stranger.send(awarenessFrame([{ clientId: 4201, clock: 9, state: presence('Mallory') }]));
+    await settle();
+    expect(nameOf(watcher.provider, 4201)).toBe('Ann');
+    // And the room removes the state when that socket goes, as it does for any owner.
+    await ping(second);
+    second.close();
+    await waitFor(() => !watcher.provider.awareness.getStates().has(4201));
+  });
+
+  it('tells two sockets that share a connection id apart when they publish presence', async () => {
+    const { roomId, editKey } = await createRoom();
+    const watcher = connect(roomId, editKey);
+    await synced(watcher.provider);
+    // No `sid`, so the room cannot know the first socket is stale: both are live.
+    const a = rawConnect(roomId, { key: editKey, pk: 'shared-conn-02' });
+    const b = rawConnect(roomId, { key: editKey, pk: 'shared-conn-02' });
+    await Promise.all([waitForOpen(a), waitForOpen(b)]);
+    a.send(awarenessFrame([{ clientId: 4301, clock: 1, state: presence('Ann') }]));
+    await waitFor(() => nameOf(watcher.provider, 4301) === 'Ann');
+    b.send(awarenessFrame([{ clientId: 4301, clock: 5, state: presence('Mallory') }]));
+    await settle();
+    expect(nameOf(watcher.provider, 4301)).toBe('Ann');
   });
 
   it('lets anyone into the demo room and initializes its metadata', async () => {
