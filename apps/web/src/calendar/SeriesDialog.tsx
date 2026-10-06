@@ -6,7 +6,8 @@ const btn = 'border-2 border-ink px-3 py-1.5 pointer-coarse:py-2.5 font-mono tex
 
 /**
  * "Only this event" / "All events" for an action on one occurrence of a series. A changed rule
- * applies to the whole series only, so that question offers no "Only this event".
+ * applies to the whole series only, and so does a delete on a full board (one occurrence would
+ * need an exception), so those questions offer no "Only this event".
  */
 export function SeriesDialog({ ctl }: { ctl: CalendarController }) {
   const q = useStore(ctl.ui, (s) => s.question);
@@ -16,7 +17,9 @@ export function SeriesDialog({ ctl }: { ctl: CalendarController }) {
       <div data-testid="cal-series" className="flex flex-col gap-3 font-mono text-xs">
         <p>
           {q.action === 'delete'
-            ? 'Delete only this event, or all events in the series?'
+            ? q.allOnly
+              ? 'Delete all events in the series?'
+              : 'Delete only this event, or all events in the series?'
             : 'Change only this event, or all events in the series?'}
         </p>
         {q.drops > 0 && (

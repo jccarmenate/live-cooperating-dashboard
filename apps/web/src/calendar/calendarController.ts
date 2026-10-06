@@ -868,10 +868,18 @@ export function createCalendarController(opts: CalendarControllerOptions): Calen
     },
     answer(scope) {
       const p = pending;
-      if (scope === 'one' && ui.getState().question?.allOnly) return;
+      const q = ui.getState().question;
+      // "Only this event" writes an exception. Where the question offers only the whole series,
+      // or the board filled while it was open, that answer is not taken and the question stays.
+      const wholeSeriesOnly = q?.allOnly || (q?.action === 'delete' && !opts.canEdit());
+      if (scope === 'one' && wholeSeriesOnly) return;
       pending = null;
       ui.setState({ question: null });
-      if (!scope || !p || !canDelete() || !eventById(p.ref.eventId)) return;
+      // A question asked while the board took edits may be answered after it filled: only a
+      // delete still goes through. The board controller would drop anything else and report
+      // success, and the editor would close as if the change had been saved.
+      const allowed = q?.action === 'delete' ? canDelete() : opts.canEdit();
+      if (!scope || !p || !allowed || !eventById(p.ref.eventId)) return;
       p.run(scope);
     },
     rsvp(eventId, status) {
