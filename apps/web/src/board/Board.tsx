@@ -19,6 +19,7 @@ import { AddToCalendarDialog } from '../ui/AddToCalendarDialog';
 import { AlgorithmsPanel } from '../ui/AlgorithmsPanel';
 import { CanvasMenu } from '../ui/CanvasMenu';
 import { CommentsPanel } from '../ui/CommentsPanel';
+import { FullNotice } from '../ui/FullNotice';
 import { Header } from '../ui/Header';
 import { HelpDialog } from '../ui/HelpDialog';
 import { NewGraphDialog } from '../ui/NewGraphDialog';
@@ -42,6 +43,7 @@ function BoardView({ session }: { session: BoardSession }) {
     <div className="safe-area fixed inset-0 flex flex-col bg-paper">
       <Header session={session} />
       <PageTabs session={session} />
+      <FullNotice session={session} />
       {type === 'board' ? (
         <div className="relative flex-1 overflow-hidden">
           <Canvas session={session} />

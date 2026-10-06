@@ -1,5 +1,5 @@
 import { parseServerMessage, TIME_REQUEST } from '@relay/core';
-import { IndexeddbPersistence } from 'y-indexeddb';
+import { clearDocument, IndexeddbPersistence } from 'y-indexeddb';
 import YProvider from 'y-partyserver/provider';
 import * as Y from 'yjs';
 import { createStore, type StoreApi } from 'zustand/vanilla';
@@ -40,7 +40,8 @@ export function connectRoom(opts: {
   host: string;
 }): RoomConnection {
   const doc = new Y.Doc();
-  const local = new IndexeddbPersistence(`relay:${opts.roomId}`, doc);
+  const localName = `relay:${opts.roomId}`;
+  const local = new IndexeddbPersistence(localName, doc);
   const sid = newSessionId();
   const provider = new YProvider(opts.host, opts.roomId, doc, {
     party: 'room',
@@ -107,8 +108,15 @@ export function connectRoom(opts: {
     async discardAndReload() {
       clearTimeout(waiting);
       provider.disconnect();
-      await local.clearData();
-      window.location.reload();
+      try {
+        // clearData() only asks for the delete. Waiting for it keeps the reloaded page from
+        // opening the copy that still holds the refused change.
+        await local.destroy();
+        await clearDocument(localName);
+      } finally {
+        // If the copy cannot be cleared there is none to clear (IndexedDB is unavailable).
+        window.location.reload();
+      }
     },
     destroy() {
       destroyed = true;
