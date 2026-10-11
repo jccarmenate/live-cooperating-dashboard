@@ -1,6 +1,11 @@
 import { type PresenceState, parsePresence } from '@relay/core';
 import * as decoding from 'lib0/decoding';
 import * as encoding from 'lib0/encoding';
+import {
+  type Awareness,
+  applyAwarenessUpdate,
+  encodeAwarenessUpdate as encodeHeldStates,
+} from 'y-protocols/awareness';
 
 /** Yjs awareness protocol message type byte. */
 const MESSAGE_AWARENESS = 1;
@@ -11,6 +16,19 @@ const MESSAGE_AWARENESS = 1;
  * values back never terminates.
  */
 const MAX_UINT32 = 0xffffffff;
+
+/**
+ * The message type of a wire frame, read the way y-partyserver reads it: as a varint. Routing on
+ * the first byte alone lets a type written as a longer varint (0x81 0x00 is 1) pass for another
+ * and skip every rule in this file. Null when the frame is empty or the type does not decode.
+ */
+export function readMessageType(message: Uint8Array): number | null {
+  try {
+    return decoding.readVarUint(decoding.createDecoder(message));
+  } catch {
+    return null;
+  }
+}
 
 /**
  * One client's state in an awareness update. `state` is JSON text; `'null'` removes the state.
@@ -146,4 +164,27 @@ export function filterAwareness(
 export function compactState(state: Record<string, unknown>, maxChars: number): string {
   const json = JSON.stringify(state);
   return json.length <= maxChars ? json : JSON.stringify({ ...state, selection: [] });
+}
+
+/**
+ * Applies an awareness update and returns the ids whose entry the awareness took, each once. The
+ * protocol ignores an entry whose clock it has already passed, and says nothing about it.
+ */
+export function applyTaken(awareness: Awareness, update: Uint8Array, origin: unknown): number[] {
+  let taken: number[] = [];
+  const onUpdate = (change: { added: number[]; updated: number[]; removed: number[] }): void => {
+    taken = [...new Set([...change.added, ...change.updated, ...change.removed])];
+  };
+  awareness.on('update', onUpdate);
+  try {
+    applyAwarenessUpdate(awareness, update, origin);
+  } finally {
+    awareness.off('update', onUpdate);
+  }
+  return taken;
+}
+
+/** The wire frame for the states of `ids` as the awareness holds them now (null for a removed one). */
+export function heldFrame(awareness: Awareness, ids: number[]): Uint8Array {
+  return wrapAwareness(encodeHeldStates(awareness, ids));
 }

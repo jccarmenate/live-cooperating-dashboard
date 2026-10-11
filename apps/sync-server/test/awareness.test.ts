@@ -4,10 +4,13 @@ import { Awareness, encodeAwarenessUpdate as yEncode } from 'y-protocols/awarene
 import * as Y from 'yjs';
 import {
   type AwarenessEntry,
+  applyTaken,
   compactState,
   encodeAwarenessUpdate,
   filterAwareness,
+  heldFrame,
   readAwarenessMessage,
+  readMessageType,
   wrapAwareness,
 } from '../src/awareness';
 
@@ -225,5 +228,72 @@ describe('compactState', () => {
     const compact = compactState(state, 3000);
     expect(compact.length).toBeLessThanOrEqual(3000);
     expect(JSON.parse(compact)).toEqual({ ...state, selection: [] });
+  });
+});
+
+describe('readMessageType', () => {
+  it('reads the type as a varint, whatever its length', () => {
+    expect(readMessageType(Uint8Array.of(0, 1))).toBe(0);
+    expect(readMessageType(Uint8Array.of(1, 0))).toBe(1);
+    // The same 1 in two bytes: the first byte alone reads 129.
+    expect(readMessageType(Uint8Array.of(0x81, 0x00, 0))).toBe(1);
+    expect(readMessageType(Uint8Array.of(3))).toBe(3);
+  });
+
+  it('has no type for an empty frame or a varint that never ends', () => {
+    expect(readMessageType(new Uint8Array())).toBeNull();
+    expect(readMessageType(Uint8Array.of(0x80))).toBeNull();
+  });
+});
+
+describe('applyTaken and heldFrame', () => {
+  const room = () => {
+    const awareness = new Awareness(new Y.Doc());
+    awareness.setLocalState(null);
+    return awareness;
+  };
+  const apply = (awareness: Awareness, entries: AwarenessEntry[]) =>
+    applyTaken(awareness, encodeAwarenessUpdate(entries), 'test');
+
+  it('reports the ids whose entry was applied, a removal included', () => {
+    const awareness = room();
+    expect(apply(awareness, [entry(7, 1, presence('Ann')), entry(8, 1, presence('Bob'))])).toEqual([
+      7, 8,
+    ]);
+    expect(apply(awareness, [entry(7, 2, null)])).toEqual([7]);
+    awareness.destroy();
+  });
+
+  it('reports nothing for an entry whose clock the awareness has passed', () => {
+    const awareness = room();
+    apply(awareness, [entry(7, 100, presence('seed'))]);
+    apply(awareness, [entry(7, 101, null)]);
+    expect(apply(awareness, [entry(7, 5, presence('ghost'))])).toEqual([]);
+    expect(awareness.getStates().has(7)).toBe(false);
+    awareness.destroy();
+  });
+
+  it('reports an id once, however many of its entries were applied', () => {
+    const awareness = room();
+    // Each entry of the frame is applied; relaying the held state once per entry would repeat it.
+    expect(
+      apply(awareness, [
+        entry(7, 1, presence('Ann')),
+        entry(7, 2, presence('Ann B')),
+        entry(7, 3, presence('Ann C')),
+      ]),
+    ).toEqual([7]);
+    awareness.destroy();
+  });
+
+  it('frames the states as the awareness holds them, with a null for a removed one', () => {
+    const awareness = room();
+    apply(awareness, [entry(7, 3, presence('Ann')), entry(8, 4, presence('Bob'))]);
+    apply(awareness, [entry(8, 5, null)]);
+    expect(readAwarenessMessage(heldFrame(awareness, [7, 8]))).toEqual([
+      entry(7, 3, presence('Ann')),
+      entry(8, 5, null),
+    ]);
+    awareness.destroy();
   });
 });

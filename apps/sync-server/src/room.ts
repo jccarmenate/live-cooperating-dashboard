@@ -6,11 +6,13 @@ import * as Y from 'yjs';
 import { DEMO_ROOM, deriveKey, ROLE_HEADER, type Role, sessionId } from './auth';
 import {
   type AwarenessEntry,
+  applyTaken,
   compactState,
   encodeAwarenessUpdate,
   filterAwareness,
+  heldFrame,
   readAwarenessMessage,
-  wrapAwareness,
+  readMessageType,
 } from './awareness';
 import { isPureDeletion, readSyncUpdate } from './deletion';
 import type { Env } from './env';
@@ -59,24 +61,14 @@ function storedPresence(connection: Connection): StoredPresence[] {
   );
 }
 
-/** Yjs awareness protocol message type byte. */
+/** Yjs protocol message types (the varint a frame starts with). */
+const MESSAGE_SYNC = 0;
 const MESSAGE_AWARENESS = 1;
 
 function toBytes(message: ArrayBuffer | ArrayBufferView): Uint8Array {
   return message instanceof ArrayBuffer
     ? new Uint8Array(message)
     : new Uint8Array(message.buffer, message.byteOffset, message.byteLength);
-}
-
-/** First byte of a binary message, or null for a string (custom) message or an empty frame. */
-function messageTypeByte(message: WSMessage): number | null {
-  if (typeof message === 'string') return null;
-  return toBytes(message)[0] ?? null;
-}
-
-/** True for a binary awareness-protocol frame. */
-function isAwarenessMessage(message: WSMessage): boolean {
-  return messageTypeByte(message) === MESSAGE_AWARENESS;
 }
 
 const encode = (message: ServerMessage): string => JSON.stringify(message);
@@ -288,12 +280,21 @@ export class Room extends YServer {
       return;
     }
     if (typeof message !== 'string') {
-      if (isAwarenessMessage(message)) {
-        this.#onAwareness(connection, toBytes(message));
+      const bytes = toBytes(message);
+      // Routed by the decoded type, as y-partyserver reads it. Routed by the first byte, a type
+      // written as a longer varint would skip the awareness rules and be applied as it came.
+      const type = readMessageType(bytes);
+      if (type === MESSAGE_AWARENESS) {
+        this.#onAwareness(connection, bytes);
+        return;
+      }
+      if (type !== MESSAGE_SYNC) {
+        // A type this protocol does not have is dropped; a frame with no type at all is malformed.
+        if (type === null) connection.close(4400, 'bad frame');
         return;
       }
       if (this.#full && roleOf(connection) === 'edit') {
-        const update = readSyncUpdate(toBytes(message));
+        const update = readSyncUpdate(bytes);
         if (update) {
           this.#onUpdateWhileFull(connection, update);
           return;
@@ -350,7 +351,7 @@ export class Room extends YServer {
     if (verdict.accepted.length === 0) return;
     const update = encodeAwarenessUpdate(verdict.accepted);
     const { awareness } = this.document;
-    applyAwarenessUpdate(awareness, update, connection);
+    const taken = applyTaken(awareness, update, connection);
     // An id stays owned while its state is there: a removal the protocol ignored frees nothing.
     const states = awareness.getStates();
     const owned = verdict.owned.filter((id) => states.has(id));
@@ -362,7 +363,11 @@ export class Room extends YServer {
         compactState(states.get(id) ?? {}, LIMITS.maxStoredStateChars),
       ]),
     });
-    const frame = wrapAwareness(update);
+    // Only what the room took is relayed, and as the room holds it. An entry it ignored (a clock
+    // it has already passed) would reach a peer who joined later and knows no clock for that id:
+    // the peer would take a state the room does not hold, and nothing would ever remove it.
+    if (taken.length === 0) return;
+    const frame = heldFrame(awareness, taken);
     for (const peer of this.getConnections()) {
       try {
         peer.send(frame);

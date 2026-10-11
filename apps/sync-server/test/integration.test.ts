@@ -624,6 +624,69 @@ describe('sync server', () => {
     expect(seen()).toBe(0);
   });
 
+  it('a frame whose type is written as a longer varint meets the same rules', async () => {
+    const { roomId, editKey } = await createRoom();
+    const watcher = connect(roomId, editKey);
+    await synced(watcher.provider);
+    const ann = rawConnect(roomId, { key: editKey });
+    const mallory = rawConnect(roomId, { key: editKey });
+    await Promise.all([waitForOpen(ann), waitForOpen(mallory)]);
+    ann.send(awarenessFrame([{ clientId: 8001, clock: 1, state: presence('Ann') }]));
+    await waitFor(() => nameOf(watcher.provider, 8001) === 'Ann');
+
+    // 0x81 0x00 is the varint 1, the awareness type, in two bytes instead of one.
+    const longType = (frame: Uint8Array) => Uint8Array.of(0x81, 0x00, ...frame.slice(1));
+    const send = (clientId: number, clock: number, state: unknown) =>
+      mallory.send(longType(awarenessFrame([{ clientId, clock, state }])));
+    const closed = waitForClose(mallory);
+    send(8001, 9, presence('Mallory'));
+    send(8002, 1, { name: 'INTRUDER' });
+    for (const id of [8003, 8004, 8005]) send(id, 1, presence(`extra ${id}`));
+    // Ann's id is hers, the invalid state is dropped, and the third id of her own closes her.
+    expect((await closed).code).toBe(4429);
+    await settle();
+    expect(nameOf(watcher.provider, 8001)).toBe('Ann');
+    expect(watcher.provider.awareness.getStates().has(8002)).toBe(false);
+    expect(watcher.provider.awareness.getStates().has(8003)).toBe(false);
+  });
+
+  it('drops a message type the protocol does not have, and closes on a frame with no type', async () => {
+    const { roomId, editKey } = await createRoom();
+    const ws = rawConnect(roomId, { key: editKey });
+    const hello = nextCustom(ws);
+    await waitForOpen(ws);
+    await hello;
+    ws.send(Uint8Array.of(3));
+    ws.send(Uint8Array.of(7, 1, 2, 3));
+    await ping(ws);
+    const closed = waitForClose(ws);
+    ws.send(Uint8Array.of(0x80));
+    expect((await closed).code).toBe(4400);
+  });
+
+  it('does not relay an entry it ignored', async () => {
+    const { roomId, editKey } = await createRoom();
+    const mallory = rawConnect(roomId, { key: editKey });
+    await waitForOpen(mallory);
+    // The room's clock for the id goes up, and no state is left behind.
+    mallory.send(awarenessFrame([{ clientId: 8101, clock: 100, state: presence('seed') }]));
+    mallory.send(awarenessFrame([{ clientId: 8101, clock: 101, state: null }]));
+    await ping(mallory);
+    const late = connect(roomId, editKey);
+    await synced(late.provider);
+
+    // The room has passed clock 5 and ignores this. A peer who joined after the removal knows no
+    // clock for the id and would take it.
+    mallory.send(awarenessFrame([{ clientId: 8101, clock: 5, state: presence('ghost') }]));
+    await ping(mallory);
+    await settle();
+    expect(late.provider.awareness.getStates().has(8101)).toBe(false);
+
+    // What the room does take still reaches everyone.
+    mallory.send(awarenessFrame([{ clientId: 8101, clock: 102, state: presence('Mal') }]));
+    await waitFor(() => nameOf(late.provider, 8101) === 'Mal');
+  });
+
   it('a reconnecting tab retires its old socket and keeps its presence', async () => {
     const { roomId, editKey } = await createRoom();
     const watcher = connect(roomId, editKey);
