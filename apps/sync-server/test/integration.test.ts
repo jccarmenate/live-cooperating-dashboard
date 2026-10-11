@@ -51,12 +51,19 @@ function connect(room: string, key: string | null) {
 /** Connects directly to the room's WebSocket endpoint, bypassing the Yjs provider. */
 function rawConnect(
   room: string,
-  opts: { key?: string; sid?: string; pk?: string; headers?: Record<string, string> } = {},
+  opts: {
+    key?: string;
+    sid?: string;
+    pk?: string;
+    pad?: number;
+    headers?: Record<string, string>;
+  } = {},
 ): WebSocket {
   // The app's provider keeps one `_pk` for its whole life: a reconnect arrives with the same one.
   const params = new URLSearchParams({ _pk: opts.pk ?? Math.random().toString(36).slice(2) });
   if (opts.key !== undefined) params.set('key', opts.key);
   if (opts.sid !== undefined) params.set('sid', opts.sid);
+  if (opts.pad !== undefined) params.set('pad', 'x'.repeat(opts.pad));
   const ws = new WebSocket(`ws://127.0.0.1:${PORT}/parties/room/${room}?${params.toString()}`, {
     headers: opts.headers,
   });
@@ -740,6 +747,53 @@ describe('sync server', () => {
     await waitFor(() => answers(toA) === 100 && answers(toB) === 100);
     expect(a.readyState).toBe(WebSocket.OPEN);
     expect(b.readyState).toBe(WebSocket.OPEN);
+  });
+
+  it('refuses a request whose URL is longer than the limit', async () => {
+    const { roomId, editKey } = await createRoom();
+    const ws = rawConnect(roomId, { key: editKey, pad: LIMITS.maxUrlChars });
+    const outcome = await new Promise<string>((resolve) => {
+      ws.on('error', (e) => resolve(e.message));
+      ws.on('open', () => resolve('the socket opened'));
+    });
+    expect(outcome).toContain('414');
+  });
+
+  it('presence and the full flag survive the room hibernating', { timeout: 60_000 }, async () => {
+    const { roomId, editKey } = await createRoom();
+    const ann = connect(roomId, editKey);
+    await synced(ann.provider);
+    const bob = rawConnect(roomId, { key: editKey });
+    const told = collectCustom(bob);
+    await waitForOpen(bob);
+    ann.provider.awareness.setLocalState(presence('Ann'));
+    bob.send(awarenessFrame([{ clientId: 7301, clock: 1, state: presence('Bob') }]));
+    await waitFor(() => nameOf(ann.provider, 7301) === 'Bob');
+
+    // With no messages for more than ten seconds the Durable Object hibernates and its memory goes.
+    await new Promise((r) => setTimeout(r, 15_000));
+    expect(told.some((m) => m.type === 'room')).toBe(false);
+
+    // A late joiner wakes the room and is handed everyone who was there.
+    const carol = connect(roomId, editKey);
+    await waitFor(() => nameOf(carol.provider, 7301) === 'Bob');
+    expect(nameOf(carol.provider, ann.doc.clientID)).toBe('Ann');
+    // The connections that slept through it are told again whether the board is full.
+    await waitFor(() => told.some((m) => m.type === 'room' && m.full === false));
+
+    // The ids are still owned by the sockets that held them: Bob updates his, nobody else can.
+    bob.send(awarenessFrame([{ clientId: 7301, clock: 2, state: presence('Bob B') }]));
+    await waitFor(() => nameOf(carol.provider, 7301) === 'Bob B');
+    const mallory = rawConnect(roomId, { key: editKey });
+    await waitForOpen(mallory);
+    mallory.send(awarenessFrame([{ clientId: 7301, clock: 9, state: presence('Mallory') }]));
+    await settle();
+    expect(nameOf(carol.provider, 7301)).toBe('Bob B');
+
+    // A close still finds a state to remove, and the others are told.
+    bob.close();
+    await waitFor(() => !ann.provider.awareness.getStates().has(7301));
+    await waitFor(() => !carol.provider.awareness.getStates().has(7301));
   });
 
   it('lets anyone into the demo room and initializes its metadata', async () => {

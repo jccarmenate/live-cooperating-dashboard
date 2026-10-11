@@ -5,6 +5,8 @@ import { applyAwarenessUpdate } from 'y-protocols/awareness';
 import * as Y from 'yjs';
 import { DEMO_ROOM, deriveKey, ROLE_HEADER, type Role, sessionId } from './auth';
 import {
+  type AwarenessEntry,
+  compactState,
   encodeAwarenessUpdate,
   filterAwareness,
   readAwarenessMessage,
@@ -24,6 +26,8 @@ interface ConnState {
   sid?: string;
   rejected?: boolean;
   __ypsAwarenessIds?: unknown;
+  /** The last state of each owned id, as `[clientId, clock, state]`, kept across hibernation. */
+  presence?: unknown;
 }
 
 const stateOf = (connection: Connection): ConnState => (connection.state as ConnState | null) ?? {};
@@ -38,6 +42,21 @@ const roleOf = (connection: Connection): Role | undefined => stateOf(connection)
 function ownedIds(connection: Connection): number[] {
   const ids = stateOf(connection).__ypsAwarenessIds;
   return Array.isArray(ids) ? ids.filter((id): id is number => typeof id === 'number') : [];
+}
+
+type StoredPresence = [clientId: number, clock: number, state: string];
+
+/** The states this connection carries for the ids it owns. */
+function storedPresence(connection: Connection): StoredPresence[] {
+  const raw = stateOf(connection).presence;
+  if (!Array.isArray(raw)) return [];
+  return raw.filter(
+    (e): e is StoredPresence =>
+      Array.isArray(e) &&
+      typeof e[0] === 'number' &&
+      typeof e[1] === 'number' &&
+      typeof e[2] === 'string',
+  );
 }
 
 /** Yjs awareness protocol message type byte. */
@@ -111,6 +130,28 @@ export class Room extends YServer {
         ? { title: 'Sprint 14 Retro', breadcrumb: ['Q3 Planning'] }
         : { title: 'Untitled board', breadcrumb: [] },
     );
+    this.#restorePresence();
+    // A connection that was open before the room hibernated still holds the flag it was last
+    // told, and the flag is recomputed on waking: say it again.
+    this.broadcastCustomMessage(encode({ type: 'room', full: this.#full, now: Date.now() }));
+  }
+
+  /**
+   * Hibernation empties the awareness map while the sockets stay open. Each connection carries
+   * the last state of the ids it owns, so the map is rebuilt here, before any event is handled
+   * and before y-partyserver listens to it: a late joiner is handed everyone, and a close still
+   * finds a state to remove and relay.
+   */
+  #restorePresence(): void {
+    const entries: AwarenessEntry[] = [];
+    for (const connection of this.getConnections()) {
+      const owned = new Set(ownedIds(connection));
+      for (const [clientId, clock, state] of storedPresence(connection)) {
+        if (owned.has(clientId)) entries.push({ clientId, clock, state });
+      }
+    }
+    if (entries.length === 0) return;
+    applyAwarenessUpdate(this.document.awareness, encodeAwarenessUpdate(entries), null);
   }
 
   /** Counts what the document really gained, and measures exactly when the estimate crosses the cap. */
@@ -312,7 +353,15 @@ export class Room extends YServer {
     applyAwarenessUpdate(awareness, update, connection);
     // An id stays owned while its state is there: a removal the protocol ignored frees nothing.
     const states = awareness.getStates();
-    patchState(connection, { __ypsAwarenessIds: verdict.owned.filter((id) => states.has(id)) });
+    const owned = verdict.owned.filter((id) => states.has(id));
+    patchState(connection, {
+      __ypsAwarenessIds: owned,
+      presence: owned.map((id) => [
+        id,
+        awareness.meta.get(id)?.clock ?? 0,
+        compactState(states.get(id) ?? {}, LIMITS.maxStoredStateChars),
+      ]),
+    });
     const frame = wrapAwareness(update);
     for (const peer of this.getConnections()) {
       try {

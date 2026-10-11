@@ -4,6 +4,7 @@ import { Awareness, encodeAwarenessUpdate as yEncode } from 'y-protocols/awarene
 import * as Y from 'yjs';
 import {
   type AwarenessEntry,
+  compactState,
   encodeAwarenessUpdate,
   filterAwareness,
   readAwarenessMessage,
@@ -206,5 +207,23 @@ describe('awareness filter', () => {
     expect(v.tooMany).toBe(true);
     expect(v.accepted).toEqual([]);
     expect(v.owned).toEqual([7, 8]);
+  });
+});
+
+describe('compactState', () => {
+  it('keeps a state that fits as it is', () => {
+    const state = presence('Ann', { selection: ['a', 'b'] });
+    expect(compactState(state, 3000)).toBe(JSON.stringify(state));
+  });
+
+  it('drops the selection of a state that does not fit, and nothing else', () => {
+    const state = presence('Ann', {
+      cursor: { x: 1, y: 2 },
+      selection: Array.from({ length: 100 }, (_, i) => `${'s'.repeat(60)}${i}`),
+    });
+    expect(JSON.stringify(state).length).toBeGreaterThan(3000);
+    const compact = compactState(state, 3000);
+    expect(compact.length).toBeLessThanOrEqual(3000);
+    expect(JSON.parse(compact)).toEqual({ ...state, selection: [] });
   });
 });

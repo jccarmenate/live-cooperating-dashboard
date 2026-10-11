@@ -8,6 +8,13 @@ export const LIMITS = {
   maxAwarenessBytes: 8 * 1024,
   /** Per connection: a normal client controls exactly one awareness client id (occasionally two, briefly, across a reconnect). */
   maxAwarenessIds: 2,
+  /**
+   * A presence state kept on a connection so it survives hibernation. Two of them, at two bytes
+   * a character, fit a 16,384-byte WebSocket attachment next to the request URL.
+   */
+  maxStoredStateChars: 3000,
+  /** The request URL is kept in the connection's attachment, so its length is bounded too. */
+  maxUrlChars: 2048,
   maxConnections: 25,
   ratePerSecond: 60,
   burst: 120,

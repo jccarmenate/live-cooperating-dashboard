@@ -138,3 +138,12 @@ export function filterAwareness(
   }
   return { accepted, owned, tooMany: false };
 }
+
+/**
+ * A validated state short enough to keep on a connection: over `maxChars` it loses its
+ * selection, the only part without a small bound.
+ */
+export function compactState(state: Record<string, unknown>, maxChars: number): string {
+  const json = JSON.stringify(state);
+  return json.length <= maxChars ? json : JSON.stringify({ ...state, selection: [] });
+}

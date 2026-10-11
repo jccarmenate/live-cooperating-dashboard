@@ -1,6 +1,7 @@
 import { routePartykitRequest } from 'partyserver';
 import { deriveKey, newRoomId, ROLE_HEADER, roleForKey } from './auth';
 import type { Env } from './env';
+import { LIMITS } from './limits';
 
 export { Room } from './room';
 
@@ -51,6 +52,10 @@ export default {
 
     const routed = await routePartykitRequest(req, env as unknown as Record<string, unknown>, {
       onBeforeConnect: async (request, lobby) => {
+        // The room keeps the request URL in the connection's attachment, which has a size limit.
+        if (request.url.length > LIMITS.maxUrlChars) {
+          return new Response('URI too long', { status: 414 });
+        }
         const key = new URL(request.url).searchParams.get('key');
         const role = await roleForKey(env.ROOM_SECRET, lobby.name, key);
         if (!role) {
