@@ -928,3 +928,95 @@ describe('board controller by access', () => {
     expect(getRoots(doc).shapes.has('a')).toBe(false);
   });
 });
+
+describe('board controller gestures by access', () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  const rect = (doc: Y.Doc, id: string) =>
+    applyCommand(doc, {
+      type: 'CreateShape',
+      shape: {
+        id,
+        type: 'rect',
+        x: 0,
+        y: 0,
+        w: 100,
+        h: 100,
+        style: DEFAULT_STYLE.rect,
+        text: '',
+        createdBy: 'u1',
+        authorName: 'Brisk Otter',
+        createdAt: 0,
+      },
+    });
+
+  it("a viewer's press selects, and the drag neither moves the shape nor shows it moving", () => {
+    const { doc, controller } = setup({ access: () => 'read-only' });
+    rect(doc, 'r1');
+    controller.dispatch({ type: 'pointerDown', p: at(10, 10, 'r1') });
+    controller.dispatch({ type: 'pointerMove', p: at(60, 10) });
+    expect(controller.ui.getState().overlay).toBeNull();
+    controller.dispatch({ type: 'pointerUp', p: at(60, 10) });
+    vi.advanceTimersByTime(200);
+    expect(getRoots(doc).shapes.get('r1')?.get('x')).toBe(0);
+    expect(controller.ui.getState().tool).toEqual({
+      mode: 'idle',
+      tool: 'select',
+      selection: ['r1'],
+    });
+  });
+
+  it('a viewer cannot pick a tool that creates, and a double-click opens no editor', () => {
+    const { doc, controller } = setup({ access: () => 'read-only' });
+    rect(doc, 'r1');
+    controller.dispatch({ type: 'setTool', tool: 'sticky' });
+    expect(controller.ui.getState().tool.tool).toBe('select');
+    controller.dispatch({ type: 'pointerDown', p: at(300, 200) });
+    controller.dispatch({ type: 'pointerUp', p: at(300, 200) });
+    expect(getRoots(doc).shapes.size).toBe(1);
+    controller.dispatch({ type: 'doubleClick', p: at(10, 10, 'r1') });
+    expect(controller.ui.getState().editingId).toBeNull();
+  });
+
+  it('on a full board the Delete key still works and nothing else does', () => {
+    const { doc, controller } = setup({ access: () => 'delete-only' });
+    rect(doc, 'r1');
+    rect(doc, 'r2');
+    controller.dispatch({ type: 'pointerDown', p: at(10, 10, 'r1') });
+    controller.dispatch({ type: 'pointerUp', p: at(10, 10, 'r1') });
+    controller.dispatch({ type: 'nudge', dx: 10, dy: 0 });
+    expect(getRoots(doc).shapes.get('r1')?.get('x')).toBe(0);
+    controller.dispatch({ type: 'deleteSelection' });
+    expect(getRoots(doc).shapes.has('r1')).toBe(false);
+    expect(getRoots(doc).shapes.has('r2')).toBe(true);
+  });
+
+  it('when the board stops taking edits, the open editor closes and the tool is select again', () => {
+    let access: BoardAccess = 'edit';
+    const { controller } = setup({ access: () => access });
+    controller.dispatch({ type: 'setTool', tool: 'sticky' });
+    controller.dispatch({ type: 'pointerDown', p: at(300, 200) });
+    expect(controller.ui.getState().editingId).toBe('s1');
+    controller.dispatch({ type: 'setTool', tool: 'rect' });
+
+    access = 'delete-only';
+    controller.accessChanged();
+    expect(controller.ui.getState().editingId).toBeNull();
+    expect(controller.ui.getState().tool).toEqual({ mode: 'idle', tool: 'select', selection: [] });
+  });
+
+  it('a drag under way when the board fills up is dropped without a trace', () => {
+    let access: BoardAccess = 'edit';
+    const { doc, controller } = setup({ access: () => access });
+    rect(doc, 'r1');
+    controller.dispatch({ type: 'pointerDown', p: at(10, 10, 'r1') });
+    controller.dispatch({ type: 'pointerMove', p: at(60, 10) });
+    expect(controller.ui.getState().overlay).not.toBeNull();
+
+    access = 'delete-only';
+    controller.accessChanged();
+    expect(controller.ui.getState().overlay).toBeNull();
+    expect(controller.ui.getState().tool.mode).toBe('idle');
+  });
+});

@@ -1,3 +1,4 @@
+import type { BoardAccess } from '../commands/full';
 import type { Command, NewConnector, NewShape } from '../commands/types';
 import { clipToOutline } from '../geometry/connectors';
 import { childrenOf, dropTarget, frameColumns, rectContains } from '../geometry/frames';
@@ -135,6 +136,11 @@ export interface ToolContext {
   userName: string;
   newId: () => string;
   now: () => number;
+  /**
+   * What the user may change; `edit` when absent. Otherwise pointing only selects, and
+   * `deleteSelection` works in `delete-only` alone.
+   */
+  access?: BoardAccess;
 }
 
 export interface StepResult {
@@ -681,8 +687,50 @@ function stepConnecting(state: ConnectingState, event: ToolEvent, ctx: ToolConte
   }
 }
 
+/**
+ * The machine for a user who cannot edit (a viewer, or an editor on a full board). Pointing
+ * selects and draws a marquee; nothing is created, moved, resized or edited, whatever tool the
+ * state names. Only `delete-only` keeps `deleteSelection`.
+ */
+function stepLocked(state: ToolState, event: ToolEvent, ctx: ToolContext): StepResult {
+  if (state.mode === 'marquee') return stepMarquee(state, event, ctx);
+  // A gesture that was under way when the board stopped being editable is dropped.
+  if (state.mode !== 'idle') {
+    return { state: idle('select', state.selection), effects: [overlay(null), preview(null)] };
+  }
+  const { selection } = state;
+  switch (event.type) {
+    case 'deleteSelection':
+      return ctx.access === 'delete-only'
+        ? stepIdle(idle('select', selection), event, ctx)
+        : none(idle('select', selection));
+    case 'pointerDown': {
+      const { p } = event;
+      const hit = p.hitId && ctx.shapes[p.hitId] ? p.hitId : null;
+      if (hit) {
+        if (p.shift) return none(idle('select', toggled(selection, hit, true)));
+        return none(idle('select', selection.includes(hit) ? selection : [hit]));
+      }
+      if (p.connectorId && ctx.connectors?.[p.connectorId])
+        return none(idle('select', toggled(selection, p.connectorId, p.shift)));
+      const base = p.shift ? selection : [];
+      return none({
+        mode: 'marquee',
+        tool: 'select',
+        selection: base,
+        base,
+        origin: p.world,
+        moved: false,
+      });
+    }
+    default:
+      return none(idle('select', selection));
+  }
+}
+
 /** Pure tool reducer: (state, event) → (state, effects). */
 export function step(state: ToolState, event: ToolEvent, ctx: ToolContext): StepResult {
+  if (ctx.access !== undefined && ctx.access !== 'edit') return stepLocked(state, event, ctx);
   switch (state.mode) {
     case 'idle':
       return stepIdle(state, event, ctx);

@@ -104,6 +104,11 @@ export function createBoardSession(
     }
   });
 
+  // A hello that names a viewer, or a board that fills up, ends what was being edited.
+  const unsubscribeAccess = conn.clock.subscribe((clock, prev) => {
+    if (boardAccess(clock) !== boardAccess(prev)) controller.accessChanged();
+  });
+
   // Peers see which page we are on; the URL keeps it for reloads and shared links.
   publisher.setPage(docStore.store.getState().activePage);
   const unsubscribePage = docStore.store.subscribe((state, prev) => {
@@ -192,6 +197,7 @@ export function createBoardSession(
     destroy() {
       window.removeEventListener('hashchange', onHashChange);
       unsubscribe();
+      unsubscribeAccess();
       unsubscribePage();
       conn.provider.off('sync', onSync);
       controller.destroy();

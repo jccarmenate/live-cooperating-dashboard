@@ -254,6 +254,11 @@ export interface BoardController {
   /** Opens (a sticky's id) or closes (null) the "Add to calendar" dialog. */
   setAddToCalendar(id: string | null): void;
   /**
+   * The board's access changed (the server's hello, or the board filled up). When it no longer
+   * takes edits, whatever was being drawn or typed is closed: it could not be saved.
+   */
+  accessChanged(): void;
+  /**
    * Creates an event linked to a sticky on the active page, on the calendar page `pageId` (null:
    * a new calendar page), as one undo step (the new page itself is not undoable). Returns the
    * calendar page id, or null when nothing was created.
@@ -606,6 +611,7 @@ export function createBoardController(opts: {
       userName: opts.user.name,
       newId,
       now,
+      access: access(),
     });
     ui.setState(isShapeTool(state.tool) ? { tool: state, lastShape: state.tool } : { tool: state });
     run(effects);
@@ -1013,6 +1019,22 @@ export function createBoardController(opts: {
       opts.notify?.(`Added to ${title}`);
       ui.setState({ addToCalendar: null });
       return pageId;
+    },
+    accessChanged() {
+      if (access() === 'edit') return;
+      throttledCommit.cancel();
+      // The tool machine drops a gesture that is under way, and its overlay with it.
+      if (ui.getState().tool.mode !== 'idle') dispatch({ type: 'cancel' });
+      ui.setState({
+        tool: { mode: 'idle', tool: 'select', selection: ui.getState().tool.selection },
+        editingId: null,
+        editingColumn: null,
+        editingConnector: null,
+        composer: null,
+        graphDialog: false,
+        addToCalendar: null,
+      });
+      undoStack.stopCapturing();
     },
     destroy() {
       throttledCommit.cancel();

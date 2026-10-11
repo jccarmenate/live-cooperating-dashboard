@@ -16,7 +16,7 @@ import {
 import { type ComponentType, useEffect, useRef, useState } from 'react';
 import { useStore } from 'zustand';
 import type { BoardSession } from '../board/session';
-import { mayEdit } from '../sync/clock';
+import { boardAccess, mayEdit } from '../sync/clock';
 
 interface Tool {
   id: ToolId;
@@ -207,6 +207,8 @@ export function Toolbar({ session }: { session: BoardSession }) {
   const active = useStore(session.controller.ui, (s) => s.tool.tool);
   const multiSelect = useStore(session.controller.ui, (s) => s.multiSelect);
   const editable = useStore(session.conn.clock, mayEdit);
+  // The tools that create show only while the board takes edits: not for a viewer, not when full.
+  const creating = useStore(session.conn.clock, (c) => boardAccess(c) === 'edit');
   const pick = (id: ToolId) => session.controller.dispatch({ type: 'setTool', tool: id });
   return (
     <nav
@@ -237,15 +239,16 @@ export function Toolbar({ session }: { session: BoardSession }) {
       >
         <SquareDashedMousePointer className="size-4" />
       </button>
-      <ShapesButton session={session} active={active} />
-      {AFTER_SHAPES.filter((t) => t.id !== 'comment' || editable).map((tool) => (
-        <ToolButton
-          key={tool.id}
-          tool={tool}
-          active={active === tool.id}
-          onPick={() => pick(tool.id)}
-        />
-      ))}
+      {creating && <ShapesButton session={session} active={active} />}
+      {creating &&
+        AFTER_SHAPES.filter((t) => t.id !== 'comment' || editable).map((tool) => (
+          <ToolButton
+            key={tool.id}
+            tool={tool}
+            active={active === tool.id}
+            onPick={() => pick(tool.id)}
+          />
+        ))}
       <GraphButton session={session} canEdit={editable} />
       <button
         type="button"
