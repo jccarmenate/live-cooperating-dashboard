@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "wrangler dev --port 8787 --var ROOM_SECRET:dev-only-secret",
+    "dev": "wrangler dev --port 8787 --var ROOM_SECRET:dev-only-secret --var ROOM_CREATE_LIMIT:off",
     "deploy": "wrangler deploy",
     "test": "vitest run",
     "typecheck": "tsc --noEmit && tsc --noEmit -p test"

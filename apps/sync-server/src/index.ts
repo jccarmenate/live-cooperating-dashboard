@@ -35,6 +35,17 @@ export default {
       if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
       if (req.method !== 'POST')
         return new Response('Method not allowed', { status: 405, headers: cors });
+      if (env.ROOM_CREATE_LIMIT !== 'off') {
+        // Rooms are anonymous: without a limit one address could fill the account's storage.
+        const address = req.headers.get('CF-Connecting-IP') ?? 'unknown';
+        const { success } = await env.ROOM_CREATE_LIMITER.limit({ key: address });
+        if (!success) {
+          return new Response('Too many rooms', {
+            status: 429,
+            headers: { ...cors, 'Retry-After': '60' },
+          });
+        }
+      }
       return Response.json(await createRoom(env), { headers: cors });
     }
 

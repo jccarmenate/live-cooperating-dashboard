@@ -806,3 +806,38 @@ describe('sync server', () => {
     expect(h.viewKey).toBeUndefined();
   });
 });
+
+describe('room creation limit', () => {
+  const LIMITED_PORT = 8798;
+  let limited: RunningWorker | undefined;
+
+  beforeAll(async () => {
+    limited = await startWorker({
+      port: LIMITED_PORT,
+      persistDir: mkdtempSync(join(tmpdir(), 'relay-do-limit-')),
+      vars: { ROOM_CREATE_LIMIT: 'on' },
+    });
+  });
+  afterAll(async () => {
+    await limited?.stop();
+  });
+
+  it('answers 429 with Retry-After and CORS headers once an address passes 10 rooms a minute', async () => {
+    const responses: Response[] = [];
+    for (let i = 0; i < 25; i++) {
+      responses.push(
+        await fetch(`http://127.0.0.1:${LIMITED_PORT}/api/rooms`, {
+          method: 'POST',
+          headers: { Origin: 'http://localhost:4000' },
+        }),
+      );
+    }
+    expect(responses[0]?.status).toBe(200);
+    const refused = responses.filter((r) => r.status === 429);
+    // The limiter's minute may roll over once during the loop, so at most 20 of 25 get through.
+    expect(refused.length).toBeGreaterThanOrEqual(5);
+    expect(refused[0]?.headers.get('Retry-After')).toBe('60');
+    expect(refused[0]?.headers.get('Access-Control-Allow-Origin')).toBe('http://localhost:4000');
+    expect(responses.every((r) => r.status === 200 || r.status === 429)).toBe(true);
+  });
+});

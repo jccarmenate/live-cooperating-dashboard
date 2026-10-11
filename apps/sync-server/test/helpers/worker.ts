@@ -61,8 +61,11 @@ function signalGroup(pid: number, signal: NodeJS.Signals): void {
 export async function startWorker(opts: {
   port: number;
   persistDir: string;
+  /** Extra `--var` values; the room-creation limit is off unless a test turns it on. */
+  vars?: Record<string, string>;
 }): Promise<RunningWorker> {
   const logs: string[] = [];
+  const vars = { ROOM_SECRET: 'test-secret', ROOM_CREATE_LIMIT: 'off', ...opts.vars };
   const child = spawn(
     process.execPath,
     [
@@ -70,12 +73,14 @@ export async function startWorker(opts: {
       'dev',
       '--port',
       String(opts.port),
+      // Two workers run at once in the integration suite: each needs its own inspector port.
+      '--inspector-port',
+      String(opts.port + 1000),
       '--ip',
       '127.0.0.1',
       '--persist-to',
       opts.persistDir,
-      '--var',
-      'ROOM_SECRET:test-secret',
+      ...Object.entries(vars).flatMap(([name, value]) => ['--var', `${name}:${value}`]),
     ],
     {
       cwd: SERVER_DIR,

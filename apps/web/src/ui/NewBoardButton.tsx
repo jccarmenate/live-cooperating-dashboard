@@ -6,12 +6,16 @@ import { SYNC_HTTP } from '@/config';
 
 export function NewBoardButton() {
   const router = useRouter();
-  const [state, setState] = useState<'idle' | 'busy' | 'error'>('idle');
+  const [state, setState] = useState<'idle' | 'busy' | 'error' | 'limited'>('idle');
 
   async function create() {
     setState('busy');
     try {
       const res = await fetch(`${SYNC_HTTP}/api/rooms`, { method: 'POST' });
+      if (res.status === 429) {
+        setState('limited');
+        return;
+      }
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const { roomId, editKey } = (await res.json()) as { roomId: string; editKey: string };
       router.push(`/r/${roomId}#k=${encodeURIComponent(editKey)}`);
@@ -33,6 +37,11 @@ export function NewBoardButton() {
       {state === 'error' && (
         <p role="alert" className="font-mono text-xs text-flame">
           Sync server unreachable. Is it running on {SYNC_HTTP}?
+        </p>
+      )}
+      {state === 'limited' && (
+        <p role="alert" data-testid="new-board-limited" className="font-mono text-xs text-flame">
+          Too many new boards. Try again in a minute.
         </p>
       )}
     </div>
