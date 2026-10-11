@@ -381,7 +381,25 @@ export class Room extends YServer {
 
   onClose(connection: Connection, code: number, reason: string, wasClean: boolean): void {
     this.#buckets.delete(connection);
+    this.#restoreClosing(connection);
     super.onClose(connection, code, reason, wasClean);
+  }
+
+  /**
+   * A socket's close can be the event that wakes the room, and `#restorePresence` only sees the
+   * sockets that are still open. The closing socket's states are put back here, silently (with
+   * the socket itself as origin y-partyserver relays nothing), so that removing them, which
+   * y-partyserver does next, has something to remove and tells everyone.
+   */
+  #restoreClosing(connection: Connection): void {
+    const held = this.document.awareness.getStates();
+    const owned = new Set(ownedIds(connection));
+    const entries: AwarenessEntry[] = [];
+    for (const [clientId, clock, state] of storedPresence(connection)) {
+      if (owned.has(clientId) && !held.has(clientId)) entries.push({ clientId, clock, state });
+    }
+    if (entries.length === 0) return;
+    applyAwarenessUpdate(this.document.awareness, encodeAwarenessUpdate(entries), connection);
   }
 
   onError(connection: Connection, error: unknown): void | Promise<void> {

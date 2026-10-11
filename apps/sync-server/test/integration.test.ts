@@ -796,6 +796,24 @@ describe('sync server', () => {
     await waitFor(() => !carol.provider.awareness.getStates().has(7301));
   });
 
+  it('a peer who leaves while the room sleeps is still removed for the others', {
+    timeout: 60_000,
+  }, async () => {
+    const { roomId, editKey } = await createRoom();
+    const ann = connect(roomId, editKey);
+    await synced(ann.provider);
+    const bob = rawConnect(roomId, { key: editKey });
+    await waitForOpen(bob);
+    ann.provider.awareness.setLocalState(presence('Ann'));
+    bob.send(awarenessFrame([{ clientId: 7401, clock: 1, state: presence('Bob') }]));
+    await waitFor(() => nameOf(ann.provider, 7401) === 'Bob');
+
+    // The room hibernates, and Bob's close is the event that wakes it.
+    await new Promise((r) => setTimeout(r, 15_000));
+    bob.close();
+    await waitFor(() => !ann.provider.awareness.getStates().has(7401));
+  });
+
   it('lets anyone into the demo room and initializes its metadata', async () => {
     const { doc, provider } = connect('demo', null);
     await synced(provider);
