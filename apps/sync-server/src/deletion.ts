@@ -1,23 +1,54 @@
 import * as decoding from 'lib0/decoding';
 import * as Y from 'yjs';
+import { MESSAGE_SYNC, SYNC_STEP2, SYNC_UPDATE } from './protocol';
 
-/** Yjs sync protocol message type byte. */
-const MESSAGE_SYNC = 0;
-/** Sync sub-types that carry a document update. */
-const SYNC_STEP2 = 1;
-const SYNC_UPDATE = 2;
+/** A sync frame that carries a document update: which kind it is, and the update. */
+export interface SyncFrame {
+  sub: typeof SYNC_STEP2 | typeof SYNC_UPDATE;
+  update: Uint8Array;
+}
 
-/** The Yjs update inside a SyncStep2 or Update frame, or null for any other frame. */
-export function readSyncUpdate(message: Uint8Array): Uint8Array | null {
+/**
+ * The sub-type and the update of a SyncStep2 or Update frame, or null for any other frame
+ * (SyncStep1, awareness, a sub-type this protocol does not have, a truncated frame, bytes past
+ * its end). Type and sub-type are read as varints, as y-protocols reads them: a sub-type written
+ * in a longer spelling of 2 is an Update.
+ */
+export function readSyncFrame(message: Uint8Array): SyncFrame | null {
   try {
     const decoder = decoding.createDecoder(message);
     if (decoding.readVarUint(decoder) !== MESSAGE_SYNC) return null;
     const sub = decoding.readVarUint(decoder);
     if (sub !== SYNC_STEP2 && sub !== SYNC_UPDATE) return null;
     const update = decoding.readVarUint8Array(decoder);
-    return decoding.hasContent(decoder) ? null : update;
+    return decoding.hasContent(decoder) ? null : { sub, update };
   } catch {
     return null;
+  }
+}
+
+/** The Yjs update inside a SyncStep2 or Update frame, or null for any other frame. */
+export function readSyncUpdate(message: Uint8Array): Uint8Array | null {
+  return readSyncFrame(message)?.update ?? null;
+}
+
+/**
+ * The encoded size of what `doc` holds. `Y.encodeStateAsUpdate` also encodes whatever is parked in
+ * the store (an update that depends on content the document lacks), and the room keeps none of it:
+ * it drops it as soon as the frame has been handled, which is after the document has announced
+ * the part that applied. Measured in between, the parked rest would be counted. The parked data is
+ * set aside for the measure and put back.
+ */
+export function heldBytes(doc: Y.Doc): number {
+  const { store } = doc;
+  const { pendingStructs, pendingDs } = store;
+  store.pendingStructs = null;
+  store.pendingDs = null;
+  try {
+    return Y.encodeStateAsUpdate(doc).byteLength;
+  } finally {
+    store.pendingStructs = pendingStructs;
+    store.pendingDs = pendingDs;
   }
 }
 

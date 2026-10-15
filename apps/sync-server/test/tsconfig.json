@@ -9,6 +9,7 @@
     "../src/auth.ts",
     "../src/limits.ts",
     "../src/awareness.ts",
-    "../src/deletion.ts"
+    "../src/deletion.ts",
+    "../src/protocol.ts"
   ]
 }

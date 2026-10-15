@@ -6,9 +6,7 @@ import {
   applyAwarenessUpdate,
   encodeAwarenessUpdate as encodeHeldStates,
 } from 'y-protocols/awareness';
-
-/** Yjs awareness protocol message type byte. */
-const MESSAGE_AWARENESS = 1;
+import { MESSAGE_AWARENESS } from './protocol';
 
 /**
  * Maximum value for Yjs client id and awareness clock (uint32).

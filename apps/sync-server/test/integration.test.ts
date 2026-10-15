@@ -164,6 +164,15 @@ function encodeUpdateMessage(update: Uint8Array): Uint8Array {
   return encoding.toUint8Array(encoder);
 }
 
+/** Encodes a raw `messageSync` frame carrying a sync-protocol SyncStep2 (sub-type 1). */
+function encodeSyncStep2Message(update: Uint8Array): Uint8Array {
+  const encoder = encoding.createEncoder();
+  encoding.writeVarUint(encoder, 0); // messageSync
+  encoding.writeVarUint(encoder, 1); // messageYjsSyncStep2
+  encoding.writeVarUint8Array(encoder, update);
+  return encoding.toUint8Array(encoder);
+}
+
 /** A valid presence state, as the web client publishes it. */
 const presence = (name: string, extra: Record<string, unknown> = {}) => ({
   user: { id: `u-${name}`, name, color: '#E85A1B' },
@@ -460,6 +469,51 @@ describe('sync server', () => {
     const closed = waitForClose(mallory);
     mallory.send(encodeUpdateMessage(Y.encodeStateAsUpdate(doc, afterFirst)));
     expect((await closed).code).toBe(4400);
+
+    // Nobody who syncs afterwards is handed the parked data.
+    const late = connect(roomId, editKey);
+    await synced(late.provider);
+    expect(late.doc.store.pendingStructs).toBeNull();
+    expect(late.doc.store.pendingDs).toBeNull();
+  });
+
+  it('an Update whose sub-type is written as a longer varint is still an Update: its gap closes its sender', async () => {
+    const { roomId, editKey } = await createRoom();
+    const mallory = rawConnect(roomId, { key: editKey });
+    await waitForOpen(mallory);
+    const doc = new Y.Doc();
+    doc.getMap('m').set('a', 1);
+    const afterFirst = Y.encodeStateVector(doc);
+    doc.getMap('m').set('b', 'x'.repeat(1000));
+    const encoder = encoding.createEncoder();
+    encoding.writeVarUint(encoder, 0); // messageSync
+    encoding.writeUint8(encoder, 0x82); // sub-type 2, with a continuation byte
+    encoding.writeUint8(encoder, 0x00);
+    encoding.writeVarUint8Array(encoder, Y.encodeStateAsUpdate(doc, afterFirst));
+    const closed = waitForClose(mallory);
+    mallory.send(encoding.toUint8Array(encoder));
+    expect((await closed).code).toBe(4400);
+  });
+
+  it('a SyncStep2 with a gap has its parked data dropped, and its sender stays connected', async () => {
+    const { roomId, editKey } = await createRoom();
+    const client = rawConnect(roomId, { key: editKey });
+    await waitForOpen(client);
+    let closed = false;
+    client.on('close', () => {
+      closed = true;
+    });
+    // A SyncStep2 is the whole difference from the room's state: a client whose own document
+    // holds parked data sends it on every connect, and a close would only make it send it again.
+    const doc = new Y.Doc();
+    doc.getMap('m').set('a', 1);
+    const afterFirst = Y.encodeStateVector(doc);
+    doc.getMap('m').set('b', 'x'.repeat(100_000));
+    client.send(encodeSyncStep2Message(Y.encodeStateAsUpdate(doc, afterFirst)));
+    // The socket still answers, and was not closed.
+    await ping(client);
+    expect(closed).toBe(false);
+    expect(client.readyState).toBe(WebSocket.OPEN);
 
     // Nobody who syncs afterwards is handed the parked data.
     const late = connect(roomId, editKey);

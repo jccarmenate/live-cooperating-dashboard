@@ -2,7 +2,7 @@ import * as encoding from 'lib0/encoding';
 import { describe, expect, it } from 'vitest';
 import { writeSyncStep1, writeSyncStep2, writeUpdate } from 'y-protocols/sync';
 import * as Y from 'yjs';
-import { isPureDeletion, readSyncUpdate } from '../src/deletion';
+import { heldBytes, isPureDeletion, readSyncFrame, readSyncUpdate } from '../src/deletion';
 
 /** Captures the next update `fn` produces on `doc`. */
 function updateOf(doc: Y.Doc, fn: () => void): Uint8Array {
@@ -53,6 +53,86 @@ describe('readSyncUpdate', () => {
     const good = syncFrame((e) => writeUpdate(e, Y.encodeStateAsUpdate(doc)));
     expect(readSyncUpdate(Uint8Array.of(...good, 0))).toBeNull();
     expect(readSyncUpdate(new Uint8Array())).toBeNull();
+  });
+});
+
+describe('readSyncFrame', () => {
+  const update = Y.encodeStateAsUpdate(new Y.Doc());
+
+  it('reads the sub-type of an Update and of a SyncStep2 frame, with their update', () => {
+    const doc = new Y.Doc();
+    doc.getMap('m').set('a', 1);
+    expect(readSyncFrame(syncFrame((e) => writeUpdate(e, update)))).toEqual({ sub: 2, update });
+    expect(readSyncFrame(syncFrame((e) => writeSyncStep2(e, doc)))).toEqual({
+      sub: 1,
+      update: Y.encodeStateAsUpdate(doc),
+    });
+  });
+
+  it('reads the sub-type as a varint, as y-protocols does: a longer spelling of 2 is an Update', () => {
+    const frame = syncFrame((e) => {
+      encoding.writeUint8(e, 0x82); // 2, with a continuation byte
+      encoding.writeUint8(e, 0x00);
+      encoding.writeVarUint8Array(e, update);
+    });
+    expect(readSyncFrame(frame)).toEqual({ sub: 2, update });
+    // The type is a varint too: 0x80 0x00 is 0.
+    const longType = Uint8Array.of(0x80, 0x00, ...frame.slice(1));
+    expect(readSyncFrame(longType)).toEqual({ sub: 2, update });
+  });
+
+  it('is null for what carries no update: SyncStep1, another sub-type, awareness, bad bytes', () => {
+    const doc = new Y.Doc();
+    expect(readSyncFrame(syncFrame((e) => writeSyncStep1(e, doc)))).toBeNull();
+    expect(readSyncFrame(Uint8Array.of(0, 3, 0))).toBeNull();
+    expect(readSyncFrame(Uint8Array.of(1, 0))).toBeNull();
+    expect(readSyncFrame(Uint8Array.of(0, 2, 9, 1))).toBeNull();
+    expect(readSyncFrame(new Uint8Array())).toBeNull();
+    const good = syncFrame((e) => writeUpdate(e, update));
+    expect(readSyncFrame(Uint8Array.of(...good, 0))).toBeNull();
+  });
+});
+
+describe('heldBytes', () => {
+  /** An update whose first change the receiver has not got, and the update before it. */
+  function gapped() {
+    const source = new Y.Doc();
+    source.getMap('m').set('a', 1);
+    const first = Y.encodeStateAsUpdate(source);
+    const afterFirst = Y.encodeStateVector(source);
+    source.getMap('m').set('b', 'x'.repeat(5000));
+    return { first, second: Y.encodeStateAsUpdate(source, afterFirst) };
+  }
+
+  it('is the size of the document, and counts nothing parked in its store', () => {
+    const { first, second } = gapped();
+    const doc = new Y.Doc();
+    Y.applyUpdate(doc, second);
+    expect(doc.store.pendingStructs).not.toBeNull();
+    // Yjs encodes what is parked along with the document; the room holds none of it.
+    expect(Y.encodeStateAsUpdate(doc).byteLength).toBeGreaterThan(5000);
+    expect(heldBytes(doc)).toBe(Y.encodeStateAsUpdate(new Y.Doc()).byteLength);
+    // What was parked is still there afterwards: the room decides what to do with it.
+    expect(doc.store.pendingStructs).not.toBeNull();
+    Y.applyUpdate(doc, first);
+    expect(doc.store.pendingStructs).toBeNull();
+    expect(heldBytes(doc)).toBe(Y.encodeStateAsUpdate(doc).byteLength);
+  });
+
+  it('does not count the parked rest of a frame that applies in part, from inside its update event', () => {
+    const { second } = gapped();
+    const other = new Y.Doc();
+    other.getMap('m').set('fresh', 1);
+    const frame = Y.mergeUpdates([Y.encodeStateAsUpdate(other), second]);
+    const doc = new Y.Doc();
+    let measured: { held: number; encoded: number } | undefined;
+    doc.on('update', () => {
+      measured = { held: heldBytes(doc), encoded: Y.encodeStateAsUpdate(doc).byteLength };
+    });
+    Y.applyUpdate(doc, frame);
+    expect(doc.getMap('m').get('fresh')).toBe(1);
+    expect(measured?.encoded).toBeGreaterThan(5000);
+    expect(measured?.held).toBeLessThan(100);
   });
 });
 

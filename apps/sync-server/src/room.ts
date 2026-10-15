@@ -14,9 +14,10 @@ import {
   readAwarenessMessage,
   readMessageType,
 } from './awareness';
-import { isPureDeletion, readSyncUpdate } from './deletion';
+import { heldBytes, isPureDeletion, readSyncFrame, type SyncFrame } from './deletion';
 import type { Env } from './env';
 import { LIMITS, messageBytes, TokenBucket } from './limits';
+import { MESSAGE_AWARENESS, MESSAGE_SYNC, SYNC_UPDATE } from './protocol';
 
 /**
  * What the room keeps on a connection. It survives hibernation. `__ypsAwarenessIds` is
@@ -61,10 +62,6 @@ function storedPresence(connection: Connection): StoredPresence[] {
   );
 }
 
-/** Yjs protocol message types (the varint a frame starts with). */
-const MESSAGE_SYNC = 0;
-const MESSAGE_AWARENESS = 1;
-
 function toBytes(message: ArrayBuffer | ArrayBufferView): Uint8Array {
   return message instanceof ArrayBuffer
     ? new Uint8Array(message)
@@ -90,8 +87,11 @@ export class Room extends YServer {
   /**
    * Running estimate of the document's encoded size: the last exact size plus the bytes of every
    * update the document has emitted since. Yjs emits only what was new, so a client re-sending
-   * what the room already has adds nothing. It is exact about what the document holds because the
-   * room holds nothing parked (see `#dropParked`).
+   * what the room already has adds nothing. It is an estimate: an edit inside a struct splits it,
+   * which the update does not show, and merged structs take less room than the updates that
+   * brought them. An exact measure resets it on load, when it crosses the cap and on every save,
+   * and each of them counts what the document holds, leaving out data parked in the store (the
+   * room drops it as soon as it has handled the frame; see `#dropParked`).
    */
   #estimatedBytes = 0;
   readonly #buckets = new WeakMap<Connection, TokenBucket>();
@@ -150,7 +150,9 @@ export class Room extends YServer {
   readonly #onDocUpdate = (update: Uint8Array): void => {
     this.#estimatedBytes += update.byteLength;
     if (this.#full || this.#estimatedBytes <= LIMITS.maxDocBytes) return;
-    const real = Y.encodeStateAsUpdate(this.document).byteLength;
+    // Not `Y.encodeStateAsUpdate` alone: a frame that applies in part still has its parked rest
+    // in the store here, and the room is about to drop it.
+    const real = heldBytes(this.document);
     this.#estimatedBytes = real;
     if (real > LIMITS.maxDocBytes) this.#setFull(true);
   };
@@ -279,6 +281,7 @@ export class Room extends YServer {
       connection.close(4429, 'rate limited');
       return;
     }
+    let frame: SyncFrame | null = null;
     if (typeof message !== 'string') {
       const bytes = toBytes(message);
       // Routed by the decoded type, as y-partyserver reads it. Routed by the first byte, a type
@@ -293,18 +296,23 @@ export class Room extends YServer {
         if (type === null) connection.close(4400, 'bad frame');
         return;
       }
-      if (this.#full && roleOf(connection) === 'edit') {
-        const update = readSyncUpdate(bytes);
-        if (update) {
-          this.#onUpdateWhileFull(connection, update);
-          return;
-        }
+      frame = readSyncFrame(bytes);
+      if (frame && this.#full && roleOf(connection) === 'edit') {
+        this.#onUpdateWhileFull(connection, frame.update);
+        return;
       }
     }
     super.onMessage(connection, message);
-    // The sender's reconnect syncs from what the room really has: a client that was only ahead of
-    // the room gets its change in that way.
-    if (typeof message !== 'string' && this.#dropParked()) connection.close(4400, 'bad frame');
+    if (typeof message !== 'string' && this.#dropParked()) {
+      // An Update that leaves parked data is closed: the sender's reconnect syncs from what the
+      // room really has, and a client that was only ahead of the room gets its change in that
+      // way. A SyncStep2 already is the whole difference from the room's state, so a close helps
+      // nothing, and a client whose own document holds parked data (handed out by a room before
+      // it dropped them, and kept across reloads) would be closed on every connect, for ever.
+      // Labelling gapped data as a SyncStep2 gains nothing: it is dropped either way, and the
+      // close only lets an honest client resync.
+      if (frame?.sub === SYNC_UPDATE) connection.close(4400, 'bad frame');
+    }
   }
 
   /**
