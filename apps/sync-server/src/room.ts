@@ -314,7 +314,13 @@ export class Room extends YServer {
    */
   #onUpdateWhileFull(connection: Connection, update: Uint8Array): void {
     if (isPureDeletion(update, this.document)) {
-      Y.applyUpdate(this.document, update, connection);
+      // As y-protocols' own reader does: an update that throws is logged and dropped, and the
+      // message handler (and the socket) go on.
+      try {
+        Y.applyUpdate(this.document, update, connection);
+      } catch (error) {
+        console.error(`Room ${this.name}: a deletion could not be applied`, error);
+      }
       return;
     }
     if (stateOf(connection).rejected) return;

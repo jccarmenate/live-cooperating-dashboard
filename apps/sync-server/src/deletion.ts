@@ -22,18 +22,29 @@ export function readSyncUpdate(message: Uint8Array): Uint8Array | null {
 }
 
 /**
- * Whether `update` only deletes content `doc` already has: it adds no structs, and every range
- * of its delete set lies inside the document's state. A delete set that pointed past it would
- * be stored as pending and grow the document, so it is refused.
+ * Whether `update` only deletes content `doc` already has, and does so without growing it: it
+ * adds no structs, every range of its delete set lies inside the document's state, and no range
+ * cuts a struct that is not yet deleted. A delete set that pointed past the state would be stored
+ * as pending, and Yjs splits a live struct that a range starts or ends inside (each split is a
+ * struct more in the encoding: a delete set of every other character of a text makes a document
+ * about eleven times its size, though it removes half the text). A range of length zero deletes
+ * nothing, so it is refused too. Re-deleting what is already deleted splits nothing.
  */
 export function isPureDeletion(update: Uint8Array, doc: Y.Doc): boolean {
   try {
     const { structs, ds } = Y.decodeUpdate(update);
     if (structs.length > 0) return false;
-    const known = Y.decodeStateVector(Y.encodeStateVector(doc));
     for (const [client, ranges] of ds.clients) {
-      const end = known.get(client) ?? 0;
-      for (const range of ranges) if (range.clock + range.len > end) return false;
+      const held = doc.store.clients.get(client);
+      if (!held) return false;
+      const end = Y.getState(doc.store, client);
+      for (const { clock, len } of ranges) {
+        if (len === 0 || clock + len > end) return false;
+        const first = held[Y.findIndexSS(held, clock)];
+        if (first && !first.deleted && first.id.clock < clock) return false;
+        const last = held[Y.findIndexSS(held, clock + len - 1)];
+        if (last && !last.deleted && last.id.clock + last.length > clock + len) return false;
+      }
     }
     return true;
   } catch {

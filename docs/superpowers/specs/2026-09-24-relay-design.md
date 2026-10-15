@@ -1358,9 +1358,10 @@ remove it. So after an editor's frame the room drops whatever was parked.
 
 **Full, but deletable.** While the board is full the server still accepts a
 document update from an editor when it is a pure deletion: it adds no
-structs, and every range in its delete set is inside what the server already
-has. Any other update is dropped, and the server sends `rejected` to that
-connection once.
+structs, every range in its delete set is inside what the server already has,
+and no range cuts a struct that is not yet deleted (Yjs would split it, and
+each split grows the document). Any other update is dropped, and the server
+sends `rejected` to that connection once.
 
 On the client, `allowedWhenFull(command)` in `packages/core/commands` names
 the commands that produce pure deletions: `DeleteShapes`, `DeleteRows`,
