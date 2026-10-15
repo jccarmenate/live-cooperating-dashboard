@@ -18,7 +18,9 @@ const MAX_UINT32 = 0xffffffff;
 /**
  * The message type of a wire frame, read the way y-partyserver reads it: as a varint. Routing on
  * the first byte alone lets a type written as a longer varint (0x81 0x00 is 1) pass for another
- * and skip every rule in this file. Null when the frame is empty or the type does not decode.
+ * and skip every rule in this file. Null when the frame is empty or the varint never ends. A
+ * varint too long to be a number does not throw in lib0: it reads as NaN, which is no message type
+ * (the room drops the frame, as y-partyserver would, and does not close the socket).
  */
 export function readMessageType(message: Uint8Array): number | null {
   try {

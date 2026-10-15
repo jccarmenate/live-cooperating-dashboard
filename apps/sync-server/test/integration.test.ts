@@ -48,25 +48,27 @@ function connect(room: string, key: string | null) {
   return { doc, provider };
 }
 
-/** Connects directly to the room's WebSocket endpoint, bypassing the Yjs provider. */
-function rawConnect(
-  room: string,
-  opts: {
-    key?: string;
-    sid?: string;
-    pk?: string;
-    pad?: number;
-    headers?: Record<string, string>;
-  } = {},
-): WebSocket {
+interface RawOptions {
+  key?: string;
+  sid?: string;
+  pk?: string;
+  pad?: number;
+  headers?: Record<string, string>;
+}
+
+/** The URL `rawConnect` opens. */
+function rawUrl(room: string, opts: RawOptions = {}): string {
   // The app's provider keeps one `_pk` for its whole life: a reconnect arrives with the same one.
   const params = new URLSearchParams({ _pk: opts.pk ?? Math.random().toString(36).slice(2) });
   if (opts.key !== undefined) params.set('key', opts.key);
   if (opts.sid !== undefined) params.set('sid', opts.sid);
   if (opts.pad !== undefined) params.set('pad', 'x'.repeat(opts.pad));
-  const ws = new WebSocket(`ws://127.0.0.1:${PORT}/parties/room/${room}?${params.toString()}`, {
-    headers: opts.headers,
-  });
+  return `ws://127.0.0.1:${PORT}/parties/room/${room}?${params.toString()}`;
+}
+
+/** Connects directly to the room's WebSocket endpoint, bypassing the Yjs provider. */
+function rawConnect(room: string, opts: RawOptions = {}): WebSocket {
+  const ws = new WebSocket(rawUrl(room, opts), { headers: opts.headers });
   rawSockets.push(ws);
   return ws;
 }
@@ -441,9 +443,19 @@ describe('sync server', () => {
     const told: string[] = [];
     writer.provider.on('custom-message', (raw: string) => told.push(raw));
     await synced(writer.provider);
+    await settle();
+    // Joining a full board is not a refused write (the empty SyncStep2 a plain connect sends is
+    // a pure deletion of nothing): until the writer writes, it has been told nothing.
+    const rejections = () => told.filter((raw) => raw.includes('"rejected"')).length;
+    expect(rejections()).toBe(0);
     addSticky(writer.doc, 'after-cap');
-    await waitFor(() => told.some((raw) => raw.includes('"rejected"')));
+    await waitFor(() => rejections() === 1);
+    // A second refused write is not told again.
+    addSticky(writer.doc, 'after-cap-2');
+    await settle();
+    expect(rejections()).toBe(1);
     expect(getRoots(clean.doc).shapes.has('after-cap')).toBe(false);
+    expect(getRoots(clean.doc).shapes.has('after-cap-2')).toBe(false);
 
     // A deletion from a client that holds only what the server has is accepted.
     applyCommand(clean.doc, { type: 'DeleteShapes', ids: ['small'] });
@@ -829,7 +841,6 @@ describe('sync server', () => {
     await settle();
     expect(nameOf(watcher.provider, 4201)).toBe('Ann');
     // And the room removes the state when that socket goes, as it does for any owner.
-    await ping(second);
     second.close();
     await waitFor(() => !watcher.provider.awareness.getStates().has(4201));
   });
@@ -872,6 +883,27 @@ describe('sync server', () => {
     const outcome = await new Promise<string>((resolve) => {
       ws.on('error', (e) => resolve(e.message));
       ws.on('open', () => resolve('the socket opened'));
+    });
+    expect(outcome).toContain('414');
+  });
+
+  it('accepts a request whose URL is exactly the limit, and refuses one character more', async () => {
+    const { roomId, editKey } = await createRoom();
+    // The worker sees the request as http://, where the client wrote ws://. The padding is what
+    // brings that URL to the limit, computed from the URL the helper really builds.
+    const seenLength = (opts: RawOptions) => rawUrl(roomId, opts).replace(/^ws:/, 'http:').length;
+    const fixed = { key: editKey, pk: 'boundary-pk' };
+    const pad = LIMITS.maxUrlChars - seenLength({ ...fixed, pad: 0 });
+    expect(seenLength({ ...fixed, pad })).toBe(LIMITS.maxUrlChars);
+
+    const atLimit = rawConnect(roomId, { ...fixed, pad });
+    await waitForOpen(atLimit);
+    await ping(atLimit);
+
+    const over = rawConnect(roomId, { ...fixed, pad: pad + 1 });
+    const outcome = await new Promise<string>((resolve) => {
+      over.on('error', (e) => resolve(e.message));
+      over.on('open', () => resolve('the socket opened'));
     });
     expect(outcome).toContain('414');
   });

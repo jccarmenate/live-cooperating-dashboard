@@ -143,7 +143,12 @@ export class Room extends YServer {
       }
     }
     if (entries.length === 0) return;
-    applyAwarenessUpdate(this.document.awareness, encodeAwarenessUpdate(entries), null);
+    // A throw here would stop `onLoad`, and the room would never start.
+    try {
+      applyAwarenessUpdate(this.document.awareness, encodeAwarenessUpdate(entries), null);
+    } catch (error) {
+      console.error(`Room ${this.name}: presence could not be restored`, error);
+    }
   }
 
   /** Counts what the document really gained, and measures exactly when the estimate crosses the cap. */
@@ -418,7 +423,15 @@ export class Room extends YServer {
       if (owned.has(clientId) && !held.has(clientId)) entries.push({ clientId, clock, state });
     }
     if (entries.length === 0) return;
-    applyAwarenessUpdate(this.document.awareness, encodeAwarenessUpdate(entries), connection);
+    // A throw here would keep `onClose` from removing the closing socket's other states.
+    try {
+      applyAwarenessUpdate(this.document.awareness, encodeAwarenessUpdate(entries), connection);
+    } catch (error) {
+      console.error(
+        `Room ${this.name}: a closing connection's presence could not be restored`,
+        error,
+      );
+    }
   }
 
   onError(connection: Connection, error: unknown): void | Promise<void> {

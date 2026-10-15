@@ -58,7 +58,7 @@ describe('awareness codec', () => {
     expect(readAwarenessMessage(new Uint8Array())).toBeNull();
   });
 
-  it('rejects a client id or clock that is not a uint32', { timeout: 2000 }, async () => {
+  it('rejects a client id or clock that is not a uint32', { timeout: 2000 }, () => {
     // Helper: build an awareness update with manually crafted varints
     const buildUpdate = (clientIdBytes: Uint8Array, clockBytes: Uint8Array): Uint8Array => {
       const stateStr = JSON.stringify(presence('Test'));
@@ -132,6 +132,68 @@ describe('awareness codec', () => {
     expect(
       readAwarenessMessage(wrapAwareness(buildUpdate(validClientIdBytes, outOfRangeBytes))),
     ).toBeNull();
+  });
+
+  describe('hostile input', () => {
+    const json = JSON.stringify(presence('Ann'));
+    const wrap = (write: (e: encoding.Encoder) => void): Uint8Array => {
+      const e = encoding.createEncoder();
+      write(e);
+      return wrapAwareness(encoding.toUint8Array(e));
+    };
+
+    it('rejects a string whose length says more than the frame holds', () => {
+      const frame = wrap((e) => {
+        encoding.writeVarUint(e, 1); // one entry
+        encoding.writeVarUint(e, 7); // client id
+        encoding.writeVarUint(e, 1); // clock
+        encoding.writeVarUint(e, json.length + 500); // a length that lies
+        encoding.writeUint8Array(e, new TextEncoder().encode(json));
+      });
+      expect(readAwarenessMessage(frame)).toBeNull();
+    });
+
+    it('rejects an entry count that does not match the entries', () => {
+      const entryBytes = (e: encoding.Encoder, id: number) => {
+        encoding.writeVarUint(e, id);
+        encoding.writeVarUint(e, 1);
+        encoding.writeVarString(e, json);
+      };
+      // Two entries announced, one sent.
+      expect(
+        readAwarenessMessage(
+          wrap((e) => {
+            encoding.writeVarUint(e, 2);
+            entryBytes(e, 1);
+          }),
+        ),
+      ).toBeNull();
+      // One entry announced, two sent: the bytes past the first are trailing bytes.
+      expect(
+        readAwarenessMessage(
+          wrap((e) => {
+            encoding.writeVarUint(e, 1);
+            entryBytes(e, 1);
+            entryBytes(e, 2);
+          }),
+        ),
+      ).toBeNull();
+    });
+
+    it('keeps every entry of a repeated id, in order: the filter decides what they mean', () => {
+      const entries = [
+        entry(5, 1, presence('Ann')),
+        entry(5, 2, presence('Bob')),
+        entry(5, 3, null),
+      ];
+      expect(readAwarenessMessage(wrapAwareness(encodeAwarenessUpdate(entries)))).toEqual(entries);
+    });
+
+    it('reads a state that is not JSON as text, and the filter drops it', () => {
+      const raw: AwarenessEntry[] = [{ clientId: 5, clock: 1, state: 'not json {' }];
+      expect(readAwarenessMessage(wrapAwareness(encodeAwarenessUpdate(raw)))).toEqual(raw);
+      expect(filterAwareness(raw, ctx([5])).accepted).toEqual([]);
+    });
   });
 
   it('accepts the largest uint32 client id and clock', () => {
@@ -243,6 +305,13 @@ describe('readMessageType', () => {
   it('has no type for an empty frame or a varint that never ends', () => {
     expect(readMessageType(new Uint8Array())).toBeNull();
     expect(readMessageType(Uint8Array.of(0x80))).toBeNull();
+  });
+
+  it('reads NaN, not null, for a varint too long to be a number: no type matches it', () => {
+    // lib0 does not throw for 147 continuation bytes and an end: the value overflows to NaN.
+    const type = readMessageType(Uint8Array.of(...Array(147).fill(0x80), 0x00));
+    expect(type).toBeNaN();
+    expect([0, 1].includes(type as number)).toBe(false);
   });
 });
 

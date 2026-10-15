@@ -45,6 +45,7 @@ describe('auth', () => {
   it('accepts a session id of 16 to 64 url-safe characters and nothing else', () => {
     expect(sessionId('a'.repeat(16))).toBe('a'.repeat(16));
     expect(sessionId('Ab0_-'.repeat(8))).toBe('Ab0_-'.repeat(8));
+    expect(sessionId('a'.repeat(64))).toBe('a'.repeat(64));
     expect(sessionId('a'.repeat(15))).toBeNull();
     expect(sessionId('a'.repeat(65))).toBeNull();
     expect(sessionId(`${'a'.repeat(15)}!`)).toBeNull();

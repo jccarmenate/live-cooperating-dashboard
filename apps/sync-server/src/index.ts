@@ -59,7 +59,11 @@ export default {
         const key = new URL(request.url).searchParams.get('key');
         const role = await roleForKey(env.ROOM_SECRET, lobby.name, key);
         if (!role) {
-          // Reject here so an invalid key never wakes the Durable Object.
+          // Reject here so an invalid key never wakes the Durable Object. The socket is accepted
+          // and closed with 4401 by the Worker itself: workerd logs "Uncaught Error: Network
+          // connection lost." for a socket the Worker holds like this (reproduced with a
+          // standalone Worker). It is harmless. The alternatives lose the 4401 code (an HTTP
+          // 401 reaches the client as a failed handshake) or wake the room.
           const pair = new WebSocketPair();
           const client = pair[0];
           const server = pair[1];
