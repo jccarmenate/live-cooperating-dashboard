@@ -108,7 +108,7 @@ describe('controller canvas actions', () => {
     add(doc, sticky('a'));
     controller.select(['a']);
     const text = controller.copySelection() as string;
-    const page = controller.createPage('board');
+    const page = controller.createPage('board') as string;
     controller.setPage(page);
     controller.pasteText(text);
     expect(
@@ -462,11 +462,11 @@ describe('controller canvas actions', () => {
       newId: () => `p${++n}`,
       notify,
     });
-    const a = controller.createPage('board');
+    const a = controller.createPage('board') as string;
     controller.setPage(a);
     controller.deletePage(a);
     expect(notify).not.toHaveBeenCalledWith('The page you were on was deleted');
-    const b = controller.createPage('board');
+    const b = controller.createPage('board') as string;
     controller.setPage(b);
     applyCommand(doc, { type: 'DeletePage', id: b }, 'remote');
     expect(notify).toHaveBeenCalledWith('The page you were on was deleted');
@@ -474,7 +474,7 @@ describe('controller canvas actions', () => {
 
   it('never repeats an existing page title', () => {
     const { docs, controller } = setup();
-    const two = controller.createPage('board');
+    const two = controller.createPage('board') as string;
     controller.createPage('board');
     controller.deletePage(two);
     controller.createPage('board');
@@ -498,8 +498,8 @@ describe('last shape', () => {
     expect(last()).toBe('ellipse');
     controller.dispatch({ type: 'setTool', tool: 'line' });
     expect(last()).toBe('line');
-    controller.setPage(controller.createPage('sheet'));
-    controller.setPage(controller.createPage('board'));
+    controller.setPage(controller.createPage('sheet') as string);
+    controller.setPage(controller.createPage('board') as string);
     expect(last()).toBe('line');
   });
 });

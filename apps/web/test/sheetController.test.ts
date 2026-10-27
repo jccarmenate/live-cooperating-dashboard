@@ -19,7 +19,7 @@ function setup(opts: { canEdit?: boolean } = {}) {
     user: { id: 'u1', name: 'Brisk Otter', color: '#E85A1B' },
   });
   const sheets = createSheetStore(doc, docs.store);
-  const page = board.createPage('sheet');
+  const page = board.createPage('sheet') as string;
   board.setPage(page);
   const notify = vi.fn();
   let n = 0;
@@ -166,7 +166,7 @@ describe('sheet controller', () => {
     type('B1', '=A1+1');
     ctl.select(at('B1'));
     expect(ctl.copy()).toBe('3');
-    board.setPage(board.createPage('sheet'));
+    board.setPage(board.createPage('sheet') as string);
     type('A1', '5');
     ctl.select(at('B1'));
     expect(ctl.paste('3')).toBe(true);

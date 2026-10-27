@@ -651,7 +651,7 @@ describe('comments', () => {
 describe('pages', () => {
   it('stamps the active page on created shapes, connectors and comments', () => {
     const { doc, controller } = setup();
-    const p2 = controller.createPage('board');
+    const p2 = controller.createPage('board') as string;
     controller.setPage(p2);
     controller.dispatch({ type: 'setTool', tool: 'sticky' });
     controller.dispatch({ type: 'pointerDown', p: at(100, 100) });
@@ -760,7 +760,7 @@ describe('pages', () => {
 
   it('stamps the active page on a connector drawn with the connector tool', () => {
     const { doc, controller } = setup();
-    const p2 = controller.createPage('board');
+    const p2 = controller.createPage('board') as string;
     addRect(doc, 'r1', 0, 0, p2);
     addRect(doc, 'r2', 400, 0, p2);
     controller.setPage(p2);
@@ -776,8 +776,8 @@ describe('pages', () => {
 
   it('page actions: create after the last, rename, move between neighbours, delete', () => {
     const { docs, controller } = setup();
-    const a = controller.createPage('board');
-    const b = controller.createPage('board');
+    const a = controller.createPage('board') as string;
+    const b = controller.createPage('board') as string;
     expect(docs.store.getState().pages.map((p) => p.id)).toEqual(['main', a, b]);
     expect(docs.store.getState().pages[1]?.title).toBe('Board 2');
     controller.renamePage(a, '  Ideas  ');
@@ -798,8 +798,8 @@ describe('pages', () => {
   it('deletePage reports whether it deleted: false for the last or a missing page', () => {
     const { docs, controller } = setup();
     expect(controller.deletePage('main')).toBe(false);
-    const a = controller.createPage('board');
-    const b = controller.createPage('board');
+    const a = controller.createPage('board') as string;
+    const b = controller.createPage('board') as string;
     expect(controller.deletePage(a)).toBe(true);
     expect(docs.store.getState().pages.map((p) => p.id)).toEqual(['main', b]);
     expect(controller.deletePage(a)).toBe(false);
@@ -811,7 +811,7 @@ describe('pages', () => {
 
   it('vote cap counts stickies on every page', () => {
     const { doc, controller, activity } = setup();
-    const p2 = controller.createPage('board');
+    const p2 = controller.createPage('board') as string;
     addSticky(doc, 'm1');
     addSticky(doc, 'm2');
     applyCommand(doc, {
@@ -851,7 +851,7 @@ describe('pages', () => {
 
   it('writes page and board titles cut to their caps', () => {
     const { doc, controller } = setup();
-    const a = controller.createPage('board');
+    const a = controller.createPage('board') as string;
     controller.renamePage(a, ` ${'p'.repeat(200)} `);
     controller.renameBoard(` ${'b'.repeat(300)} `);
     const { pages, meta } = getRoots(doc);
@@ -914,7 +914,7 @@ describe('board controller by access', () => {
     expect(getRoots(doc).meta.get('title')).toBeUndefined();
   });
 
-  it('does not undo or redo unless the board takes edits: an undo would write content back', () => {
+  it('does not undo or redo unless the board takes edits: either would write content back', () => {
     let access: BoardAccess = 'edit';
     const { doc, controller } = setup({ access: () => access });
     controller.commit(sticky('a'));
@@ -926,6 +926,50 @@ describe('board controller by access', () => {
     access = 'edit';
     controller.undo();
     expect(getRoots(doc).shapes.has('a')).toBe(false);
+    // The undone step waits to be redone: a blocked access leaves it there.
+    for (const blocked of ['delete-only', 'read-only'] as const) {
+      access = blocked;
+      controller.redo();
+      expect(getRoots(doc).shapes.has('a')).toBe(false);
+    }
+    access = 'edit';
+    controller.redo();
+    expect(getRoots(doc).shapes.has('a')).toBe(true);
+  });
+
+  it('commit says whether it applied: false when the access drops every command of the step', () => {
+    let access: BoardAccess = 'edit';
+    const { doc, controller } = setup({ access: () => access });
+    expect(controller.commit(sticky('a'))).toBe(true);
+
+    access = 'delete-only';
+    expect(controller.commit(sticky('b'))).toBe(false);
+    expect(controller.commit(sticky('b'), sticky('c'))).toBe(false);
+    expect(getRoots(doc).shapes.size).toBe(1);
+    // A step with one deletion in it applies that one, and says so.
+    expect(controller.commit(sticky('b'), { type: 'DeleteShapes', ids: ['a'] })).toBe(true);
+    expect(getRoots(doc).shapes.size).toBe(0);
+
+    access = 'read-only';
+    expect(controller.commit(sticky('b'))).toBe(false);
+    expect(controller.commit({ type: 'DeleteShapes', ids: ['a'] })).toBe(false);
+  });
+
+  it('createPage writes no page and returns no id when the board does not take edits', () => {
+    let access: BoardAccess = 'edit';
+    const { docs, controller } = setup({ access: () => access });
+    const pages = docs.store.getState().pages.length;
+    for (const blocked of ['delete-only', 'read-only'] as const) {
+      access = blocked;
+      expect(controller.createPage('board')).toBeNull();
+      expect(controller.createPage('sheet')).toBeNull();
+      expect(controller.createPage('calendar')).toBeNull();
+    }
+    expect(docs.store.getState().pages).toHaveLength(pages);
+    access = 'edit';
+    const id = controller.createPage('board') as string;
+    expect(id).toEqual(expect.any(String));
+    expect(docs.store.getState().pages.some((p) => p.id === id)).toBe(true);
   });
 });
 
@@ -965,6 +1009,24 @@ describe('board controller gestures by access', () => {
       tool: 'select',
       selection: ['r1'],
     });
+  });
+
+  it('createAt does nothing unless the board takes edits: no shape, no open marquee', () => {
+    for (const blocked of ['delete-only', 'read-only'] as const) {
+      const { doc, controller } = setup({ access: () => blocked });
+      controller.createAt('sticky', { x: 100, y: 100 });
+      controller.createAt('rect', { x: 100, y: 100 });
+      controller.createAt('frame', { x: 100, y: 100 });
+      vi.advanceTimersByTime(200);
+      expect(getRoots(doc).shapes.size).toBe(0);
+      expect(controller.ui.getState().tool).toEqual({
+        mode: 'idle',
+        tool: 'select',
+        selection: [],
+      });
+      expect(controller.ui.getState().overlay).toBeNull();
+      expect(controller.ui.getState().editingId).toBeNull();
+    }
   });
 
   it('a viewer cannot pick a tool that creates, and a double-click opens no editor', () => {

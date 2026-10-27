@@ -22,7 +22,7 @@ function setup(opts: { canEdit?: boolean; zone?: string; refuseCommits?: boolean
     user: { id: 'u1', name: 'Brisk Otter', color: '#E85A1B' },
   });
   const calendars = createCalendarStore(doc, docs.store);
-  const page = board.createPage('calendar');
+  const page = board.createPage('calendar') as string;
   board.setPage(page);
   const notify = vi.fn();
   let n = 0;

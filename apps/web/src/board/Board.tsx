@@ -95,7 +95,10 @@ function BoardView({ session }: { session: BoardSession }) {
                 <button
                   type="button"
                   className="border-2 border-ink bg-white px-3 py-1.5 pointer-coarse:py-2.5 font-mono text-xs uppercase hover:bg-sun"
-                  onClick={() => session.setPage(session.controller.createPage('board'))}
+                  onClick={() => {
+                    const id = session.controller.createPage('board');
+                    if (id) session.setPage(id);
+                  }}
                 >
                   New board
                 </button>

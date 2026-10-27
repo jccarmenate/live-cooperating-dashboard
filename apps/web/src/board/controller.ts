@@ -167,7 +167,10 @@ export interface BoardController {
   setConnectorLabel(id: string, label: string): void;
   undo(): void;
   redo(): void;
-  /** Applies commands as one undo step (LOCAL origin); false (nothing applied) mid-gesture. */
+  /**
+   * Applies commands as one undo step (LOCAL origin). False when nothing was applied: mid-gesture,
+   * or because the board's access refuses every command of the step.
+   */
   commit(...commands: Command[]): boolean;
   /** Applies a command with the SESSION origin (never undoable). */
   commitSession(command: Command): void;
@@ -184,8 +187,8 @@ export interface BoardController {
   toggleCommentsPanel(): void;
   /** Switches the active page (an unknown or deleted one falls back to the first visible page). */
   setPage(id: string): void;
-  /** Appends a page of `type` after the last one; returns the new id. */
-  createPage(type: PageType): string;
+  /** Appends a page of `type` after the last one; returns the new id, null when the board refused it. */
+  createPage(type: PageType): string | null;
   /** Renames a page (trimmed; empty is ignored). */
   renamePage(id: string, title: string): void;
   /** Moves a page to `toIndex` among the visible pages. */
@@ -341,10 +344,12 @@ export function createBoardController(opts: {
   /**
    * A command the server would refuse is not applied at all: it would stay in this user's own
    * copy and never reach the others. For a viewer that is every command; on a full board,
-   * every command that is not a pure deletion.
+   * every command that is not a pure deletion. Returns whether it applied the command.
    */
-  const apply = (command: Command, origin: string) => {
-    if (allowedFor(access(), command)) applyCommand(opts.doc, command, origin);
+  const apply = (command: Command, origin: string): boolean => {
+    if (!allowedFor(access(), command)) return false;
+    applyCommand(opts.doc, command, origin);
+    return true;
   };
   const commit = (command: Command) => apply(command, LOCAL_ORIGIN);
   const throttledCommit = throttle(commit, 50);
@@ -468,12 +473,13 @@ export function createBoardController(opts: {
     if (commands.length === 0 || !idle()) return false;
     throttledCommit.cancel();
     undoStack.stopCapturing();
+    let applied = false;
     // Each commit's own transact nests into this one.
     opts.doc.transact(() => {
-      for (const c of commands) commit(c);
+      for (const c of commands) if (commit(c)) applied = true;
     }, LOCAL_ORIGIN);
     undoStack.stopCapturing();
-    return true;
+    return applied;
   };
   const pasteContext = () => ({
     shapes: opts.docStore.getState().shapes,
@@ -520,15 +526,18 @@ export function createBoardController(opts: {
   };
   const copySelection = (): string | null => (copy() ? clip : null);
 
-  /** Appends a page of `type` after the last one (SESSION origin, never undoable). */
-  const createPage = (type: PageType): string => {
+  /**
+   * Appends a page of `type` after the last one (SESSION origin, never undoable). Null when the
+   * board refused it (a viewer, or a full board): no page was written, so there is no id.
+   */
+  const createPage = (type: PageType): string | null => {
     const pages = opts.docStore.getState().pages;
     const id = newId();
     const label = type === 'board' ? 'Board' : type === 'sheet' ? 'Sheet' : 'Calendar';
     const taken = new Set(pages.map((p) => p.title));
     let n = pages.filter((p) => p.type === type).length + 1;
     while (taken.has(`${label} ${n}`)) n++;
-    commitPage({
+    const written = commitPage({
       type: 'CreatePage',
       page: {
         id,
@@ -540,7 +549,7 @@ export function createBoardController(opts: {
       },
       ...(type === 'sheet' ? { sheet: initialSheet() } : {}),
     });
-    return id;
+    return written ? id : null;
   };
 
   const unsubscribe = opts.docStore.subscribe((doc, prev) => {
@@ -909,6 +918,8 @@ export function createBoardController(opts: {
       );
     },
     createAt(type, p) {
+      // Without edit access the press below would be a marquee that nothing closes.
+      if (access() !== 'edit') return;
       if (ui.getState().tool.mode !== 'idle') return;
       const size = DEFAULT_SIZE[type];
       // Click-created stickies centre on the press; drawn tools put their corner there.
@@ -991,6 +1002,8 @@ export function createBoardController(opts: {
       // Checked before a new page is made: mid-gesture nothing would be committed to it.
       if (shape?.type !== 'sticky' || !idle()) return null;
       const pageId = input.pageId ?? createPage('calendar');
+      // The board stopped taking pages (it filled between the menu and the click).
+      if (!pageId) return null;
       const cal = readCalendar(getRoots(opts.doc).calendars.get(pageId));
       if (!cal) {
         opts.notify?.('That calendar no longer exists');

@@ -120,7 +120,7 @@ describe('connector label editing', () => {
     expect(controller.ui.getState().editingConnector).toBeNull();
     twoNodes(doc);
     controller.editConnectorLabel('k');
-    controller.setPage(controller.createPage('board'));
+    controller.setPage(controller.createPage('board') as string);
     expect(controller.ui.getState().editingConnector).toBeNull();
   });
 });
@@ -213,7 +213,7 @@ describe('algorithms', () => {
     const { doc, controller } = setup();
     twoNodes(doc);
     controller.runAlgorithm('bfs', 'a');
-    controller.setPage(controller.createPage('board'));
+    controller.setPage(controller.createPage('board') as string);
     expect(controller.ui.getState().graphResult).toBeNull();
   });
 

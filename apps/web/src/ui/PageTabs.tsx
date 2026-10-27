@@ -68,7 +68,7 @@ export function PageTabs({ session }: { session: BoardSession }) {
 
   const add = (type: PageType) => {
     const id = controller.createPage(type);
-    controller.setPage(id);
+    if (id) controller.setPage(id);
   };
 
   const startRename = (id: string) => {
