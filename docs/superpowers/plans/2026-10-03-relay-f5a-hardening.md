@@ -5304,3 +5304,37 @@ git commit -m "test(e2e): a board that fills, stays deletable and resumes; docs:
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
+
+---
+
+## Changes made while executing
+
+Each task was implemented and reviewed on its own, and the whole branch was reviewed at the end.
+Where a review, or a probe against the real server, showed this plan wrong or incomplete, the code
+followed a recorded decision instead of the text above. What differs:
+
+- **Task 5.** Two more integration tests: the ids a new socket inherits are its own, and two
+  sockets that share a connection id are told apart when they publish presence (the plan's three
+  tests passed with either line broken). `ping` waits for its answer with one listener. The
+  integration file destroys its providers after each test.
+- **Task 8.** The rate buckets are kept per socket, with a test for that and one for the rate limit
+  itself, which had none. The room keeps nothing it could not apply: an update Yjs would park (a gap
+  in a client's clocks, a deletion of content the room lacks) is dropped, and the sender of an
+  Update is closed with 4400; a SyncStep2 is only dropped. The plan's size estimate could not see
+  parked data, which was saved and handed to every client.
+- **Task 9.** A connection destroyed in the task that created it opens no socket: the provider is
+  created without connecting and every connect waits one microtask. In development React StrictMode
+  had left a second socket per tab, outside the close policy. `e2e/connection.spec.ts` pins one
+  socket per tab.
+- **Task 11.** A calendar series question is answered by what the board allows when it is
+  answered, not when it was asked.
+- **Task 12.** "Reload board" waits for the local copy to be deleted before it reloads.
+- **Task 14.** A peer whose close is the event that wakes the room is still removed for the
+  others: its stored states are put back just before they are removed.
+- **Task 16.** Each id taken is relayed once (the plan's code let one frame with many entries for
+  an id be relayed several times its size).
+- **After the whole-branch review** (commits 3e0b0e5 to 086297b). A full board refuses a deletion
+  that would split a live struct: one that removed every other character of a text grew it about
+  eleven times. The size measure leaves parked data out. The protocol's type constants live in
+  `apps/sync-server/src/protocol.ts`. The board controller reports whether it applied a command,
+  and its callers act on that. Smaller fixes and the tests the task reviews had deferred.
