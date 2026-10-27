@@ -239,6 +239,17 @@ describe('presence bounds', () => {
     );
   });
 
+  it('does not count the ids it drops against the 100 it keeps, and keeps one of 64 characters', () => {
+    const invalid = Array.from({ length: 50 }, () => '');
+    const valid = Array.from({ length: 120 }, (_, i) => `s${i}`);
+    expect(parsePresence({ ...base, selection: [...invalid, ...valid] })?.selection).toEqual(
+      valid.slice(0, MAX_PRESENCE_SELECTION),
+    );
+    expect(parsePresence({ ...base, selection: ['x'.repeat(64)] })?.selection).toEqual([
+      'x'.repeat(64),
+    ]);
+  });
+
   it('drops an editing id that is empty or longer than 64 characters', () => {
     expect(parsePresence({ ...base, editing: 'x'.repeat(64) })?.editing).toBe('x'.repeat(64));
     expect(parsePresence({ ...base, editing: 'x'.repeat(65) })?.editing).toBeNull();

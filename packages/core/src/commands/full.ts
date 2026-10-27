@@ -1,10 +1,13 @@
 import type { Command } from './types';
 
 /**
- * Whether a command only deletes. On a board over its size cap the server accepts an update
- * only when it adds no structs, so these are the commands that still reach the other users.
- * `DeletePage` is not one: it writes a tombstone. A `SetCells` qualifies when it clears every
- * cell it names; keeping a format would write the cell again.
+ * The commands a full board accepts. On a board over its size cap the server takes an update
+ * only when it adds no structs and splits none, so these are the commands that still reach the
+ * other users: each deletes whole entries and writes nothing. It names what a full board takes,
+ * not every command that only deletes: `DeletePage` is not on it, it writes a tombstone;
+ * `RetractVote`, `ClearOccurrence` and a `SetRsvp` without a status delete whole entries too and
+ * are left out, so a full board refuses them. A `SetCells` qualifies when it clears every cell
+ * it names; keeping a format would write the cell again.
  */
 export function allowedWhenFull(command: Command): boolean {
   switch (command.type) {

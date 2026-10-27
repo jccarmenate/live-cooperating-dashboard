@@ -90,7 +90,7 @@ export function parsePresence(raw: unknown): PresenceState | null {
   // user.id is untrusted network input; without these bounds a peer could
   // smuggle a `url(...)` background (leaking every viewer's IP) or an
   // unbounded id.
-  if (!HEX_COLOR.test(o.user.color) || o.user.id.length > 64) return null;
+  if (!HEX_COLOR.test(o.user.color) || o.user.id.length > MAX_PRESENCE_ID) return null;
   const state: PresenceState = {
     user: { id: o.user.id, name: o.user.name.slice(0, 40), color: o.user.color },
     cursor: isPoint(o.cursor) ? { x: o.cursor.x, y: o.cursor.y } : null,
