@@ -90,7 +90,7 @@ function CalendarBody({ session, ctl }: { session: BoardSession; ctl: CalendarCo
         <WeekView session={session} ctl={ctl} occurrences={occurrences} />
       )}
       <EventEditor session={session} ctl={ctl} />
-      <SeriesDialog ctl={ctl} />
+      <SeriesDialog session={session} ctl={ctl} />
     </div>
   );
 }

@@ -81,7 +81,10 @@ export interface SeriesQuestion {
   action: 'save' | 'move' | 'delete';
   /** Exceptions an "All events" answer would clear. */
   drops: number;
-  /** Only "All events" applies (the rule changed): answering 'one' does nothing. */
+  /**
+   * Only "All events" applies: the rule changed, or the board is full and cannot take the
+   * exception an occurrence needs. Answering 'one' does nothing.
+   */
   allOnly?: true;
 }
 
