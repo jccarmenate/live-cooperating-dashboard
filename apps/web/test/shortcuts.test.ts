@@ -185,6 +185,17 @@ describe('canvas UX shortcuts', () => {
     expect(gateByCapability(action, 'edit')).toEqual(action);
   });
 
+  // On a full board the only shortcuts that change the document are the two that delete.
+  const deletes = new Set(['Delete', 'Backspace']);
+  it.each(mutating)('full board: %s', (name, action) => {
+    expect(action).not.toBeNull();
+    expect(gateByCapability(action, 'delete-only')).toEqual(deletes.has(name) ? action : null);
+  });
+  it.each(harmless)('full board: keeps %s', (_name, action) => {
+    expect(action).not.toBeNull();
+    expect(gateByCapability(action, 'delete-only')).toEqual(action);
+  });
+
   it('on a full board only the delete shortcut changes the document', () => {
     const del = keyDownAction(key('Delete'), false);
     expect(gateByCapability(del, 'delete-only')).toEqual(del);

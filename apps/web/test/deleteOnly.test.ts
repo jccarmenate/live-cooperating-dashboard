@@ -46,6 +46,8 @@ describe('sheet controller on a full board', () => {
       cells: [
         { row: 'r0', col: 'c0', src: 'bold', fmt: { bold: true } },
         { row: 'r1', col: 'c1', src: 'plain' },
+        // A format and no content: the one cell a clear that keeps formats would leave alone.
+        { row: 'r0', col: 'c1', src: '', fmt: { bold: true } },
       ],
     });
     const docs = createDocStore(doc, 'p');
@@ -57,15 +59,28 @@ describe('sheet controller on a full board', () => {
       canEdit: () => false,
       canDelete: () => true,
     });
-    return { ctl, committed };
+    return { ctl, committed, sheet };
   }
 
   it('clears cells with their formats, so the write is a pure deletion', () => {
-    const { ctl, committed } = setup();
+    const { ctl, committed, sheet } = setup();
+    expect(Object.keys(sheet.store.getState().sheet?.cells ?? {})).toHaveLength(3);
     ctl.selectAll();
     ctl.clear();
     expect(committed).toHaveLength(1);
     expect(committed.every(allowedWhenFull)).toBe(true);
+    // Every cell that holds anything is named, the format-only one too, and none keeps a format.
+    expect(committed[0]).toEqual({
+      type: 'SetCells',
+      pageId: 'p',
+      cells: [
+        { row: 'r0', col: 'c0', src: '' },
+        { row: 'r0', col: 'c1', src: '' },
+        { row: 'r1', col: 'c1', src: '' },
+      ],
+    });
+    // The write reached the document: nothing is left in the sheet.
+    expect(sheet.store.getState().sheet?.cells).toEqual({});
   });
 
   it('deletes rows but does not start an edit', () => {
