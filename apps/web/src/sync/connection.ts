@@ -106,10 +106,13 @@ export function connectRoom(opts: {
         // opening the copy that still holds the refused change.
         await local.destroy();
         await clearDocument(localName);
-      } finally {
-        // If the copy cannot be cleared there is none to clear (IndexedDB is unavailable).
-        window.location.reload();
+      } catch (error) {
+        // A copy that cannot be deleted is not worth stopping the reload for: if IndexedDB is
+        // unavailable there is none to open. The promise never rejects, so the button that
+        // calls it with `void` cannot raise an unhandled rejection.
+        console.error('Could not delete the local copy of the board', error);
       }
+      window.location.reload();
     },
     destroy() {
       destroyed = true;
