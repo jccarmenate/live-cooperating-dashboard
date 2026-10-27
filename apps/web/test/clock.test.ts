@@ -15,11 +15,22 @@ describe('clock', () => {
     ).toEqual({ role: 'edit', offset: 500, viewKey: null, full: true, unsaved: false });
   });
 
+  /** A client that has been told everything: a view key, a full board, a refused change. */
+  const told = {
+    role: 'edit' as const,
+    offset: 500,
+    viewKey: 'vk',
+    full: true,
+    unsaved: true,
+  };
+
   it('time refreshes the offset and keeps everything else', () => {
-    const prev = { ...INITIAL_CLOCK, role: 'view' as const, offset: 500, full: true };
-    expect(nextClock(prev, { type: 'time', now: 20_000 }, 20_100)).toEqual({
-      ...prev,
+    expect(nextClock(told, { type: 'time', now: 20_000 }, 20_100)).toEqual({
+      role: 'edit',
       offset: -100,
+      viewKey: 'vk',
+      full: true,
+      unsaved: true,
     });
   });
 
@@ -33,17 +44,32 @@ describe('clock', () => {
     expect(nextClock(a, { type: 'time', now: 9 }, 9).viewKey).toBe('vk');
   });
 
-  it('room switches full on and off', () => {
-    const editor = { ...INITIAL_CLOCK, role: 'edit' as const };
-    const full = nextClock(editor, { type: 'room', full: true, now: 1 }, 1);
-    expect(full.full).toBe(true);
-    expect(nextClock(full, { type: 'room', full: false, now: 2 }, 2).full).toBe(false);
+  it('room switches full on and off, refreshes the offset and keeps everything else', () => {
+    const open = nextClock(told, { type: 'room', full: false, now: 30_000 }, 30_250);
+    expect(open).toEqual({
+      role: 'edit',
+      offset: -250,
+      viewKey: 'vk',
+      full: false,
+      unsaved: true,
+    });
+    expect(nextClock(open, { type: 'room', full: true, now: 40_400 }, 40_000)).toEqual({
+      ...open,
+      offset: 400,
+      full: true,
+    });
   });
 
   it('rejected marks unsaved changes, and a later hello does not clear the mark', () => {
-    const editor = { ...INITIAL_CLOCK, role: 'edit' as const };
-    const unsaved = nextClock(editor, { type: 'rejected', now: 1 }, 1);
-    expect(unsaved.unsaved).toBe(true);
+    const editor = { ...told, unsaved: false };
+    const unsaved = nextClock(editor, { type: 'rejected', now: 50_300 }, 50_000);
+    expect(unsaved).toEqual({
+      role: 'edit',
+      offset: 300,
+      viewKey: 'vk',
+      full: true,
+      unsaved: true,
+    });
     expect(
       nextClock(unsaved, { type: 'hello', role: 'edit', now: 2, full: false }, 2).unsaved,
     ).toBe(true);
@@ -74,5 +100,9 @@ describe('boardAccess', () => {
     expect(boardAccess({ role: 'edit', full: false })).toBe('edit');
     expect(boardAccess({ role: 'edit', full: true })).toBe('delete-only');
     expect(boardAccess({ role: null, full: false })).toBe('edit');
+  });
+
+  it('an unknown role on a board known to be full still edits: the room message came first', () => {
+    expect(boardAccess({ role: null, full: true })).toBe('edit');
   });
 });

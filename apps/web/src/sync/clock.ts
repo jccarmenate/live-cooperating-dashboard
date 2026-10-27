@@ -51,7 +51,7 @@ export function capability(c: Capable): Capability {
 
 export const mayEdit = (c: Capable): boolean => capability(c) === 'edit';
 /** Deleting stays available on a full board. */
-export const mayDelete = (c: Capable): boolean => c.role === 'edit';
+export const mayDelete = (c: Capable): boolean => capability(c) !== 'view';
 
 /**
  * What the board lets this user change in their own copy. It differs from `capability` in one

@@ -4,18 +4,11 @@ import YProvider from 'y-partyserver/provider';
 import * as Y from 'yjs';
 import { createStore, type StoreApi } from 'zustand/vanilla';
 import { type ClockState, INITIAL_CLOCK, nextClock, TIME_REFRESH_MS } from './clock';
-import { closeAction, type StoppedStatus } from './closes';
+import { closeAction, isStoppedStatus, type StoppedStatus } from './closes';
 import { newSessionId } from './key';
 import { sendOnlyOwnAwareness } from './ownAwareness';
 
 export type ConnStatus = 'connecting' | 'online' | 'offline' | StoppedStatus;
-
-const STOPPED: ReadonlySet<ConnStatus> = new Set<ConnStatus>([
-  'unauthorized',
-  'crowded',
-  'throttled',
-  'too-large',
-]);
 
 export interface RoomConnection {
   doc: Y.Doc;
@@ -60,7 +53,7 @@ export function connectRoom(opts: {
   const status = createStore<{ status: ConnStatus }>(() => ({ status: 'connecting' }));
 
   provider.on('status', ({ status: s }: { status: string }) => {
-    if (STOPPED.has(status.getState().status)) return;
+    if (isStoppedStatus(status.getState().status)) return;
     status.setState({
       status: s === 'connected' ? 'online' : s === 'connecting' ? 'connecting' : 'offline',
     });

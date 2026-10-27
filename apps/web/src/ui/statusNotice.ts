@@ -1,3 +1,4 @@
+import { isStoppedStatus, type StoppedStatus } from '../sync/closes';
 import type { ConnStatus } from '../sync/connection';
 
 export interface StatusNotice {
@@ -7,7 +8,8 @@ export interface StatusNotice {
   action: 'home' | 'retry' | 'reload';
 }
 
-const STOPPED: Partial<Record<ConnStatus, StatusNotice>> = {
+/** One notice for each stopped status: a new one does not compile until it has its copy. */
+const STOPPED: Record<StoppedStatus, StatusNotice> = {
   unauthorized: {
     title: 'This link is invalid',
     body: 'Ask the board owner for a new share link.',
@@ -38,5 +40,6 @@ const UNSAVED: StatusNotice = {
 
 /** The blocking notice for a connection state, or null when the board is usable. */
 export function statusNotice(status: ConnStatus, unsaved: boolean): StatusNotice | null {
-  return STOPPED[status] ?? (unsaved ? UNSAVED : null);
+  if (isStoppedStatus(status)) return STOPPED[status];
+  return unsaved ? UNSAVED : null;
 }

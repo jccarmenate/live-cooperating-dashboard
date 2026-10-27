@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { STOPPED_STATUSES } from '../src/sync/closes';
 import { statusNotice } from '../src/ui/statusNotice';
 
 describe('statusNotice', () => {
@@ -19,7 +20,11 @@ describe('statusNotice', () => {
       body: 'Try again in a moment.',
       action: 'retry',
     });
-    expect(statusNotice('throttled', false)?.action).toBe('retry');
+    expect(statusNotice('throttled', false)).toEqual({
+      title: 'Too many changes at once',
+      body: 'The connection was paused.',
+      action: 'retry',
+    });
     expect(statusNotice('too-large', false)).toEqual({
       title: "Some changes couldn't be saved",
       body: 'A change was too large to sync.',
@@ -35,7 +40,12 @@ describe('statusNotice', () => {
     });
   });
 
-  it('a stop wins over the unsaved notice', () => {
+  it('every stopped status has a notice, and a stop wins over the unsaved one', () => {
+    for (const status of STOPPED_STATUSES) {
+      const notice = statusNotice(status, false);
+      expect(notice).not.toBeNull();
+      expect(statusNotice(status, true)).toEqual(notice);
+    }
     expect(statusNotice('unauthorized', true)?.action).toBe('home');
   });
 });

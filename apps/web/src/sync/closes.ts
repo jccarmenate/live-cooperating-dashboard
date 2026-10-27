@@ -1,5 +1,9 @@
 /** Statuses in which the provider is disconnected and does not retry by itself. */
-export type StoppedStatus = 'unauthorized' | 'crowded' | 'throttled' | 'too-large';
+export const STOPPED_STATUSES = ['unauthorized', 'crowded', 'throttled', 'too-large'] as const;
+export type StoppedStatus = (typeof STOPPED_STATUSES)[number];
+
+export const isStoppedStatus = (status: string): status is StoppedStatus =>
+  (STOPPED_STATUSES as readonly string[]).includes(status);
 
 export type CloseAction =
   | { kind: 'reconnect' }
