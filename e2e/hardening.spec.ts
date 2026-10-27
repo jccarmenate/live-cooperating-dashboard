@@ -210,9 +210,11 @@ test('a board with too many people says so, and Try again connects', async ({ pa
   const { roomId, editKey } = (await res.json()) as { roomId: string; editKey: string };
 
   // While `crowded` is set the room is closed from the route with 4503 (too many people)
-  // instead of being connected to the server.
+  // instead of being connected to the server. `sockets` counts the sockets the page opened.
   let crowded = true;
+  let sockets = 0;
   await page.routeWebSocket(/\/parties\/room\//, (ws) => {
+    sockets++;
     if (crowded) {
       ws.close({ code: 4503, reason: 'room full' });
       return;
@@ -225,6 +227,10 @@ test('a board with too many people says so, and Try again connects', async ({ pa
   await expect(notice).toContainText('This board has too many people right now');
   await expect(notice).toHaveAttribute('data-action', 'retry');
   await expect(page.getByTestId('conn-status')).toHaveAttribute('data-status', 'crowded');
+  // The close is visible, not retried behind the notice: the provider would open a new socket
+  // within a second or two, so wait longer than that and count.
+  await page.waitForTimeout(3_000);
+  expect(sockets).toBe(1);
 
   crowded = false;
   await page.getByTestId('status-retry').click();
@@ -232,4 +238,5 @@ test('a board with too many people says so, and Try again connects', async ({ pa
   await expect(page.getByTestId('conn-status')).toHaveAttribute('data-status', 'online', {
     timeout: 20_000,
   });
+  expect(sockets).toBe(2);
 });
