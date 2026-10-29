@@ -2,10 +2,11 @@ import { MAX_BOARD_TITLE } from '@relay/core';
 import { useRef, useState } from 'react';
 import { useStore } from 'zustand';
 import type { BoardSession } from '../board/session';
+import { mayEdit } from '../sync/clock';
 
 export function BoardTitle({ session }: { session: BoardSession }) {
   const title = useStore(session.doc, (d) => d.meta.title);
-  const canEdit = useStore(session.conn.clock, (c) => c.role === 'edit');
+  const canEdit = useStore(session.conn.clock, mayEdit);
   const [editing, setEditing] = useState(false);
   // One edit session commits at most once, whichever of Enter, Escape or blur comes first
   // (the input also blurs as it unmounts after Enter or Escape).

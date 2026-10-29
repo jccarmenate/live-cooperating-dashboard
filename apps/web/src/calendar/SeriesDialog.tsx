@@ -1,4 +1,6 @@
 import { useStore } from 'zustand';
+import type { BoardSession } from '../board/session';
+import { mayEdit } from '../sync/clock';
 import { Dialog } from '../ui/Dialog';
 import type { CalendarController } from './calendarController';
 
@@ -6,17 +8,23 @@ const btn = 'border-2 border-ink px-3 py-1.5 pointer-coarse:py-2.5 font-mono tex
 
 /**
  * "Only this event" / "All events" for an action on one occurrence of a series. A changed rule
- * applies to the whole series only, so that question offers no "Only this event".
+ * applies to the whole series only, and so does a delete on a full board (one occurrence would
+ * need an exception), so those questions offer no "Only this event". The board can fill while
+ * the dialog is open: the offer follows the live access as well as the question.
  */
-export function SeriesDialog({ ctl }: { ctl: CalendarController }) {
+export function SeriesDialog({ session, ctl }: { session: BoardSession; ctl: CalendarController }) {
   const q = useStore(ctl.ui, (s) => s.question);
+  const canEdit = useStore(session.conn.clock, mayEdit);
   if (!q) return null;
+  const allOnly = q.allOnly === true || !canEdit;
   return (
     <Dialog title="Repeating event" onClose={() => ctl.answer(null)}>
       <div data-testid="cal-series" className="flex flex-col gap-3 font-mono text-xs">
         <p>
           {q.action === 'delete'
-            ? 'Delete only this event, or all events in the series?'
+            ? allOnly
+              ? 'Delete all events in the series?'
+              : 'Delete only this event, or all events in the series?'
             : 'Change only this event, or all events in the series?'}
         </p>
         {q.drops > 0 && (
@@ -37,12 +45,12 @@ export function SeriesDialog({ ctl }: { ctl: CalendarController }) {
           <button
             type="button"
             data-testid="cal-series-all"
-            className={`${btn} ${q.allOnly ? 'bg-sun' : 'bg-white'}`}
+            className={`${btn} ${allOnly ? 'bg-sun' : 'bg-white'}`}
             onClick={() => ctl.answer('all')}
           >
             All events
           </button>
-          {!q.allOnly && (
+          {!allOnly && (
             <button
               type="button"
               data-testid="cal-series-one"

@@ -35,7 +35,12 @@ type Drag = {
 };
 
 /** Header renderers with selection, context menus, drag-to-reorder and column resize. */
-export function useSheetHeaders(session: BoardSession, ctl: SheetController, canEdit: boolean) {
+export function useSheetHeaders(
+  session: BoardSession,
+  ctl: SheetController,
+  canEdit: boolean,
+  canDelete: boolean,
+) {
   const sheet = useStore(session.sheet, (s) => s.sheet);
   const [menu, setMenu] = useState<{ x: number; y: number; items: MenuItem[] } | null>(null);
   const [resize, setResize] = useState<{ id: string; width: number } | null>(null);
@@ -50,7 +55,7 @@ export function useSheetHeaders(session: BoardSession, ctl: SheetController, can
   };
 
   const openMenu = (kind: 'row' | 'col', index: number, id: string, x: number, y: number) => {
-    if (!canEdit) return;
+    if (!canEdit && !canDelete) return;
     if (!inSelection(kind, index)) {
       if (kind === 'row') ctl.selectRow(id);
       else ctl.selectCol(id);
@@ -131,7 +136,8 @@ export function useSheetHeaders(session: BoardSession, ctl: SheetController, can
               onSelect: () => ctl.deleteCols(),
             },
           ];
-    setMenu({ x, y, items });
+    // A full board keeps only the deleting entries (the ones marked `danger`).
+    setMenu({ x, y, items: canEdit ? items : items.filter((item) => item.danger) });
   };
 
   const pointerHandlers = (kind: 'row' | 'col', index: number, id: string) => {

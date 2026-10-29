@@ -1,7 +1,9 @@
 import {
   type AlgorithmKind,
   type AlgorithmResult,
+  allowedFor,
   applyCommand,
+  type BoardAccess,
   type Camera,
   CLIP_PREFIX,
   type ClipPayload,
@@ -165,7 +167,10 @@ export interface BoardController {
   setConnectorLabel(id: string, label: string): void;
   undo(): void;
   redo(): void;
-  /** Applies commands as one undo step (LOCAL origin); false (nothing applied) mid-gesture. */
+  /**
+   * Applies commands as one undo step (LOCAL origin). False when nothing was applied: mid-gesture,
+   * or because the board's access refuses every command of the step.
+   */
   commit(...commands: Command[]): boolean;
   /** Applies a command with the SESSION origin (never undoable). */
   commitSession(command: Command): void;
@@ -182,8 +187,8 @@ export interface BoardController {
   toggleCommentsPanel(): void;
   /** Switches the active page (an unknown or deleted one falls back to the first visible page). */
   setPage(id: string): void;
-  /** Appends a page of `type` after the last one; returns the new id. */
-  createPage(type: PageType): string;
+  /** Appends a page of `type` after the last one; returns the new id, null when the board refused it. */
+  createPage(type: PageType): string | null;
   /** Renames a page (trimmed; empty is ignored). */
   renamePage(id: string, title: string): void;
   /** Moves a page to `toIndex` among the visible pages. */
@@ -252,6 +257,11 @@ export interface BoardController {
   /** Opens (a sticky's id) or closes (null) the "Add to calendar" dialog. */
   setAddToCalendar(id: string | null): void;
   /**
+   * The board's access changed (the server's hello, or the board filled up). When it no longer
+   * takes edits, whatever was being drawn or typed is closed: it could not be saved.
+   */
+  accessChanged(): void;
+  /**
    * Creates an event linked to a sticky on the active page, on the calendar page `pageId` (null:
    * a new calendar page), as one undo step (the new page itself is not undoable). Returns the
    * calendar page id, or null when nothing was created.
@@ -287,6 +297,8 @@ export function createBoardController(opts: {
   cameraStorage?: CameraStorage;
   /** Shows a transient notice (toasts in the app). */
   notify?: (message: string) => void;
+  /** What the board lets this user change right now (default: edit). */
+  access?: () => BoardAccess;
 }): BoardController {
   const newId = opts.newId ?? (() => crypto.randomUUID());
   const now = opts.now ?? Date.now;
@@ -328,13 +340,24 @@ export function createBoardController(opts: {
     if (s.canUndo !== canUndo || s.canRedo !== canRedo) ui.setState({ canUndo, canRedo });
   });
 
-  const commit = (command: Command) => applyCommand(opts.doc, command, LOCAL_ORIGIN);
+  const access = opts.access ?? ((): BoardAccess => 'edit');
+  /**
+   * A command the server would refuse is not applied at all: it would stay in this user's own
+   * copy and never reach the others. For a viewer that is every command; on a full board,
+   * every command that is not a pure deletion. Returns whether it applied the command.
+   */
+  const apply = (command: Command, origin: string): boolean => {
+    if (!allowedFor(access(), command)) return false;
+    applyCommand(opts.doc, command, origin);
+    return true;
+  };
+  const commit = (command: Command) => apply(command, LOCAL_ORIGIN);
   const throttledCommit = throttle(commit, 50);
-  const commitSession = (command: Command) => applyCommand(opts.doc, command, SESSION_ORIGIN);
+  const commitSession = (command: Command) => apply(command, SESSION_ORIGIN);
   // Page commands touch untracked roots, except DeletePage, which also deletes the page's
   // shapes: on SESSION_ORIGIN a page delete never becomes an undo step that resurrects
   // shapes on a tombstoned page.
-  const commitPage = (command: Command) => applyCommand(opts.doc, command, SESSION_ORIGIN);
+  const commitPage = (command: Command) => apply(command, SESSION_ORIGIN);
 
   /** New shapes and connectors land on the active page. */
   const withPage = (c: Command): Command => {
@@ -383,6 +406,9 @@ export function createBoardController(opts: {
   };
 
   const travel = (direction: 'undo' | 'redo') => {
+    // Undoing a deletion (or redoing a creation) writes content, which only an editor on a
+    // board that takes edits may do.
+    if (access() !== 'edit') return;
     if (ui.getState().tool.mode !== 'idle') return;
     throttledCommit.cancel();
     if (ui.getState().editingId) stopEditing();
@@ -447,12 +473,13 @@ export function createBoardController(opts: {
     if (commands.length === 0 || !idle()) return false;
     throttledCommit.cancel();
     undoStack.stopCapturing();
+    let applied = false;
     // Each commit's own transact nests into this one.
     opts.doc.transact(() => {
-      for (const c of commands) commit(c);
+      for (const c of commands) if (commit(c)) applied = true;
     }, LOCAL_ORIGIN);
     undoStack.stopCapturing();
-    return true;
+    return applied;
   };
   const pasteContext = () => ({
     shapes: opts.docStore.getState().shapes,
@@ -499,15 +526,18 @@ export function createBoardController(opts: {
   };
   const copySelection = (): string | null => (copy() ? clip : null);
 
-  /** Appends a page of `type` after the last one (SESSION origin, never undoable). */
-  const createPage = (type: PageType): string => {
+  /**
+   * Appends a page of `type` after the last one (SESSION origin, never undoable). Null when the
+   * board refused it (a viewer, or a full board): no page was written, so there is no id.
+   */
+  const createPage = (type: PageType): string | null => {
     const pages = opts.docStore.getState().pages;
     const id = newId();
     const label = type === 'board' ? 'Board' : type === 'sheet' ? 'Sheet' : 'Calendar';
     const taken = new Set(pages.map((p) => p.title));
     let n = pages.filter((p) => p.type === type).length + 1;
     while (taken.has(`${label} ${n}`)) n++;
-    commitPage({
+    const written = commitPage({
       type: 'CreatePage',
       page: {
         id,
@@ -519,7 +549,7 @@ export function createBoardController(opts: {
       },
       ...(type === 'sheet' ? { sheet: initialSheet() } : {}),
     });
-    return id;
+    return written ? id : null;
   };
 
   const unsubscribe = opts.docStore.subscribe((doc, prev) => {
@@ -590,6 +620,7 @@ export function createBoardController(opts: {
       userName: opts.user.name,
       newId,
       now,
+      access: access(),
     });
     ui.setState(isShapeTool(state.tool) ? { tool: state, lastShape: state.tool } : { tool: state });
     run(effects);
@@ -887,6 +918,8 @@ export function createBoardController(opts: {
       );
     },
     createAt(type, p) {
+      // Without edit access the press below would be a marquee that nothing closes.
+      if (access() !== 'edit') return;
       if (ui.getState().tool.mode !== 'idle') return;
       const size = DEFAULT_SIZE[type];
       // Click-created stickies centre on the press; drawn tools put their corner there.
@@ -969,6 +1002,8 @@ export function createBoardController(opts: {
       // Checked before a new page is made: mid-gesture nothing would be committed to it.
       if (shape?.type !== 'sticky' || !idle()) return null;
       const pageId = input.pageId ?? createPage('calendar');
+      // The board stopped taking pages (it filled between the menu and the click).
+      if (!pageId) return null;
       const cal = readCalendar(getRoots(opts.doc).calendars.get(pageId));
       if (!cal) {
         opts.notify?.('That calendar no longer exists');
@@ -997,6 +1032,22 @@ export function createBoardController(opts: {
       opts.notify?.(`Added to ${title}`);
       ui.setState({ addToCalendar: null });
       return pageId;
+    },
+    accessChanged() {
+      if (access() === 'edit') return;
+      throttledCommit.cancel();
+      // The tool machine drops a gesture that is under way, and its overlay with it.
+      if (ui.getState().tool.mode !== 'idle') dispatch({ type: 'cancel' });
+      ui.setState({
+        tool: { mode: 'idle', tool: 'select', selection: ui.getState().tool.selection },
+        editingId: null,
+        editingColumn: null,
+        editingConnector: null,
+        composer: null,
+        graphDialog: false,
+        addToCalendar: null,
+      });
+      undoStack.stopCapturing();
     },
     destroy() {
       throttledCommit.cancel();

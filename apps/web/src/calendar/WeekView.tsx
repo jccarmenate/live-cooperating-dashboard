@@ -4,6 +4,7 @@ import { useStore } from 'zustand';
 import { createStore, type StoreApi } from 'zustand/vanilla';
 import type { BoardSession } from '../board/session';
 import { LONG_PRESS_MS, moved } from '../render/touch';
+import { mayEdit } from '../sync/clock';
 import type { CalendarController, OccRef } from './calendarController';
 import { EventDots } from './EventDots';
 import {
@@ -88,7 +89,7 @@ export function WeekView({
 }) {
   const anchor = useStore(ctl.ui, (s) => s.anchor);
   const selected = useStore(ctl.ui, (s) => s.selected);
-  const canEdit = useStore(session.conn.clock, (c) => c.role === 'edit');
+  const canEdit = useStore(session.conn.clock, mayEdit);
   const days = useMemo(() => weekDates(anchor), [anchor]);
   const layout = useMemo(
     () => weekLayout(occurrences, days, ctl.zone),

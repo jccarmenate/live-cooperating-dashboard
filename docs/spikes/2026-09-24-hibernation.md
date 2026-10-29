@@ -15,8 +15,10 @@ Result: **Supported** — enabled via `static options = { hibernate: true }` on 
 
 ## Consequences for Relay
 
-- In-memory state is lost on hibernation. `#frozen` is recomputed in `onLoad`;
-  per-connection token buckets reset (acceptable: they only bound bursts).
+- In-memory state is lost on hibernation. `#full` is recomputed in `onLoad` from
+  the stored snapshot, and the room says it again to its open connections (a
+  `room` message); per-connection token buckets reset (acceptable: they only
+  bound bursts).
 - Connection roles live in connection state (`setState`), so they survive.
 - The integration test "persists documents across a server restart" covers the
   same reload path hibernation uses.

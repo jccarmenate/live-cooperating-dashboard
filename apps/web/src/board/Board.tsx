@@ -13,11 +13,13 @@ import { Minimap } from '../render/Minimap';
 import { RemoteCursors } from '../render/RemoteCursors';
 import { TextEditor } from '../render/TextEditor';
 import { SheetPage } from '../sheet/SheetPage';
+import { mayEdit } from '../sync/clock';
 import { keyFromHash, pageFromHash } from '../sync/key';
 import { AddToCalendarDialog } from '../ui/AddToCalendarDialog';
 import { AlgorithmsPanel } from '../ui/AlgorithmsPanel';
 import { CanvasMenu } from '../ui/CanvasMenu';
 import { CommentsPanel } from '../ui/CommentsPanel';
+import { FullNotice } from '../ui/FullNotice';
 import { Header } from '../ui/Header';
 import { HelpDialog } from '../ui/HelpDialog';
 import { NewGraphDialog } from '../ui/NewGraphDialog';
@@ -36,11 +38,12 @@ function BoardView({ session }: { session: BoardSession }) {
   useClipboard(session);
   const type = useStore(session.doc, (d) => d.pages.find((p) => p.id === d.activePage)?.type);
   const hasPages = useStore(session.doc, (d) => d.pages.length > 0);
-  const canEdit = useStore(session.conn.clock, (c) => c.role === 'edit');
+  const canEdit = useStore(session.conn.clock, mayEdit);
   return (
     <div className="safe-area fixed inset-0 flex flex-col bg-paper">
       <Header session={session} />
       <PageTabs session={session} />
+      <FullNotice session={session} />
       {type === 'board' ? (
         <div className="relative flex-1 overflow-hidden">
           <Canvas session={session} />
@@ -92,7 +95,10 @@ function BoardView({ session }: { session: BoardSession }) {
                 <button
                   type="button"
                   className="border-2 border-ink bg-white px-3 py-1.5 pointer-coarse:py-2.5 font-mono text-xs uppercase hover:bg-sun"
-                  onClick={() => session.setPage(session.controller.createPage('board'))}
+                  onClick={() => {
+                    const id = session.controller.createPage('board');
+                    if (id) session.setPage(id);
+                  }}
                 >
                   New board
                 </button>

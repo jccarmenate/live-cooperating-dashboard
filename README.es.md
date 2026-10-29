@@ -74,6 +74,8 @@ La idea central es que **el documento es un CRDT y todo lo demás es una funció
 | Tiempo | Los plazos de votación son marcas de tiempo absolutas del servidor. El cliente aplica el desfase de reloj que obtiene de los mensajes `hello`/`time`, y el estado "abierto" se deriva en lugar de guardarse. | Ningún reloj de cliente puede alargar una votación, y nadie tiene que escribir nada cuando termina el temporizador. |
 | Deshacer | Un `Y.UndoManager` por usuario sigue solo los orígenes de este cliente. Cada gesto, pegado o sesión de edición de texto es un paso, y cambiar de página vacía la pila. | Deshacer nunca revierte el trabajo de otra persona ni cambia una página que no estás viendo. |
 | Seguridad | Las claves son capacidades HMAC-SHA-256 comparadas en tiempo constante y verificadas antes de despertar ningún Durable Object. El servidor sobrescribe el header de rol y los mensajes tienen límites de tamaño. Cada conexión tiene un token bucket, y se rechaza un pegado de más de 192 KiB. | Todo cabe en el plan gratuito, y un cliente hostil no puede escribir sin clave. |
+| Entrada hostil | La sala inspecciona cada frame antes del manejador de Yjs: los ids de awareness pertenecen a la conexión que los reclamó, los estados se vuelven a codificar con un validador compartido con el cliente, y un tablero lleno solo acepta actualizaciones que no añaden structs ni parten ninguno | Un par no puede reescribir el cursor ni el nombre de otro, y un tablero en su tope de tamaño se puede limpiar en lugar de quedar atascado en solo lectura |
+| Hibernación | La sala se duerme cuando nadie habla y despierta con la memoria vacía. Cada conexión lleva en el attachment de su WebSocket la última presencia de los ids que posee, y la sala se reconstruye con ellas al despertar | Las salas inactivas no cuestan nada en el plan gratuito, y nadie desaparece ni se queda colgado porque la sala durmiera |
 | Edición de texto | Un `<textarea>` superpuesto aplica sus cambios como diff sobre `Y.Text`. El diff nunca parte pares surrogate UTF-16, y el caret se recoloca cuando llegan ediciones remotas. | Los emoji y la escritura simultánea no se corrompen. |
 | Modelo de hojas | Filas y columnas son mapas anidados con un orden fraccional, y las celdas viven en un único mapa plano indexado por id de fila y de columna. Las fórmulas guardan las referencias por id, y la evaluación es una pasada pura y determinista por filas, con un límite de profundidad. | Insertar o mover una fila nunca reescribe una fórmula, y un movimiento y un borrado simultáneos no pueden resucitar una fila. |
 | Grafos | Un grafo está hecho de elipses y conectores normales, y los algoritmos son funciones puras del paquete core. | La colaboración, el deshacer, el portapapeles y los estilos funcionan con los grafos sin trabajo extra, y cada algoritmo se prueba sin navegador. |
@@ -161,17 +163,17 @@ O con Docker: `docker compose up`.
 ## Tests
 
 ```bash
-npm test         # 871 tests unitarios, de propiedades y de integración (core 447 · web 398 · sync-server 26)
-npm run e2e      # 56 escenarios de Playwright con varios navegadores independientes (16 en un teléfono táctil, 2 en una tablet)
+npm test         # 1025 tests unitarios, de propiedades y de integración (core 479 · web 445 · sync-server 101)
+npm run e2e      # 62 escenarios de Playwright con varios navegadores independientes (16 en un teléfono táctil, 2 en una tablet)
 npm run lint && npm run typecheck
 ```
 
 | Suite | Qué demuestra |
 |---|---|
-| `packages/core` (Vitest + fast-check) | Geometría, tablas de transiciones de la FSM (incluido el bloqueo), comandos sobre un `Y.Doc` real, la validación del portapapeles y la reasignación de ids, el diff de texto con emoji, el deshacer por usuario, los recuentos de votos, las lápidas de páginas, el parser y el evaluador de fórmulas, las familias, disposiciones y algoritmos de grafos, las zonas horarias, las repeticiones y los viajes de ida y vuelta por `.ics` del calendario, y la convergencia de tres réplicas para formas, datos de sesión, páginas, hojas y calendarios |
-| `apps/sync-server` (Vitest + `wrangler dev` real) | Sincronización entre editores, lectores de solo lectura, 4401 con claves inválidas, header de rol falsificado, límites de mensaje y de awareness, tope de tamaño, hora del servidor y persistencia tras reiniciar el servidor |
+| `packages/core` (Vitest + fast-check) | Geometría, tablas de transiciones de la FSM (incluido el bloqueo), comandos sobre un `Y.Doc` real, la validación del portapapeles y la reasignación de ids, el diff de texto con emoji, el deshacer por usuario, los recuentos de votos, las lápidas de páginas, el parser y el evaluador de fórmulas, las familias, disposiciones y algoritmos de grafos, las zonas horarias, las repeticiones y los viajes de ida y vuelta por `.ics` del calendario, la máquina de herramientas según el acceso, y la convergencia de tres réplicas para formas, datos de sesión, páginas, hojas y calendarios |
+| `apps/sync-server` (Vitest + `wrangler dev` real) | Sincronización entre editores, lectores de solo lectura, 4401 con claves inválidas, header de rol falsificado, límites de mensaje y de awareness, tope de tamaño, hora del servidor y persistencia tras reiniciar el servidor; la propiedad y la validación del awareness, los frames enrutados por su tipo decodificado, nada se retransmite si la sala lo ignoró, el relevo de sesión, la presencia tras una hibernación, un tablero lleno que acepta borrados, el límite de creación de salas, el límite de mensajes por segundo (contado por socket), y una actualización que la sala no puede aplicar se descarta y se cierra a quien la envió |
 | `apps/web` (Vitest) | La proyección Yjs → Zustand por página, el controlador del tablero (arrastres con throttle, portapapeles, orden en z, estilo, bloqueo, menús y pasos de deshacer), los atajos y los permisos por rol, los temporizadores de votación, los enlaces de compartir, los avisos, el controlador y las teclas de las hojas, la creación de grafos, y el store, la disposición y el controlador del calendario |
-| `e2e/` (Playwright) | Estos escenarios: dos usuarios que ven las ediciones y los cursores del otro; conectores y frames; zoom, minimapa y restauración de la cámara; votación y comentarios entre usuarios; crear, reordenar y borrar páginas, y enlaces con hash; menús contextuales, portapapeles, bloqueo, ayuda y límites de los lectores; edición de hojas de cálculo entre usuarios; familias de grafos, listas de aristas, etiquetas y capas de algoritmos; calendarios entre zonas horarias, excepciones en series, asistencia en vivo y `.ics` |
+| `e2e/` (Playwright) | Estos escenarios: dos usuarios que ven las ediciones y los cursores del otro; conectores y frames; zoom, minimapa y restauración de la cámara; votación y comentarios entre usuarios; crear, reordenar y borrar páginas, y enlaces con hash; menús contextuales, portapapeles, bloqueo, ayuda y límites de los lectores; edición de hojas de cálculo entre usuarios; familias de grafos, listas de aristas, etiquetas y capas de algoritmos; calendarios entre zonas horarias, excepciones en series, asistencia en vivo y `.ics`; un único socket de sala por pestaña; un tablero que se llena, se puede seguir borrando y se reanuda; un cambio que el tablero lleno rechazó, y la recarga que restaura el tablero compartido; una hoja y un calendario llenos que aún dejan borrar; un tablero con demasiada gente, y Try again; un lector que no puede cambiar el tablero |
 
 ## Hoja de ruta
 
@@ -188,14 +190,17 @@ Se construye por fases, cada una desplegable; los detalles están en la spec.
   - [x] **P4 grafos:** familias de grafos y listas de aristas con disposición automática, etiquetas en conectores, capas locales de algoritmos, el desplegable Shapes
   - [x] **P5 páginas de calendario:** vistas de mes y de semana, eventos repetidos con excepciones por repetición, zona horaria de cada persona, asistencia en vivo, exportar e importar `.ics`, Add to calendar desde una nota
   - [x] **Responsive y táctil:** diseños para teléfono y horizontal; desplazar y hacer zoom con dos dedos, menús con pulsación larga, botones de deshacer y rehacer, doble toque y tocar para editar, selección de rangos táctil en las hojas, semana desplazable y mes deslizable en los calendarios ([plan](docs/superpowers/plans/2026-09-30-relay-responsive.md))
-- [ ] **F5 — Publicación** (la siguiente): sala demo que se reinicia cada noche, endurecimiento del protocolo, despliegue (Vercel + Workers), pulido offline
+- [ ] **F5 — Publicación**
+  - [x] **F5a endurecimiento del protocolo:** ids de awareness que pertenecen a su conexión y se validan en el servidor, presencia que sobrevive a la hibernación de la sala, un tablero lleno que sigue permitiendo borrar y se reanuda al reducirse, un tablero de solo lectura para los lectores también en su copia local, cierres visibles en lugar de bucles de reconexión silenciosos, un límite de tableros nuevos por dirección ([plan](docs/superpowers/plans/2026-10-03-relay-f5a-hardening.md))
+  - [ ] **F5b sala demo** (la siguiente): un tablero con contenido de ejemplo que se reinicia cada noche
+  - [ ] **F5c pulido offline**
+  - [ ] **F5d despliegue:** Vercel + Workers
 - [ ] **F6 — IA:** "Cluster & summarize" para retros. El agrupamiento es determinista (embeddings más clustering aglomerativo) y corre en Workers AI. La salida del LLM se valida con un esquema y se mide con el Adjusted Rand Index.
 
-**Limitaciones conocidas (previstas para F5):**
-- El protocolo de sincronización necesita una fase de endurecimiento antes de abrir la sala demo pública:
-  - validación estricta de los frames de awareness;
-  - un estimador de tamaño de documento más fino;
-  - mostrar en la UI los cierres por "mensaje demasiado grande".
+**Limitaciones conocidas:**
+- Sin conexión: un tablero abierto desde la copia local admite ediciones hasta que el servidor responde, también las de un lector; el servidor nunca acepta las de un lector (F5c).
+- Dos pestañas de un mismo navegador comparten los cambios directamente (BroadcastChannel), así que un cambio que un tablero lleno rechazó en una pestaña puede volver desde la otra después de **Reload board** (F5c).
+- El límite de tableros nuevos se apoya en el rate limiting de Cloudflare, que cuenta por ubicación y es eventualmente consistente; solo se verificó en el entorno local y su comprobación real llega con el despliegue (F5d).
 - Calendario:
   - una serie quincenal (o cada N semanas) desplazada más allá de un lunes con **All events**
     puede cambiar las semanas en que cae, porque la regla cuenta las semanas desde el inicio de

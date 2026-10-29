@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import type { BoardSession } from '../board/session';
+import { mayEdit } from '../sync/clock';
 import { onBoardPage } from './pageKind';
 import { isTyping } from './typing';
 
@@ -17,7 +18,7 @@ export function useClipboard(session: BoardSession) {
       const selected = window.getSelection();
       return e.type !== 'paste' && !!selected && !selected.isCollapsed;
     };
-    const canEdit = () => conn.clock.getState().role === 'edit';
+    const canEdit = () => mayEdit(conn.clock.getState());
     const onCopy = (e: ClipboardEvent) => {
       if (skip(e)) return;
       const text = controller.copySelection();

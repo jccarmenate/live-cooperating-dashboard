@@ -2,6 +2,7 @@ import { EVENT_COLORS, pageOf, type RsvpStatus } from '@relay/core';
 import { useEffect, useRef, useState } from 'react';
 import { useStore } from 'zustand';
 import type { BoardSession } from '../board/session';
+import { mayDelete, mayEdit } from '../sync/clock';
 import { Dialog } from '../ui/Dialog';
 import { toast } from '../ui/toasts';
 import type { CalendarController, EditorDraft, EditorState } from './calendarController';
@@ -47,7 +48,8 @@ function EditorDialog({
   editor: EditorState;
 }) {
   const [draft, setDraft] = useState<EditorDraft>(editor.draft);
-  const canEdit = useStore(session.conn.clock, (c) => c.role === 'edit');
+  const canEdit = useStore(session.conn.clock, mayEdit);
+  const deletable = useStore(session.conn.clock, mayDelete);
   const eventId = editor.ref?.eventId ?? null;
   // The event itself (same object until it changes): RSVP answers and the link re-render.
   const ev = useStore(session.calendar, (s) =>
@@ -344,7 +346,7 @@ function EditorDialog({
           </button>
         )}
         <div className="flex justify-between gap-2 border-t-2 border-ink/20 pt-2">
-          {editor.ref && !ro ? (
+          {editor.ref && (!ro || deletable) ? (
             <button
               type="button"
               data-testid="cal-delete"

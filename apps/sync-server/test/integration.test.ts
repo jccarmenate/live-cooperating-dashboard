@@ -3,12 +3,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { applyCommand, DEFAULT_STYLE, getRoots, readMeta } from '@relay/core';
 import * as encoding from 'lib0/encoding';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import WebSocket from 'ws';
 import YProvider from 'y-partyserver/provider';
 import { Awareness, encodeAwarenessUpdate } from 'y-protocols/awareness';
 import { writeUpdate } from 'y-protocols/sync';
 import * as Y from 'yjs';
+import { encodeAwarenessUpdate as encodeEntries, wrapAwareness } from '../src/awareness';
 import { LIMITS } from '../src/limits';
 import { type RunningWorker, startWorker } from './helpers/worker';
 
@@ -22,8 +23,13 @@ beforeAll(async () => {
   worker = await startWorker({ port: PORT, persistDir });
 });
 
+afterEach(() => {
+  // A provider adds a listener to the process's `exit` event and removes it only when it is
+  // destroyed: more than ten alive at once make Node print a MaxListenersExceededWarning.
+  for (const p of open.splice(0)) p.destroy();
+});
+
 afterAll(async () => {
-  for (const p of open) p.destroy();
   for (const ws of rawSockets) {
     if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) ws.terminate();
   }
@@ -42,16 +48,27 @@ function connect(room: string, key: string | null) {
   return { doc, provider };
 }
 
-/** Connects directly to the room's WebSocket endpoint, bypassing the Yjs provider. */
-function rawConnect(
-  room: string,
-  opts: { key?: string; headers?: Record<string, string> } = {},
-): WebSocket {
-  const params = new URLSearchParams({ _pk: Math.random().toString(36).slice(2) });
+interface RawOptions {
+  key?: string;
+  sid?: string;
+  pk?: string;
+  pad?: number;
+  headers?: Record<string, string>;
+}
+
+/** The URL `rawConnect` opens. */
+function rawUrl(room: string, opts: RawOptions = {}): string {
+  // The app's provider keeps one `_pk` for its whole life: a reconnect arrives with the same one.
+  const params = new URLSearchParams({ _pk: opts.pk ?? Math.random().toString(36).slice(2) });
   if (opts.key !== undefined) params.set('key', opts.key);
-  const ws = new WebSocket(`ws://127.0.0.1:${PORT}/parties/room/${room}?${params.toString()}`, {
-    headers: opts.headers,
-  });
+  if (opts.sid !== undefined) params.set('sid', opts.sid);
+  if (opts.pad !== undefined) params.set('pad', 'x'.repeat(opts.pad));
+  return `ws://127.0.0.1:${PORT}/parties/room/${room}?${params.toString()}`;
+}
+
+/** Connects directly to the room's WebSocket endpoint, bypassing the Yjs provider. */
+function rawConnect(room: string, opts: RawOptions = {}): WebSocket {
+  const ws = new WebSocket(rawUrl(room, opts), { headers: opts.headers });
   rawSockets.push(ws);
   return ws;
 }
@@ -80,8 +97,15 @@ function waitForOpen(ws: WebSocket, timeoutMs = 5000): Promise<void> {
   });
 }
 
-/** Resolves with the next custom (`__YPS:`) JSON message on a raw socket. */
-function nextCustom(ws: WebSocket, timeoutMs = 5000): Promise<Record<string, unknown>> {
+/**
+ * Resolves with the next custom (`__YPS:`) JSON message on a raw socket; with `type`, with the
+ * next one of that type.
+ */
+function nextCustom(
+  ws: WebSocket,
+  timeoutMs = 5000,
+  type?: string,
+): Promise<Record<string, unknown>> {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(
       () => reject(new Error('timed out waiting for a custom message')),
@@ -91,12 +115,37 @@ function nextCustom(ws: WebSocket, timeoutMs = 5000): Promise<Record<string, unk
       if (isBinary) return;
       const text = data.toString();
       if (!text.startsWith('__YPS:')) return;
+      const message = JSON.parse(text.slice(6)) as Record<string, unknown>;
+      if (type !== undefined && message.type !== type) return;
       clearTimeout(timer);
       ws.off('message', onMessage);
-      resolve(JSON.parse(text.slice(6)) as Record<string, unknown>);
+      resolve(message);
     };
     ws.on('message', onMessage);
   });
+}
+
+/** Collects the custom (`__YPS:`) messages a raw socket receives. */
+function collectCustom(ws: WebSocket): Record<string, unknown>[] {
+  const seen: Record<string, unknown>[] = [];
+  ws.on('message', (data, isBinary) => {
+    if (isBinary) return;
+    const text = data.toString();
+    if (text.startsWith('__YPS:')) seen.push(JSON.parse(text.slice(6)) as Record<string, unknown>);
+  });
+  return seen;
+}
+
+/**
+ * Asks the server time and waits for the answer. The server's close of a socket that never
+ * sent anything takes about ten seconds to complete (55 ms once it has spoken), so a test that
+ * waits for the close code of a socket the server retires makes it speak first.
+ */
+async function ping(ws: WebSocket): Promise<void> {
+  ws.send('__YPS:{"type":"time?"}');
+  // One listener until the answer. Messages that arrive in one chunk are emitted in one turn, so
+  // a listener attached after the first of them (a `hello`, say) would miss the second.
+  await nextCustom(ws, 5000, 'time');
 }
 
 /** Encodes a raw `messageAwareness` (type byte 1) frame carrying the given state. */
@@ -116,6 +165,54 @@ function encodeUpdateMessage(update: Uint8Array): Uint8Array {
   writeUpdate(encoder, update);
   return encoding.toUint8Array(encoder);
 }
+
+/** Encodes a raw `messageSync` frame carrying a sync-protocol SyncStep2 (sub-type 1). */
+function encodeSyncStep2Message(update: Uint8Array): Uint8Array {
+  const encoder = encoding.createEncoder();
+  encoding.writeVarUint(encoder, 0); // messageSync
+  encoding.writeVarUint(encoder, 1); // messageYjsSyncStep2
+  encoding.writeVarUint8Array(encoder, update);
+  return encoding.toUint8Array(encoder);
+}
+
+/** A valid presence state, as the web client publishes it. */
+const presence = (name: string, extra: Record<string, unknown> = {}) => ({
+  user: { id: `u-${name}`, name, color: '#E85A1B' },
+  cursor: null,
+  selection: [],
+  editing: null,
+  viewport: null,
+  page: null,
+  ...extra,
+});
+
+/** A wire awareness frame with chosen client ids and clocks. */
+function awarenessFrame(
+  entries: { clientId: number; clock: number; state: unknown }[],
+): Uint8Array {
+  return wrapAwareness(
+    encodeEntries(
+      entries.map((e) => ({
+        clientId: e.clientId,
+        clock: e.clock,
+        state: JSON.stringify(e.state),
+      })),
+    ),
+  );
+}
+
+/** Counts the awareness frames (type byte 1) a raw socket receives from now on. */
+function countAwarenessFrames(ws: WebSocket): () => number {
+  let n = 0;
+  ws.on('message', (data, isBinary) => {
+    if (isBinary && (data as Buffer)[0] === 1) n++;
+  });
+  return () => n;
+}
+
+const nameOf = (p: YProvider, clientId: number): string | undefined =>
+  (p.awareness.getStates().get(clientId) as { user?: { name?: string } } | undefined)?.user?.name;
+const settle = (ms = 600) => new Promise((r) => setTimeout(r, ms));
 
 async function createRoom(): Promise<{ roomId: string; editKey: string; viewKey: string }> {
   const res = await fetch(`http://127.0.0.1:${PORT}/api/rooms`, { method: 'POST' });
@@ -235,6 +332,16 @@ describe('sync server', () => {
     expect(code).toBe(1009);
   });
 
+  it('a connection that floods the room is closed with 4429', async () => {
+    const { roomId, editKey } = await createRoom();
+    const ws = rawConnect(roomId, { key: editKey });
+    await waitForOpen(ws);
+    const closed = waitForClose(ws);
+    // Far past the burst of 120, whatever the refill while the room reads them.
+    for (let i = 0; i < 400; i++) ws.send('__YPS:{"type":"time?"}');
+    expect((await closed).code).toBe(4429);
+  });
+
   it('freezes the room once an editor pushes it past the document size cap', async () => {
     const { roomId, editKey } = await createRoom();
     const a = connect(roomId, editKey);
@@ -299,29 +406,561 @@ describe('sync server', () => {
     await waitFor(() => getRoots(b.doc).shapes.has('after-duplicates'));
   });
 
-  it('closes a connection sending an oversized awareness frame with code 1009', async () => {
+  it('a full board says so, accepts deletions, refuses the rest and resumes when it shrinks', {
+    timeout: 60_000,
+  }, async () => {
     const { roomId, editKey } = await createRoom();
-    const ws = rawConnect(roomId, { key: editKey });
-    await waitForOpen(ws);
-    const closed = waitForClose(ws);
-    ws.send(encodeAwarenessMessage({ name: 'x'.repeat(20_000) }));
-    const { code } = await closed;
-    expect(code).toBe(1009);
+    const filler = connect(roomId, editKey);
+    const clean = connect(roomId, editKey);
+    const watcher = rawConnect(roomId, { key: editKey });
+    const messages = collectCustom(watcher);
+    await Promise.all([synced(filler.provider), synced(clean.provider), waitForOpen(watcher)]);
+    addSticky(filler.doc, 'growing');
+    addSticky(filler.doc, 'small');
+    await waitFor(() => getRoots(clean.doc).shapes.has('small'));
+
+    // Six sub-256 KB updates that together pass the 1 MB cap.
+    for (let i = 0; i < 6; i++) {
+      applyCommand(filler.doc, {
+        type: 'SetText',
+        id: 'growing',
+        index: 0,
+        deleteCount: 0,
+        insert: 'x'.repeat(200_000),
+      });
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    await waitFor(() => messages.some((m) => m.type === 'room' && m.full === true));
+
+    // A connection that arrives now learns it from hello.
+    const late = rawConnect(roomId, { key: editKey });
+    const lateHello = nextCustom(late);
+    await waitForOpen(late);
+    expect((await lateHello).full).toBe(true);
+
+    // Anything that adds content is refused, and its sender is told once.
+    const writer = connect(roomId, editKey);
+    const told: string[] = [];
+    writer.provider.on('custom-message', (raw: string) => told.push(raw));
+    await synced(writer.provider);
+    await settle();
+    // Joining a full board is not a refused write (the empty SyncStep2 a plain connect sends is
+    // a pure deletion of nothing): until the writer writes, it has been told nothing.
+    const rejections = () => told.filter((raw) => raw.includes('"rejected"')).length;
+    expect(rejections()).toBe(0);
+    addSticky(writer.doc, 'after-cap');
+    await waitFor(() => rejections() === 1);
+    // A second refused write is not told again.
+    addSticky(writer.doc, 'after-cap-2');
+    await settle();
+    expect(rejections()).toBe(1);
+    expect(getRoots(clean.doc).shapes.has('after-cap')).toBe(false);
+    expect(getRoots(clean.doc).shapes.has('after-cap-2')).toBe(false);
+
+    // A deletion from a client that holds only what the server has is accepted.
+    applyCommand(clean.doc, { type: 'DeleteShapes', ids: ['small'] });
+    await waitFor(() => !getRoots(filler.doc).shapes.has('small'));
+
+    // Deleting the big shape brings the board under 900 KB at the next save.
+    applyCommand(clean.doc, { type: 'DeleteShapes', ids: ['growing'] });
+    await waitFor(() => messages.some((m) => m.type === 'room' && m.full === false), 20_000);
+    addSticky(clean.doc, 'resumed');
+    await waitFor(() => getRoots(filler.doc).shapes.has('resumed'));
   });
 
-  it('closes a connection controlling more than 2 awareness client ids with code 4429', async () => {
+  it('keeps nothing it cannot apply: an update with a gap closes its sender with 4400', async () => {
+    const { roomId, editKey } = await createRoom();
+    const mallory = rawConnect(roomId, { key: editKey });
+    await waitForOpen(mallory);
+    // The second change of a document whose first change the room never got. Yjs cannot apply it
+    // and would park it in the store, where nothing counts it and no deletion reaches it.
+    const doc = new Y.Doc();
+    doc.getMap('m').set('a', 1);
+    const afterFirst = Y.encodeStateVector(doc);
+    doc.getMap('m').set('b', 'x'.repeat(100_000));
+    const closed = waitForClose(mallory);
+    mallory.send(encodeUpdateMessage(Y.encodeStateAsUpdate(doc, afterFirst)));
+    expect((await closed).code).toBe(4400);
+
+    // Nobody who syncs afterwards is handed the parked data.
+    const late = connect(roomId, editKey);
+    await synced(late.provider);
+    expect(late.doc.store.pendingStructs).toBeNull();
+    expect(late.doc.store.pendingDs).toBeNull();
+  });
+
+  it('an Update whose sub-type is written as a longer varint is still an Update: its gap closes its sender', async () => {
+    const { roomId, editKey } = await createRoom();
+    const mallory = rawConnect(roomId, { key: editKey });
+    await waitForOpen(mallory);
+    const doc = new Y.Doc();
+    doc.getMap('m').set('a', 1);
+    const afterFirst = Y.encodeStateVector(doc);
+    doc.getMap('m').set('b', 'x'.repeat(1000));
+    const encoder = encoding.createEncoder();
+    encoding.writeVarUint(encoder, 0); // messageSync
+    encoding.writeUint8(encoder, 0x82); // sub-type 2, with a continuation byte
+    encoding.writeUint8(encoder, 0x00);
+    encoding.writeVarUint8Array(encoder, Y.encodeStateAsUpdate(doc, afterFirst));
+    const closed = waitForClose(mallory);
+    mallory.send(encoding.toUint8Array(encoder));
+    expect((await closed).code).toBe(4400);
+  });
+
+  it('a SyncStep2 with a gap has its parked data dropped, and its sender stays connected', async () => {
+    const { roomId, editKey } = await createRoom();
+    const client = rawConnect(roomId, { key: editKey });
+    await waitForOpen(client);
+    let closed = false;
+    client.on('close', () => {
+      closed = true;
+    });
+    // A SyncStep2 is the whole difference from the room's state: a client whose own document
+    // holds parked data sends it on every connect, and a close would only make it send it again.
+    const doc = new Y.Doc();
+    doc.getMap('m').set('a', 1);
+    const afterFirst = Y.encodeStateVector(doc);
+    doc.getMap('m').set('b', 'x'.repeat(100_000));
+    client.send(encodeSyncStep2Message(Y.encodeStateAsUpdate(doc, afterFirst)));
+    // The socket still answers, and was not closed.
+    await ping(client);
+    expect(closed).toBe(false);
+    expect(client.readyState).toBe(WebSocket.OPEN);
+
+    // Nobody who syncs afterwards is handed the parked data.
+    const late = connect(roomId, editKey);
+    await synced(late.provider);
+    expect(late.doc.store.pendingStructs).toBeNull();
+    expect(late.doc.store.pendingDs).toBeNull();
+  });
+
+  it('a deletion of content the room does not have closes its sender with 4400', async () => {
+    const { roomId, editKey } = await createRoom();
+    const mallory = rawConnect(roomId, { key: editKey });
+    await waitForOpen(mallory);
+    const doc = new Y.Doc();
+    doc.getMap('m').set('never-sent', 1);
+    let deletion: Uint8Array | undefined;
+    doc.on('update', (u: Uint8Array) => {
+      deletion = u;
+    });
+    doc.getMap('m').delete('never-sent');
+    const closed = waitForClose(mallory);
+    mallory.send(encodeUpdateMessage(deletion as Uint8Array));
+    expect((await closed).code).toBe(4400);
+  });
+
+  it('relays a valid presence state reduced to the fields the validator knows', async () => {
+    const { roomId, editKey } = await createRoom();
+    const watcher = connect(roomId, editKey);
+    await synced(watcher.provider);
+    const ws = rawConnect(roomId, { key: editKey });
+    await waitForOpen(ws);
+    ws.send(awarenessFrame([{ clientId: 1001, clock: 1, state: presence('Ann', { junk: 'x' }) }]));
+    await waitFor(() => nameOf(watcher.provider, 1001) === 'Ann');
+    expect('junk' in (watcher.provider.awareness.getStates().get(1001) as object)).toBe(false);
+  });
+
+  it('drops a state that is not valid presence', async () => {
+    const { roomId, editKey } = await createRoom();
+    const watcher = connect(roomId, editKey);
+    await synced(watcher.provider);
+    const ws = rawConnect(roomId, { key: editKey });
+    await waitForOpen(ws);
+    ws.send(awarenessFrame([{ clientId: 1002, clock: 1, state: { name: 'INTRUDER' } }]));
+    await settle();
+    expect(watcher.provider.awareness.getStates().has(1002)).toBe(false);
+  });
+
+  it("does not let a connection overwrite or remove another connection's state", async () => {
+    const { roomId, editKey } = await createRoom();
+    const watcher = connect(roomId, editKey);
+    await synced(watcher.provider);
+    const ann = rawConnect(roomId, { key: editKey });
+    const mallory = rawConnect(roomId, { key: editKey });
+    await Promise.all([waitForOpen(ann), waitForOpen(mallory)]);
+    ann.send(awarenessFrame([{ clientId: 2001, clock: 1, state: presence('Ann') }]));
+    await waitFor(() => nameOf(watcher.provider, 2001) === 'Ann');
+    mallory.send(awarenessFrame([{ clientId: 2001, clock: 5, state: presence('Mallory') }]));
+    mallory.send(awarenessFrame([{ clientId: 2001, clock: 6, state: null }]));
+    await settle();
+    expect(nameOf(watcher.provider, 2001)).toBe('Ann');
+  });
+
+  it("does not relay a peer's state echoed back by another connection", async () => {
+    const { roomId, editKey } = await createRoom();
+    const watcher = rawConnect(roomId, { key: editKey });
+    const mover = rawConnect(roomId, { key: editKey });
+    const echoer = rawConnect(roomId, { key: editKey });
+    await Promise.all([waitForOpen(watcher), waitForOpen(mover), waitForOpen(echoer)]);
+    const seen = countAwarenessFrames(watcher);
+    const frame = awarenessFrame([{ clientId: 3001, clock: 1, state: presence('Ann') }]);
+    mover.send(frame);
+    await settle(300);
+    echoer.send(frame);
+    await settle();
+    expect(seen()).toBe(1);
+  });
+
+  it('drops an oversized awareness frame and keeps the connection open', async () => {
+    const { roomId, editKey } = await createRoom();
+    const ws = rawConnect(roomId, { key: editKey });
+    const hello = nextCustom(ws);
+    await waitForOpen(ws);
+    await hello;
+    ws.send(awarenessFrame([{ clientId: 5001, clock: 1, state: presence('x'.repeat(20_000)) }]));
+    const time = nextCustom(ws);
+    ws.send('__YPS:{"type":"time?"}');
+    expect((await time).type).toBe('time');
+  });
+
+  it('closes a connection whose awareness frame does not decode, with code 4400', async () => {
     const { roomId, editKey } = await createRoom();
     const ws = rawConnect(roomId, { key: editKey });
     await waitForOpen(ws);
     const closed = waitForClose(ws);
-    // Each call creates a fresh Awareness backed by a fresh Y.Doc, so each
-    // encodes a distinct clientID — as if one socket were puppeting several
-    // awareness identities.
-    ws.send(encodeAwarenessMessage({ name: 'first' }));
-    ws.send(encodeAwarenessMessage({ name: 'second' }));
-    ws.send(encodeAwarenessMessage({ name: 'third' }));
-    const { code } = await closed;
-    expect(code).toBe(4429);
+    ws.send(Uint8Array.of(1, 5, 255, 255)); // awareness, claims 5 bytes, carries 2
+    expect((await closed).code).toBe(4400);
+  });
+
+  it('closes a connection claiming more than 2 awareness client ids with code 4429', async () => {
+    const { roomId, editKey } = await createRoom();
+    const ws = rawConnect(roomId, { key: editKey });
+    await waitForOpen(ws);
+    const closed = waitForClose(ws);
+    ws.send(awarenessFrame([{ clientId: 6001, clock: 1, state: presence('first') }]));
+    ws.send(awarenessFrame([{ clientId: 6002, clock: 1, state: presence('second') }]));
+    ws.send(awarenessFrame([{ clientId: 6003, clock: 1, state: presence('third') }]));
+    expect((await closed).code).toBe(4429);
+  });
+
+  it('a connection updates and removes the state of an id it owns', async () => {
+    const { roomId, editKey } = await createRoom();
+    const watcher = connect(roomId, editKey);
+    await synced(watcher.provider);
+    const ann = rawConnect(roomId, { key: editKey });
+    await waitForOpen(ann);
+    ann.send(awarenessFrame([{ clientId: 7001, clock: 1, state: presence('Ann') }]));
+    await waitFor(() => nameOf(watcher.provider, 7001) === 'Ann');
+    ann.send(awarenessFrame([{ clientId: 7001, clock: 2, state: presence('Ann B') }]));
+    await waitFor(() => nameOf(watcher.provider, 7001) === 'Ann B');
+    ann.send(awarenessFrame([{ clientId: 7001, clock: 3, state: null }]));
+    await waitFor(() => !watcher.provider.awareness.getStates().has(7001));
+    // The id was released with its state: two others fit the cap again.
+    ann.send(awarenessFrame([{ clientId: 7002, clock: 1, state: presence('two') }]));
+    ann.send(awarenessFrame([{ clientId: 7003, clock: 1, state: presence('three') }]));
+    await waitFor(() => nameOf(watcher.provider, 7003) === 'three');
+    expect(nameOf(watcher.provider, 7002)).toBe('two');
+  });
+
+  it('a removal with a stale clock does not free the id, and a close removes what was left', async () => {
+    const { roomId, editKey } = await createRoom();
+    const watcher = connect(roomId, editKey);
+    await synced(watcher.provider);
+    const mallory = rawConnect(roomId, { key: editKey });
+    await waitForOpen(mallory);
+    const closed = waitForClose(mallory);
+    for (const id of [7101, 7102, 7103]) {
+      mallory.send(awarenessFrame([{ clientId: id, clock: 5, state: presence(`ghost ${id}`) }]));
+      mallory.send(awarenessFrame([{ clientId: id, clock: 3, state: null }]));
+    }
+    expect((await closed).code).toBe(4429);
+    await settle();
+    const left = [7101, 7102, 7103].filter((id) => watcher.provider.awareness.getStates().has(id));
+    expect(left).toEqual([]);
+  });
+
+  it('ids claimed and removed inside one frame cannot pass the cap', async () => {
+    const { roomId, editKey } = await createRoom();
+    const watcher = rawConnect(roomId, { key: editKey });
+    const mallory = rawConnect(roomId, { key: editKey });
+    await Promise.all([waitForOpen(watcher), waitForOpen(mallory)]);
+    const seen = countAwarenessFrames(watcher);
+    const closed = waitForClose(mallory);
+    mallory.send(
+      awarenessFrame(
+        [7201, 7202, 7203].flatMap((id) => [
+          { clientId: id, clock: 5, state: presence(`ghost ${id}`) },
+          { clientId: id, clock: 3, state: null },
+        ]),
+      ),
+    );
+    expect((await closed).code).toBe(4429);
+    await settle();
+    expect(seen()).toBe(0);
+  });
+
+  it('a frame whose type is written as a longer varint meets the same rules', async () => {
+    const { roomId, editKey } = await createRoom();
+    const watcher = connect(roomId, editKey);
+    await synced(watcher.provider);
+    const ann = rawConnect(roomId, { key: editKey });
+    const mallory = rawConnect(roomId, { key: editKey });
+    await Promise.all([waitForOpen(ann), waitForOpen(mallory)]);
+    ann.send(awarenessFrame([{ clientId: 8001, clock: 1, state: presence('Ann') }]));
+    await waitFor(() => nameOf(watcher.provider, 8001) === 'Ann');
+
+    // 0x81 0x00 is the varint 1, the awareness type, in two bytes instead of one.
+    const longType = (frame: Uint8Array) => Uint8Array.of(0x81, 0x00, ...frame.slice(1));
+    const send = (clientId: number, clock: number, state: unknown) =>
+      mallory.send(longType(awarenessFrame([{ clientId, clock, state }])));
+    const closed = waitForClose(mallory);
+    send(8001, 9, presence('Mallory'));
+    send(8002, 1, { name: 'INTRUDER' });
+    for (const id of [8003, 8004, 8005]) send(id, 1, presence(`extra ${id}`));
+    // Ann's id is hers, the invalid state is dropped, and the third id of her own closes her.
+    expect((await closed).code).toBe(4429);
+    await settle();
+    expect(nameOf(watcher.provider, 8001)).toBe('Ann');
+    expect(watcher.provider.awareness.getStates().has(8002)).toBe(false);
+    expect(watcher.provider.awareness.getStates().has(8003)).toBe(false);
+  });
+
+  it('drops a message type the protocol does not have, and closes on a frame with no type', async () => {
+    const { roomId, editKey } = await createRoom();
+    const ws = rawConnect(roomId, { key: editKey });
+    const hello = nextCustom(ws);
+    await waitForOpen(ws);
+    await hello;
+    ws.send(Uint8Array.of(3));
+    ws.send(Uint8Array.of(7, 1, 2, 3));
+    await ping(ws);
+    const closed = waitForClose(ws);
+    ws.send(Uint8Array.of(0x80));
+    expect((await closed).code).toBe(4400);
+  });
+
+  it('does not relay an entry it ignored', async () => {
+    const { roomId, editKey } = await createRoom();
+    const mallory = rawConnect(roomId, { key: editKey });
+    await waitForOpen(mallory);
+    // The room's clock for the id goes up, and no state is left behind.
+    mallory.send(awarenessFrame([{ clientId: 8101, clock: 100, state: presence('seed') }]));
+    mallory.send(awarenessFrame([{ clientId: 8101, clock: 101, state: null }]));
+    await ping(mallory);
+    const late = connect(roomId, editKey);
+    await synced(late.provider);
+
+    // The room has passed clock 5 and ignores this. A peer who joined after the removal knows no
+    // clock for the id and would take it.
+    mallory.send(awarenessFrame([{ clientId: 8101, clock: 5, state: presence('ghost') }]));
+    await ping(mallory);
+    await settle();
+    expect(late.provider.awareness.getStates().has(8101)).toBe(false);
+
+    // What the room does take still reaches everyone.
+    mallory.send(awarenessFrame([{ clientId: 8101, clock: 102, state: presence('Mal') }]));
+    await waitFor(() => nameOf(late.provider, 8101) === 'Mal');
+  });
+
+  it('a reconnecting tab retires its old socket and keeps its presence', async () => {
+    const { roomId, editKey } = await createRoom();
+    const watcher = connect(roomId, editKey);
+    await synced(watcher.provider);
+    // What the app's provider sends: the same `_pk` and the same `sid` on every reconnect.
+    const tab = { key: editKey, sid: 'tab-session-0001', pk: 'tab-conn-01' };
+    const first = rawConnect(roomId, tab);
+    await waitForOpen(first);
+    first.send(awarenessFrame([{ clientId: 4001, clock: 1, state: presence('Ann') }]));
+    await waitFor(() => nameOf(watcher.provider, 4001) === 'Ann');
+
+    const firstClosed = waitForClose(first);
+    const second = rawConnect(roomId, tab);
+    await waitForOpen(second);
+    expect((await firstClosed).code).toBe(4409);
+    await settle();
+    // The old socket's close did not remove the state the new socket inherited.
+    expect(nameOf(watcher.provider, 4001)).toBe('Ann');
+    second.send(awarenessFrame([{ clientId: 4001, clock: 2, state: presence('Ann B') }]));
+    await waitFor(() => nameOf(watcher.provider, 4001) === 'Ann B');
+
+    // Another session cannot take the id.
+    const stranger = rawConnect(roomId, { key: editKey, sid: 'tab-session-0002' });
+    await waitForOpen(stranger);
+    stranger.send(awarenessFrame([{ clientId: 4001, clock: 9, state: presence('Mallory') }]));
+    await settle();
+    expect(nameOf(watcher.provider, 4001)).toBe('Ann B');
+  });
+
+  it('the session id alone retires the old socket, whatever the connection ids', async () => {
+    const { roomId, editKey } = await createRoom();
+    const first = rawConnect(roomId, { key: editKey, sid: 'tab-session-0003' });
+    await waitForOpen(first);
+    await ping(first);
+    const firstClosed = waitForClose(first);
+    const second = rawConnect(roomId, { key: editKey, sid: 'tab-session-0003' });
+    await waitForOpen(second);
+    expect((await firstClosed).code).toBe(4409);
+  });
+
+  it('a full room refuses a new session with 4503 but lets an existing session reconnect', {
+    timeout: 60_000,
+  }, async () => {
+    const { roomId, editKey } = await createRoom();
+    const sockets: WebSocket[] = [];
+    for (let i = 0; i < LIMITS.maxConnections; i++) {
+      const ws = rawConnect(roomId, { key: editKey, sid: `full-room-session-${i}` });
+      const hello = nextCustom(ws);
+      await waitForOpen(ws);
+      await hello;
+      sockets.push(ws);
+    }
+    // The refused socket never spoke, so its close takes about ten seconds to complete.
+    const extra = rawConnect(roomId, { key: editKey, sid: 'full-room-session-new' });
+    expect((await waitForClose(extra, 20_000)).code).toBe(4503);
+
+    const old = sockets[0] as WebSocket;
+    await ping(old);
+    const oldClosed = waitForClose(old);
+    const back = rawConnect(roomId, { key: editKey, sid: 'full-room-session-0' });
+    const hello = nextCustom(back);
+    await waitForOpen(back);
+    expect((await hello).type).toBe('hello');
+    expect((await oldClosed).code).toBe(4409);
+  });
+
+  it('the new socket of a session owns the ids it inherited, until it closes', async () => {
+    const { roomId, editKey } = await createRoom();
+    const watcher = connect(roomId, editKey);
+    await synced(watcher.provider);
+    const tab = { key: editKey, sid: 'tab-session-0004', pk: 'tab-conn-04' };
+    const first = rawConnect(roomId, tab);
+    await waitForOpen(first);
+    first.send(awarenessFrame([{ clientId: 4201, clock: 1, state: presence('Ann') }]));
+    await waitFor(() => nameOf(watcher.provider, 4201) === 'Ann');
+
+    const firstClosed = waitForClose(first);
+    const second = rawConnect(roomId, tab);
+    await waitForOpen(second);
+    expect((await firstClosed).code).toBe(4409);
+    // The new socket has sent no presence yet, and already owns the id: another session cannot
+    // take it.
+    const stranger = rawConnect(roomId, { key: editKey, sid: 'tab-session-0005' });
+    await waitForOpen(stranger);
+    stranger.send(awarenessFrame([{ clientId: 4201, clock: 9, state: presence('Mallory') }]));
+    await settle();
+    expect(nameOf(watcher.provider, 4201)).toBe('Ann');
+    // And the room removes the state when that socket goes, as it does for any owner.
+    second.close();
+    await waitFor(() => !watcher.provider.awareness.getStates().has(4201));
+  });
+
+  it('tells two sockets that share a connection id apart when they publish presence', async () => {
+    const { roomId, editKey } = await createRoom();
+    const watcher = connect(roomId, editKey);
+    await synced(watcher.provider);
+    // No `sid`, so the room cannot know the first socket is stale: both are live.
+    const a = rawConnect(roomId, { key: editKey, pk: 'shared-conn-02' });
+    const b = rawConnect(roomId, { key: editKey, pk: 'shared-conn-02' });
+    await Promise.all([waitForOpen(a), waitForOpen(b)]);
+    a.send(awarenessFrame([{ clientId: 4301, clock: 1, state: presence('Ann') }]));
+    await waitFor(() => nameOf(watcher.provider, 4301) === 'Ann');
+    b.send(awarenessFrame([{ clientId: 4301, clock: 5, state: presence('Mallory') }]));
+    await settle();
+    expect(nameOf(watcher.provider, 4301)).toBe('Ann');
+  });
+
+  it('two sockets that share a connection id each have their own message allowance', async () => {
+    const { roomId, editKey } = await createRoom();
+    const a = rawConnect(roomId, { key: editKey, pk: 'shared-conn-03' });
+    const b = rawConnect(roomId, { key: editKey, pk: 'shared-conn-03' });
+    const toA = collectCustom(a);
+    const toB = collectCustom(b);
+    await Promise.all([waitForOpen(a), waitForOpen(b)]);
+    // A hundred each: under one socket's burst of 120, and over it if the two shared a bucket.
+    for (let i = 0; i < 100; i++) b.send('__YPS:{"type":"time?"}');
+    for (let i = 0; i < 100; i++) a.send('__YPS:{"type":"time?"}');
+    const answers = (seen: Record<string, unknown>[]) =>
+      seen.filter((m) => m.type === 'time').length;
+    await waitFor(() => answers(toA) === 100 && answers(toB) === 100);
+    expect(a.readyState).toBe(WebSocket.OPEN);
+    expect(b.readyState).toBe(WebSocket.OPEN);
+  });
+
+  it('refuses a request whose URL is longer than the limit', async () => {
+    const { roomId, editKey } = await createRoom();
+    const ws = rawConnect(roomId, { key: editKey, pad: LIMITS.maxUrlChars });
+    const outcome = await new Promise<string>((resolve) => {
+      ws.on('error', (e) => resolve(e.message));
+      ws.on('open', () => resolve('the socket opened'));
+    });
+    expect(outcome).toContain('414');
+  });
+
+  it('accepts a request whose URL is exactly the limit, and refuses one character more', async () => {
+    const { roomId, editKey } = await createRoom();
+    // The worker sees the request as http://, where the client wrote ws://. The padding is what
+    // brings that URL to the limit, computed from the URL the helper really builds.
+    const seenLength = (opts: RawOptions) => rawUrl(roomId, opts).replace(/^ws:/, 'http:').length;
+    const fixed = { key: editKey, pk: 'boundary-pk' };
+    const pad = LIMITS.maxUrlChars - seenLength({ ...fixed, pad: 0 });
+    expect(seenLength({ ...fixed, pad })).toBe(LIMITS.maxUrlChars);
+
+    const atLimit = rawConnect(roomId, { ...fixed, pad });
+    await waitForOpen(atLimit);
+    await ping(atLimit);
+
+    const over = rawConnect(roomId, { ...fixed, pad: pad + 1 });
+    const outcome = await new Promise<string>((resolve) => {
+      over.on('error', (e) => resolve(e.message));
+      over.on('open', () => resolve('the socket opened'));
+    });
+    expect(outcome).toContain('414');
+  });
+
+  it('presence and the full flag survive the room hibernating', { timeout: 60_000 }, async () => {
+    const { roomId, editKey } = await createRoom();
+    const ann = connect(roomId, editKey);
+    await synced(ann.provider);
+    const bob = rawConnect(roomId, { key: editKey });
+    const told = collectCustom(bob);
+    await waitForOpen(bob);
+    ann.provider.awareness.setLocalState(presence('Ann'));
+    bob.send(awarenessFrame([{ clientId: 7301, clock: 1, state: presence('Bob') }]));
+    await waitFor(() => nameOf(ann.provider, 7301) === 'Bob');
+
+    // With no messages for more than ten seconds the Durable Object hibernates and its memory goes.
+    await new Promise((r) => setTimeout(r, 15_000));
+    expect(told.some((m) => m.type === 'room')).toBe(false);
+
+    // A late joiner wakes the room and is handed everyone who was there.
+    const carol = connect(roomId, editKey);
+    await waitFor(() => nameOf(carol.provider, 7301) === 'Bob');
+    expect(nameOf(carol.provider, ann.doc.clientID)).toBe('Ann');
+    // The connections that slept through it are told again whether the board is full.
+    await waitFor(() => told.some((m) => m.type === 'room' && m.full === false));
+
+    // The ids are still owned by the sockets that held them: Bob updates his, nobody else can.
+    bob.send(awarenessFrame([{ clientId: 7301, clock: 2, state: presence('Bob B') }]));
+    await waitFor(() => nameOf(carol.provider, 7301) === 'Bob B');
+    const mallory = rawConnect(roomId, { key: editKey });
+    await waitForOpen(mallory);
+    mallory.send(awarenessFrame([{ clientId: 7301, clock: 9, state: presence('Mallory') }]));
+    await settle();
+    expect(nameOf(carol.provider, 7301)).toBe('Bob B');
+
+    // A close still finds a state to remove, and the others are told.
+    bob.close();
+    await waitFor(() => !ann.provider.awareness.getStates().has(7301));
+    await waitFor(() => !carol.provider.awareness.getStates().has(7301));
+  });
+
+  it('a peer who leaves while the room sleeps is still removed for the others', {
+    timeout: 60_000,
+  }, async () => {
+    const { roomId, editKey } = await createRoom();
+    const ann = connect(roomId, editKey);
+    await synced(ann.provider);
+    const bob = rawConnect(roomId, { key: editKey });
+    await waitForOpen(bob);
+    ann.provider.awareness.setLocalState(presence('Ann'));
+    bob.send(awarenessFrame([{ clientId: 7401, clock: 1, state: presence('Bob') }]));
+    await waitFor(() => nameOf(ann.provider, 7401) === 'Bob');
+
+    // The room hibernates, and Bob's close is the event that wakes it.
+    await new Promise((r) => setTimeout(r, 15_000));
+    bob.close();
+    await waitFor(() => !ann.provider.awareness.getStates().has(7401));
   });
 
   it('lets anyone into the demo room and initializes its metadata', async () => {
@@ -352,6 +991,7 @@ describe('sync server', () => {
     const h = await hello;
     expect(h.type).toBe('hello');
     expect(h.role).toBe('edit');
+    expect(h.full).toBe(false);
     expect(Math.abs((h.now as number) - Date.now())).toBeLessThan(5000);
 
     const time = nextCustom(editor);
@@ -385,5 +1025,40 @@ describe('sync server', () => {
     const h = await hello;
     expect(h.role).toBe('edit');
     expect(h.viewKey).toBeUndefined();
+  });
+});
+
+describe('room creation limit', () => {
+  const LIMITED_PORT = 8798;
+  let limited: RunningWorker | undefined;
+
+  beforeAll(async () => {
+    limited = await startWorker({
+      port: LIMITED_PORT,
+      persistDir: mkdtempSync(join(tmpdir(), 'relay-do-limit-')),
+      vars: { ROOM_CREATE_LIMIT: 'on' },
+    });
+  });
+  afterAll(async () => {
+    await limited?.stop();
+  });
+
+  it('answers 429 with Retry-After and CORS headers once an address passes 10 rooms a minute', async () => {
+    const responses: Response[] = [];
+    for (let i = 0; i < 25; i++) {
+      responses.push(
+        await fetch(`http://127.0.0.1:${LIMITED_PORT}/api/rooms`, {
+          method: 'POST',
+          headers: { Origin: 'http://localhost:4000' },
+        }),
+      );
+    }
+    expect(responses[0]?.status).toBe(200);
+    const refused = responses.filter((r) => r.status === 429);
+    // The limiter's minute may roll over once during the loop, so at most 20 of 25 get through.
+    expect(refused.length).toBeGreaterThanOrEqual(5);
+    expect(refused[0]?.headers.get('Retry-After')).toBe('60');
+    expect(refused[0]?.headers.get('Access-Control-Allow-Origin')).toBe('http://localhost:4000');
+    expect(responses.every((r) => r.status === 200 || r.status === 429)).toBe(true);
   });
 });

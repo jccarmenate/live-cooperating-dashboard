@@ -1,6 +1,7 @@
 import { routePartykitRequest } from 'partyserver';
 import { deriveKey, newRoomId, ROLE_HEADER, roleForKey } from './auth';
 import type { Env } from './env';
+import { LIMITS } from './limits';
 
 export { Room } from './room';
 
@@ -35,15 +36,34 @@ export default {
       if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
       if (req.method !== 'POST')
         return new Response('Method not allowed', { status: 405, headers: cors });
+      if (env.ROOM_CREATE_LIMIT !== 'off') {
+        // Rooms are anonymous: without a limit one address could fill the account's storage.
+        const address = req.headers.get('CF-Connecting-IP') ?? 'unknown';
+        const { success } = await env.ROOM_CREATE_LIMITER.limit({ key: address });
+        if (!success) {
+          return new Response('Too many rooms', {
+            status: 429,
+            headers: { ...cors, 'Retry-After': '60' },
+          });
+        }
+      }
       return Response.json(await createRoom(env), { headers: cors });
     }
 
     const routed = await routePartykitRequest(req, env as unknown as Record<string, unknown>, {
       onBeforeConnect: async (request, lobby) => {
+        // The room keeps the request URL in the connection's attachment, which has a size limit.
+        if (request.url.length > LIMITS.maxUrlChars) {
+          return new Response('URI too long', { status: 414 });
+        }
         const key = new URL(request.url).searchParams.get('key');
         const role = await roleForKey(env.ROOM_SECRET, lobby.name, key);
         if (!role) {
-          // Reject here so an invalid key never wakes the Durable Object.
+          // Reject here so an invalid key never wakes the Durable Object. The socket is accepted
+          // and closed with 4401 by the Worker itself: workerd logs "Uncaught Error: Network
+          // connection lost." for a socket the Worker holds like this (reproduced with a
+          // standalone Worker). It is harmless. The alternatives lose the 4401 code (an HTTP
+          // 401 reaches the client as a failed handshake) or wake the room.
           const pair = new WebSocketPair();
           const client = pair[0];
           const server = pair[1];

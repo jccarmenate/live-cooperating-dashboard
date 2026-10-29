@@ -4,15 +4,17 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "wrangler dev --port 8787 --var ROOM_SECRET:dev-only-secret",
+    "dev": "wrangler dev --port 8787 --var ROOM_SECRET:dev-only-secret --var ROOM_CREATE_LIMIT:off",
     "deploy": "wrangler deploy",
     "test": "vitest run",
     "typecheck": "tsc --noEmit && tsc --noEmit -p test"
   },
   "dependencies": {
     "@relay/core": "*",
+    "lib0": "^0.2.119",
     "partyserver": "^0.5.10",
     "y-partyserver": "^2.2.0",
+    "y-protocols": "^1.0.7",
     "yjs": "^13.6.33"
   },
   "devDependencies": {

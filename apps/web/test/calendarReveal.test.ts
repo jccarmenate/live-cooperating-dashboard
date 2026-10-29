@@ -38,7 +38,7 @@ describe('revealShape', () => {
         createdAt: 0,
       },
     });
-    const cal = board.createPage('calendar');
+    const cal = board.createPage('calendar') as string;
     board.setPage(cal);
     expect(board.revealShape('main', 's1')).toBe(true);
     expect(docs.store.getState().activePage).toBe('main');
@@ -73,7 +73,7 @@ describe('revealShape', () => {
         createdAt: 0,
       },
     });
-    const cal = board.createPage('calendar');
+    const cal = board.createPage('calendar') as string;
     board.setPage(cal);
     expect(board.revealShape('main', 'ghost')).toBe(false);
     expect(board.revealShape(cal, 's1')).toBe(false);
@@ -97,7 +97,7 @@ describe('revealShape', () => {
         createdAt: 0,
       },
     });
-    const cal = board.createPage('calendar');
+    const cal = board.createPage('calendar') as string;
     board.setPage(cal);
     // Pending, then the user goes elsewhere before the canvas is measured.
     expect(board.revealShape('main', 's1')).toBe(true);
@@ -118,7 +118,7 @@ describe('revealShape', () => {
 describe('Open on board', () => {
   it('closes the editor and says so when the sticky has gone', () => {
     const { docs, board } = setup();
-    const cal = board.createPage('calendar');
+    const cal = board.createPage('calendar') as string;
     board.setPage(cal);
     const closeEditor = vi.fn();
     const notify = vi.fn();

@@ -9,6 +9,7 @@ import {
 } from '@relay/core';
 import { useStore } from 'zustand';
 import type { BoardSession } from '../board/session';
+import { boardAccess } from '../sync/clock';
 import { MEDIA, useMediaQuery } from '../ui/responsive';
 import { onPage } from './pageFilter';
 import { HANDLE_PX, handleHitPx } from './touch';
@@ -46,6 +47,8 @@ export function SelectionLayer({ session }: { session: BoardSession }) {
   const stroke = 2 / zoom;
   const handleSize = HANDLE_PX / zoom;
   const touch = useMediaQuery(MEDIA.coarse);
+  // Resize handles are for whoever can resize: not a viewer, not anyone on a full board.
+  const resizable = useStore(session.conn.clock, (c) => boardAccess(c) === 'edit');
 
   const current = (id: string): Shape | undefined => {
     const s = shapes[id];
@@ -150,6 +153,7 @@ export function SelectionLayer({ session }: { session: BoardSession }) {
       )}
       {single &&
         !single.locked &&
+        resizable &&
         touch &&
         handlesFor(single.type).map((h) => {
           const pt = handlePoint(single, h);
@@ -169,6 +173,7 @@ export function SelectionLayer({ session }: { session: BoardSession }) {
         })}
       {single &&
         !single.locked &&
+        resizable &&
         handlesFor(single.type).map((h) => {
           const pt = handlePoint(single, h);
           return (

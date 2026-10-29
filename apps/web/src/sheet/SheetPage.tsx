@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useStore } from 'zustand';
 import type { BoardSession } from '../board/session';
+import { mayDelete, mayEdit } from '../sync/clock';
 import { toast } from '../ui/toasts';
 import { CellEditor } from './CellEditor';
 import { FormatBar } from './FormatBar';
@@ -12,7 +13,8 @@ import { useSheetClipboard } from './useSheetClipboard';
 import { useSheetKeys } from './useSheetKeys';
 
 export function SheetPage({ session }: { session: BoardSession }) {
-  const canEdit = useStore(session.conn.clock, (c) => c.role === 'edit');
+  const canEdit = useStore(session.conn.clock, mayEdit);
+  const deletable = useStore(session.conn.clock, mayDelete);
   const hasSheet = useStore(session.sheet, (s) => s.sheet !== null);
   const [ctl, setCtl] = useState<SheetController | null>(null);
 
@@ -20,7 +22,8 @@ export function SheetPage({ session }: { session: BoardSession }) {
     const c = createSheetController({
       sheet: session.sheet,
       commit: session.controller.commit,
-      canEdit: () => session.conn.clock.getState().role === 'edit',
+      canEdit: () => mayEdit(session.conn.clock.getState()),
+      canDelete: () => mayDelete(session.conn.clock.getState()),
       notify: toast,
     });
     // Publish only real changes: draft keystrokes change `editing` but not what peers see.
@@ -61,7 +64,7 @@ export function SheetPage({ session }: { session: BoardSession }) {
       </div>
     );
   }
-  return <SheetBody session={session} ctl={ctl} canEdit={canEdit} />;
+  return <SheetBody session={session} ctl={ctl} canEdit={canEdit} canDelete={deletable} />;
 }
 
 /** The grid-level UI; mounted once the controller exists, so its hooks always have one. */
@@ -69,14 +72,16 @@ function SheetBody({
   session,
   ctl,
   canEdit,
+  canDelete,
 }: {
   session: BoardSession;
   ctl: SheetController;
   canEdit: boolean;
+  canDelete: boolean;
 }) {
   useSheetKeys(session, ctl);
   useSheetClipboard(session, ctl);
-  const { headers, menu } = useSheetHeaders(session, ctl, canEdit);
+  const { headers, menu } = useSheetHeaders(session, ctl, canEdit, canDelete);
 
   return (
     <div data-testid="sheet-page" className="flex h-full min-h-0 flex-col">
@@ -89,6 +94,7 @@ function SheetBody({
         session={session}
         ctl={ctl}
         canEdit={canEdit}
+        canDelete={canDelete}
         headers={headers}
         overlay={
           <>

@@ -4,6 +4,8 @@ import { FILL_SWATCHES } from './swatches';
 
 export interface CanvasMenuContext {
   canEdit: boolean;
+  /** Deleting is allowed (true for an editor even on a full board). */
+  canDelete: boolean;
   /** The selection after the right-click (it already contains the clicked item). */
   selection: string[];
   shapes: Readonly<Record<string, Shape>>;
@@ -38,7 +40,10 @@ export interface CanvasMenuActions {
 
 const SEP: MenuEntry = { separator: true };
 
-/** The right-click menu for the canvas: one for a selection, one for empty canvas, a short one for viewers. */
+/**
+ * The right-click menu for the canvas: one for a selection, one for empty canvas, a short one for
+ * viewers (which also offers Delete on a full board).
+ */
 export function canvasMenu(ctx: CanvasMenuContext, a: CanvasMenuActions): MenuEntry[] {
   const shapes = ctx.selection.flatMap((id) => {
     const s = ctx.shapes[id];
@@ -57,7 +62,24 @@ export function canvasMenu(ctx: CanvasMenuContext, a: CanvasMenuActions): MenuEn
   };
   const copy: MenuEntry = { label: 'Copy', hint: 'Ctrl C', onSelect: a.copy, testId: 'menu-copy' };
 
-  if (!ctx.canEdit) return empty ? [fit] : [copy, fit];
+  if (!ctx.canEdit) {
+    if (empty) return [fit];
+    if (!ctx.canDelete) return [copy, fit];
+    // A full board: nothing can be created or changed, but the selection can go.
+    const removable = shapes.some((s) => !s.locked) || connectors.length > 0;
+    return [
+      copy,
+      {
+        label: 'Delete',
+        hint: 'Del',
+        onSelect: a.remove,
+        disabled: !removable,
+        danger: true,
+        testId: 'menu-delete',
+      },
+      fit,
+    ];
+  }
 
   if (empty) {
     return [

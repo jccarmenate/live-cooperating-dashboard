@@ -1,11 +1,20 @@
 export const LIMITS = {
   maxDocBytes: 1024 * 1024,
+  /** A full board is editable again once a save measures this or less; the gap stops it flapping. */
+  resumeDocBytes: 900 * 1024,
   /** Cloudflare's per-row BLOB limit leaves headroom below this before the INSERT itself would throw. */
   maxRowBytes: 1_900_000,
   maxMessageBytes: 256 * 1024,
   maxAwarenessBytes: 8 * 1024,
   /** Per connection: a normal client controls exactly one awareness client id (occasionally two, briefly, across a reconnect). */
   maxAwarenessIds: 2,
+  /**
+   * A presence state kept on a connection so it survives hibernation. Two of them, at two bytes
+   * a character, fit a 16,384-byte WebSocket attachment next to the request URL.
+   */
+  maxStoredStateChars: 3000,
+  /** The request URL is kept in the connection's attachment, so its length is bounded too. */
+  maxUrlChars: 2048,
   maxConnections: 25,
   ratePerSecond: 60,
   burst: 120,

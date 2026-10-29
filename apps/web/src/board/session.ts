@@ -13,6 +13,7 @@ import { type CalendarState, createCalendarStore } from '../store/calendarStore'
 import { createDocStore, type DocState } from '../store/docStore';
 import { createPresenceStore } from '../store/presenceStore';
 import { createSheetStore, type SheetState } from '../store/sheetStore';
+import { boardAccess } from '../sync/clock';
 import { connectRoom, type RoomConnection } from '../sync/connection';
 import { hashFor, hashTarget, pageFromHash } from '../sync/key';
 import { createPresencePublisher, type PresencePublisher } from '../sync/presence';
@@ -90,6 +91,7 @@ export function createBoardSession(
     serverNow: conn.serverNow,
     cameraStorage: cameraStorage(roomId),
     notify: toast,
+    access: () => boardAccess(conn.clock.getState()),
   });
 
   const unsubscribe = controller.ui.subscribe((state, prev) => {
@@ -100,6 +102,11 @@ export function createBoardSession(
         state.viewport ? viewportRect(state.camera, state.viewport.w, state.viewport.h) : null,
       );
     }
+  });
+
+  // A hello that names a viewer, or a board that fills up, ends what was being edited.
+  const unsubscribeAccess = conn.clock.subscribe((clock, prev) => {
+    if (boardAccess(clock) !== boardAccess(prev)) controller.accessChanged();
   });
 
   // Peers see which page we are on; the URL keeps it for reloads and shared links.
@@ -190,6 +197,7 @@ export function createBoardSession(
     destroy() {
       window.removeEventListener('hashchange', onHashChange);
       unsubscribe();
+      unsubscribeAccess();
       unsubscribePage();
       conn.provider.off('sync', onSync);
       controller.destroy();

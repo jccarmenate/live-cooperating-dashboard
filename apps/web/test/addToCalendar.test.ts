@@ -1,4 +1,4 @@
-import { applyCommand, getRoots, readCalendar } from '@relay/core';
+import { applyCommand, type BoardAccess, getRoots, readCalendar } from '@relay/core';
 import { describe, expect, it, vi } from 'vitest';
 import * as Y from 'yjs';
 import { createBoardController } from '../src/board/controller';
@@ -7,7 +7,7 @@ import { createDocStore } from '../src/store/docStore';
 import { addToCalendarWhen } from '../src/ui/addToCalendarWhen';
 import { stickyTitle } from '../src/ui/stickyTitle';
 
-function setup() {
+function setup(access?: () => BoardAccess) {
   const doc = new Y.Doc();
   const docs = createDocStore(doc);
   const activity = createActivityStore(doc);
@@ -19,6 +19,7 @@ function setup() {
     activity: activity.store,
     user: { id: 'u1', name: 'Brisk Otter', color: '#E85A1B' },
     notify,
+    ...(access ? { access } : {}),
   });
   applyCommand(doc, {
     type: 'CreateShape',
@@ -49,7 +50,7 @@ describe('Add to calendar', () => {
 
   it('creates a linked event on an existing calendar, as one undo step, and says where', () => {
     const { board, notify, events, docs } = setup();
-    const cal = board.createPage('calendar');
+    const cal = board.createPage('calendar') as string;
     const when = { allDay: true as const, start: '2026-10-01', end: '2026-10-01' };
     expect(board.addStickyToCalendar({ pageId: cal, shapeId: 's1', title: 'Retro', when })).toBe(
       cal,
@@ -118,7 +119,7 @@ describe('Add to calendar', () => {
 
   it('stores a timed event whose end equals its start as one hour', () => {
     const { board, events } = setup();
-    const cal = board.createPage('calendar');
+    const cal = board.createPage('calendar') as string;
     const when = addToCalendarWhen('2026-10-01', false, '14:00', '14:00', 'Europe/Madrid');
     expect(board.addStickyToCalendar({ pageId: cal, shapeId: 's1', title: 'T', when })).toBe(cal);
     expect(events(cal)[0]?.when).toEqual({
@@ -138,11 +139,30 @@ describe('Add to calendar', () => {
     expect(notify).toHaveBeenLastCalledWith('That calendar no longer exists');
   });
 
+  it('adds nothing, says nothing and keeps the dialog when the board stopped taking edits', () => {
+    let access: BoardAccess = 'edit';
+    const { board, docs, notify, events } = setup(() => access);
+    const cal = board.createPage('calendar') as string;
+    const when = { allDay: true as const, start: '2026-10-01', end: '2026-10-01' };
+    board.setAddToCalendar('s1');
+    const pages = docs.store.getState().pages.length;
+
+    // The board fills between the menu and the click.
+    access = 'delete-only';
+    expect(board.addStickyToCalendar({ pageId: cal, shapeId: 's1', title: 'X', when })).toBeNull();
+    expect(events(cal)).toHaveLength(0);
+    // Without a calendar chosen it would make a page first: that page is not written either.
+    expect(board.addStickyToCalendar({ pageId: null, shapeId: 's1', title: 'X', when })).toBeNull();
+    expect(docs.store.getState().pages).toHaveLength(pages);
+    expect(notify).not.toHaveBeenCalled();
+    expect(board.ui.getState().addToCalendar).toBe('s1');
+  });
+
   it('keeps the dialog state per page', () => {
     const { board } = setup();
     board.setAddToCalendar('s1');
     expect(board.ui.getState().addToCalendar).toBe('s1');
-    board.setPage(board.createPage('board'));
+    board.setPage(board.createPage('board') as string);
     expect(board.ui.getState().addToCalendar).toBeNull();
   });
 

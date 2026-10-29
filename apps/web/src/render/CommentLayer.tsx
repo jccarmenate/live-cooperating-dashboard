@@ -2,6 +2,7 @@ import { type CommentThread, commentPoint, type Point, worldToScreen } from '@re
 import { MessageCircle } from 'lucide-react';
 import { useStore } from 'zustand';
 import type { BoardSession } from '../board/session';
+import { mayEdit } from '../sync/clock';
 import { clampBox, threadPlacement } from './popover';
 
 const ago = (ts: number) => {
@@ -30,7 +31,7 @@ function Thread({
   place: { left: number; width: number; above: boolean; room: number };
 }) {
   const { controller } = session;
-  const canEdit = useStore(session.conn.clock, (c) => c.role === 'edit');
+  const canEdit = useStore(session.conn.clock, mayEdit);
   return (
     <div
       data-testid="comment-thread"

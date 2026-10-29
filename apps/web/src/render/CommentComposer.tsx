@@ -2,6 +2,7 @@ import { worldToScreen } from '@relay/core';
 import { useLayoutEffect, useRef, useState } from 'react';
 import { useStore } from 'zustand';
 import type { BoardSession } from '../board/session';
+import { mayEdit } from '../sync/clock';
 import { clampBox } from './popover';
 
 export function CommentComposer({ session }: { session: BoardSession }) {
@@ -9,7 +10,7 @@ export function CommentComposer({ session }: { session: BoardSession }) {
   const composer = useStore(controller.ui, (s) => s.composer);
   const camera = useStore(controller.ui, (s) => s.camera);
   const viewport = useStore(controller.ui, (s) => s.viewport);
-  const role = useStore(session.conn.clock, (c) => c.role);
+  const editable = useStore(session.conn.clock, mayEdit);
   const ref = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ w: 256, h: 80 });
 
@@ -22,7 +23,7 @@ export function CommentComposer({ session }: { session: BoardSession }) {
     setSize((s) => (s.w === w && s.h === h ? s : { w, h }));
   });
 
-  if (!composer || role !== 'edit') return null;
+  if (!composer || !editable) return null;
   const p = worldToScreen(camera, composer.at);
   const want = { x: p.x + 12, y: p.y - 8 };
   const at = viewport ? clampBox(want, size, viewport) : want;

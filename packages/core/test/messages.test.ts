@@ -7,6 +7,7 @@ describe('server messages', () => {
       type: 'hello',
       role: 'view',
       now: 5,
+      full: false,
     });
     expect(parseServerMessage('{"type":"time","now":7}')).toEqual({ type: 'time', now: 7 });
   });
@@ -16,6 +17,7 @@ describe('server messages', () => {
       type: 'hello',
       role: 'edit',
       now: 1,
+      full: false,
       viewKey: 'abc',
     });
     expect(
@@ -24,6 +26,7 @@ describe('server messages', () => {
       type: 'hello',
       role: 'edit',
       now: 1,
+      full: false,
     });
   });
 
@@ -31,14 +34,14 @@ describe('server messages', () => {
     const viewKey = 'k'.repeat(64);
     expect(
       parseServerMessage(`{"type":"hello","role":"edit","now":1,"viewKey":"${viewKey}"}`),
-    ).toEqual({ type: 'hello', role: 'edit', now: 1, viewKey });
+    ).toEqual({ type: 'hello', role: 'edit', now: 1, full: false, viewKey });
   });
 
   it('drops a non-string viewKey from hello', () => {
     for (const viewKey of ['7', 'null', 'true', '{"a":1}', '["k"]']) {
       expect(
         parseServerMessage(`{"type":"hello","role":"edit","now":1,"viewKey":${viewKey}}`),
-      ).toEqual({ type: 'hello', role: 'edit', now: 1 });
+      ).toEqual({ type: 'hello', role: 'edit', now: 1, full: false });
     }
   });
 
@@ -59,5 +62,31 @@ describe('server messages', () => {
     expect(isTimeRequest(TIME_REQUEST)).toBe(true);
     expect(isTimeRequest('{"type":"time"}')).toBe(false);
     expect(isTimeRequest('garbage')).toBe(false);
+  });
+
+  it('reads full on hello, and only a true value counts', () => {
+    expect(parseServerMessage('{"type":"hello","role":"edit","now":1,"full":true}')).toEqual({
+      type: 'hello',
+      role: 'edit',
+      now: 1,
+      full: true,
+    });
+    expect(parseServerMessage('{"type":"hello","role":"edit","now":1,"full":"yes"}')).toEqual({
+      type: 'hello',
+      role: 'edit',
+      now: 1,
+      full: false,
+    });
+  });
+
+  it('parses room and rejected', () => {
+    expect(parseServerMessage('{"type":"room","full":true,"now":3}')).toEqual({
+      type: 'room',
+      full: true,
+      now: 3,
+    });
+    expect(parseServerMessage('{"type":"room","now":3}')).toBeNull();
+    expect(parseServerMessage('{"type":"room","full":1,"now":3}')).toBeNull();
+    expect(parseServerMessage('{"type":"rejected","now":4}')).toEqual({ type: 'rejected', now: 4 });
   });
 });

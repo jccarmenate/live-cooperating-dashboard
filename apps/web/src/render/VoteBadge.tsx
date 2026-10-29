@@ -1,6 +1,7 @@
 import { PALETTE, type Shape } from '@relay/core';
 import { useStore } from 'zustand';
 import type { BoardSession } from '../board/session';
+import { mayEdit } from '../sync/clock';
 import { cachedTallies, useVoteOpen } from './voting';
 
 /** `● n` on a sticky: its own hit target, so voting never selects or drags the sticky. */
@@ -20,11 +21,11 @@ export function VoteBadge({ s, session }: { s: Shape; session: BoardSession }) {
         ) ?? false)
       : false,
   );
-  const role = useStore(session.conn.clock, (c) => c.role);
+  const editable = useStore(session.conn.clock, mayEdit);
   const open = useVoteOpen(session);
   if (!vote) return null;
   if (!open && count === 0) return null;
-  const clickable = open && role === 'edit';
+  const clickable = open && editable;
   return (
     // biome-ignore lint/a11y/noStaticElementInteractions: onDoubleClick only shields the canvas; it adds no interaction
     <g

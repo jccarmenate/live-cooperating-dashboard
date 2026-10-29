@@ -25,7 +25,7 @@ describe('calendar store', () => {
   it('projects the active calendar page and follows edits; nothing on other pages', () => {
     const { doc, controller, calendars } = setup();
     expect(calendars.store.getState()).toEqual({ pageId: null, calendar: null });
-    const id = controller.createPage('calendar');
+    const id = controller.createPage('calendar') as string;
     controller.setPage(id);
     expect(calendars.store.getState()).toEqual({ pageId: id, calendar: { events: [] } });
     applyCommand(

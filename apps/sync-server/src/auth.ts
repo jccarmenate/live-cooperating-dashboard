@@ -67,3 +67,10 @@ export async function roleForKey(
   if (constantTimeEqual(key, await deriveKey(secret, roomId, 'view'))) return 'view';
   return null;
 }
+
+const SESSION_ID = /^[A-Za-z0-9_-]{16,64}$/;
+
+/** The `sid` query parameter when it is well formed, else null (the connection has no session). */
+export function sessionId(raw: string | null): string | null {
+  return raw !== null && SESSION_ID.test(raw) ? raw : null;
+}

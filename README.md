@@ -96,6 +96,8 @@ it**.
 | Time | Vote deadlines are absolute server timestamps. Clients apply a clock offset from the server's `hello`/`time` messages, and "open" is derived rather than stored. | No client clock can extend a vote, and nobody has to write when the timer ends. |
 | Undo | A per-user `Y.UndoManager` tracks only this client's origins. Each gesture, paste or text-editing session is one step, and switching pages clears the stack. | Undo never reverts someone else's work or changes a page you are not looking at. |
 | Security | Keys are HMAC-SHA-256 capabilities, compared in constant time and checked before any Durable Object wakes up. The server overwrites the role header, and messages have size caps. Each connection has a token bucket, and pastes are refused above 192 KiB. | Everything stays inside the free tier, and a hostile client can't write without a key. |
+| Hostile input | The room inspects every frame before the Yjs handler: awareness ids belong to the connection that claimed them, states are re-encoded from a validator shared with the client, and a full board accepts only updates that add no structs and split none | A peer cannot rewrite someone's cursor or name, and a board at its size cap can still be cleaned up instead of being stuck read-only |
+| Hibernation | The room sleeps when nobody speaks and wakes with empty memory. Each connection carries the last presence of the ids it owns in its WebSocket attachment, and the room rebuilds from them on waking | Idle rooms cost nothing on the free plan, and nobody vanishes or lingers because the room slept |
 | Text editing | A `<textarea>` overlay is diffed into `Y.Text`. The diff never splits UTF-16 surrogate pairs, and the caret is remapped on remote edits. | Emoji and simultaneous typing stay intact. |
 | Sheet model | Rows and columns are nested maps with a fractional order, and cells sit in one flat map keyed by row and column id. Formulas store references by id, and evaluation is a pure, deterministic row-major pass with a depth cap. | Inserting or moving a row never rewrites a formula, and a concurrent move and delete cannot resurrect a row. |
 | Graphs | A graph is made of ordinary ellipses and connectors, and the algorithms are pure functions in the core package. | Collaboration, undo, clipboard and styling work on graphs for free, and every algorithm is tested without a browser. |
@@ -182,17 +184,17 @@ Or run it in Docker: `docker compose up`.
 ## Tests
 
 ```bash
-npm test         # 871 unit, property and integration tests (core 447 · web 398 · sync-server 26)
-npm run e2e      # 56 Playwright scenarios with several independent browsers (16 on a touch phone, 2 on a tablet)
+npm test         # 1025 unit, property and integration tests (core 479 · web 445 · sync-server 101)
+npm run e2e      # 62 Playwright scenarios with several independent browsers (16 on a touch phone, 2 on a tablet)
 npm run lint && npm run typecheck
 ```
 
 | Suite | What it proves |
 |---|---|
-| `packages/core` (Vitest + fast-check) | Geometry, the tool FSM transition tables (including locks), commands on a real `Y.Doc`, clipboard validation and id remapping, text diffs with emoji, per-user undo, vote tallies, page tombstones, the formula parser and evaluator, graph families, layouts and algorithms, calendar zones, recurrence and `.ics` round trips, and three-replica convergence for shapes, session data, pages, sheets and calendars |
-| `apps/sync-server` (Vitest + real `wrangler dev`) | Sync between editors, read-only viewers, 4401 on bad keys, a spoofed role header, message and awareness limits, the size cap, server time, and persistence across a server restart |
+| `packages/core` (Vitest + fast-check) | Geometry, the tool FSM transition tables (including locks), commands on a real `Y.Doc`, clipboard validation and id remapping, text diffs with emoji, per-user undo, vote tallies, page tombstones, the formula parser and evaluator, graph families, layouts and algorithms, calendar zones, recurrence and `.ics` round trips, the tool machine by access, and three-replica convergence for shapes, session data, pages, sheets and calendars |
+| `apps/sync-server` (Vitest + real `wrangler dev`) | Sync between editors, read-only viewers, 4401 on bad keys, a spoofed role header, message and awareness limits, the size cap, server time, and persistence across a server restart; awareness ownership and validation, frames routed by their decoded type, nothing relayed that the room ignored, session takeover, presence after a hibernation, a full board accepting deletions, the room-creation limit, the message rate limit (kept per socket), and an update the room cannot apply being dropped and its sender closed |
 | `apps/web` (Vitest) | The Yjs → Zustand projection per page, the board controller (throttled drags, clipboard, z-order, style, lock, menus, undo steps), shortcuts and role gating, voting timers, share links, toasts, the sheet controller and keys, graph creation, and the calendar store, layout and controller |
-| `e2e/` (Playwright) | These scenarios: two users seeing each other's edits and cursors; connectors and frames; zoom, the minimap and camera restore; voting and comments across users; pages being created, reordered and deleted, and hash links; context menus, clipboard, lock, help and viewer restrictions; spreadsheet editing between users; graph families, edge lists, labels and algorithm overlays; calendars across time zones, series exceptions, live RSVP and `.ics` |
+| `e2e/` (Playwright) | These scenarios: two users seeing each other's edits and cursors; connectors and frames; zoom, the minimap and camera restore; voting and comments across users; pages being created, reordered and deleted, and hash links; context menus, clipboard, lock, help and viewer restrictions; spreadsheet editing between users; graph families, edge lists, labels and algorithm overlays; calendars across time zones, series exceptions, live RSVP and `.ics`; one room socket per tab; a board that fills, stays deletable and resumes; a change the full board refused, and the reload that restores the shared board; a full sheet and calendar that still let go of things; a board with too many people, and Try again; a viewer who cannot change the board |
 
 ## Roadmap
 
@@ -209,14 +211,17 @@ The work is built in phases that can each be deployed; the spec has the details.
   - [x] **P4 graphs:** graph families and edge lists with layouts, connector labels, local algorithm overlays, the Shapes flyout
   - [x] **P5 calendar pages:** month and week views, repeating events with per-occurrence exceptions, per-viewer time zones, live RSVP, `.ics` export and import, Add to calendar from a sticky
   - [x] **Responsive and touch:** phone and landscape layouts; two-finger pan and pinch zoom, long-press menus, undo and redo buttons, double tap and tap-to-edit, touch range selection in sheets, a scrollable week and swipeable month in calendars ([plan](docs/superpowers/plans/2026-09-30-relay-responsive.md))
-- [ ] **F5 — Ship** (next): a nightly-reset demo room, protocol hardening, deploy (Vercel + Workers), offline polish
+- [ ] **F5 — Ship**
+  - [x] **F5a protocol hardening:** awareness ids owned by their connection and validated on the server, presence that survives the room hibernating, a full board that stays deletable and resumes when it shrinks, a board that is read-only for viewers in their own copy too, visible closes instead of silent reconnect loops, a per-address limit on new boards ([plan](docs/superpowers/plans/2026-10-03-relay-f5a-hardening.md))
+  - [ ] **F5b demo room** (next): a seeded board that resets nightly
+  - [ ] **F5c offline polish**
+  - [ ] **F5d deploy:** Vercel + Workers
 - [ ] **F6 — AI:** "Cluster & summarize" for retro boards. Clustering is deterministic (embeddings plus agglomerative clustering) and runs on Workers AI. The LLM output is schema-validated and measured with the Adjusted Rand Index.
 
-**Known limitations (tracked for F5):**
-- The sync protocol needs a hardening pass before the public demo room goes live:
-  - strict awareness frame validation;
-  - a finer document-size estimator;
-  - surfacing "message too big" closes in the UI.
+**Known limitations:**
+- Offline: a board opened from the local copy takes edits until the server answers, a viewer's included; the server never accepts a viewer's (F5c).
+- Two tabs of one browser share changes directly (BroadcastChannel), so a change a full board refused in one tab can come back from the other tab after **Reload board** (F5c).
+- The limit on new boards relies on Cloudflare's rate limiting, which counts per location and is eventually consistent; it was verified in the local runtime only, and gets its real check at deploy (F5d).
 - Calendar:
   - a biweekly (or every-N-weeks) series shifted across a Monday with **All events** can flip
     which weeks it falls on, because the rule counts weeks from the series start;

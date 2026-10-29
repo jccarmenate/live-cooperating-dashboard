@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { useStore } from 'zustand';
 import type { BoardSession } from '../board/session';
 import { cachedTallies, useServerNow } from '../render/voting';
+import { mayEdit } from '../sync/clock';
 
 const pill =
   'border-2 border-ink px-2 py-0.5 pointer-coarse:py-2 font-mono text-[11px] font-bold uppercase';
@@ -13,12 +14,11 @@ export function VoteControl({ session }: { session: BoardSession }) {
   const keys = useStore(session.activity, (a) => a.voteKeys);
   // Room-wide: the cap and "N left" count stickies on every visible page.
   const shapes = useStore(session.doc, (d) => d.allShapes);
-  const role = useStore(session.conn.clock, (c) => c.role);
+  const canEdit = useStore(session.conn.clock, mayEdit);
   const [picking, setPicking] = useState(false);
   // Tick only while actually open: a vote that expires unended keeps `open: true` in the doc.
   // The tick that crosses the deadline renders VOTE ENDED and stops the interval.
   const now = useServerNow(session, isVoteOpen(vote, session.conn.serverNow()));
-  const canEdit = role === 'edit';
 
   if (vote && isVoteOpen(vote, now)) {
     const mine = cachedTallies(keys, shapes, vote.maxPerUser).byUser[session.user.id]?.length ?? 0;

@@ -40,3 +40,13 @@ export function hashTarget(
   const page = pageFromHash(hash);
   return page && page !== activePage ? { page } : null;
 }
+
+/**
+ * A random 128-bit id for one tab's connection, kept in memory. The server closes an older
+ * socket that carries the same id, so a reconnect after a network cut never leaves this user's
+ * presence owned by a dead socket.
+ */
+export function newSessionId(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+}

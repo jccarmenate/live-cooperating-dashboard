@@ -25,7 +25,7 @@ describe('sheet store', () => {
   it('projects the active sheet page with computed values, and nothing on a board page', () => {
     const { doc, controller, sheets } = setup();
     expect(sheets.store.getState().sheet).toBeNull();
-    const id = controller.createPage('sheet');
+    const id = controller.createPage('sheet') as string;
     controller.setPage(id);
     const state = sheets.store.getState();
     expect(state.pageId).toBe(id);
@@ -53,7 +53,7 @@ describe('sheet store', () => {
 
   it('commit applies commands as one undo step and refuses mid-gesture', () => {
     const { controller, sheets } = setup();
-    const id = controller.createPage('sheet');
+    const id = controller.createPage('sheet') as string;
     controller.setPage(id);
     const s = sheets.store.getState().sheet;
     const row = s?.rows[0]?.id as string;
